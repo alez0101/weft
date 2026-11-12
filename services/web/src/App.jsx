@@ -2,10 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, authMode, connectLive, signIn } from './api.js';
 import Chat from './Chat.jsx';
 import AdminPanel from './AdminPanel.jsx';
+import Docs from './Docs.jsx';
 
 const APPS = [
-  { id: 'documents', label: 'Documents', tint: '--p-thu', phase: 'Phase 4', glyph: <><path d="M11 6h13l7 7v21H11z" /><path d="M24 6v7h7M16 20h10M16 25h10M16 30h6" /></> },
-  { id: 'wiki', label: 'Wiki', tint: '--p-fri', phase: 'Phase 4', glyph: <><path d="M8 9c4-2 8-2 12 1 4-3 8-3 12-1v23c-4-2-8-2-12 1-4-3-8-3-12-1z" /><path d="M20 10v23" /></> },
+  { id: 'documents', label: 'Documents', tint: '--p-thu', real: true, glyph: <><path d="M11 6h13l7 7v21H11z" /><path d="M24 6v7h7M16 20h10M16 25h10M16 30h6" /></> },
+  { id: 'wiki', label: 'Wiki', tint: '--p-fri', real: true, glyph: <><path d="M8 9c4-2 8-2 12 1 4-3 8-3 12-1v23c-4-2-8-2-12 1-4-3-8-3-12-1z" /><path d="M20 10v23" /></> },
   { id: 'whiteboard', label: 'Whiteboard', tint: '--p-wed', phase: 'version 1.5', glyph: <><rect x="6" y="8" width="28" height="20" rx="2" /><path d="M12 22c3-6 6 2 9-4s5 1 7-2M14 34l6-6 6 6" /></> },
   { id: 'sheets', label: 'Sheets', tint: '--p-tue', phase: 'version 1.5', glyph: <><rect x="7" y="8" width="26" height="24" rx="2" /><path d="M7 16h26M7 24h26M16 8v24M25 8v24" /></> },
   { id: 'calendar', label: 'Calendar', tint: '--p-mon', phase: 'Phase 5', glyph: <><rect x="7" y="9" width="26" height="24" rx="2" /><path d="M7 16h26M14 6v6M26 6v6M13 22h4M19 22h4M25 22h2M13 27h4" /></> },
@@ -27,6 +28,7 @@ const readHash = () => {
   return {
     tabs, active: active === 'home' || tabs.includes(active) ? active : 'home',
     convo: h.get('convo') || 'weft', rail: RAILS.includes(h.get('chat')) ? h.get('chat') : 'normal',
+    doc: h.get('doc') || null, page: h.get('page') || null,
   };
 };
 
@@ -87,6 +89,8 @@ export default function App() {
     if (ui.tabs.length) h.set('tabs', ui.tabs.join(','));
     h.set('active', ui.active); h.set('convo', ui.convo);
     if (ui.rail !== 'normal') h.set('chat', ui.rail);
+    if (ui.doc) h.set('doc', ui.doc);
+    if (ui.page) h.set('page', ui.page);
     history.replaceState(null, '', `#${h}`);
   }, [ui]);
 
@@ -116,7 +120,12 @@ export default function App() {
     if (session && isAdmin === false && ui.tabs.includes('settings')) setUi((u) => ({ ...u, tabs: u.tabs.filter((t) => t !== 'settings'), active: u.active === 'settings' ? 'home' : u.active }));
   }, [spaces, session, ui.convo, ui.tabs, isAdmin]);
 
-  const openTab = (id) => setUi((u) => ({ ...u, tabs: u.tabs.includes(id) ? u.tabs : [...u.tabs, id], active: id }));
+  const openTab = (id, extra = {}) => setUi((u) => ({ ...u, ...extra, tabs: u.tabs.includes(id) ? u.tabs : [...u.tabs, id], active: id }));
+  // A weft://item link from chat: open it in Documents or Wiki. If we cannot see it, Documents shows "no access".
+  const openItem = async (id) => {
+    const r = await api(`/items?id=eq.${id}&select=kind`).catch(() => []);
+    if (r[0]?.kind === 'wiki') openTab('wiki', { page: id }); else openTab('documents', { doc: id });
+  };
   const closeTab = (id) => setUi((u) => {
     const i = u.tabs.indexOf(id); const tabs = u.tabs.filter((t) => t !== id);
     return { ...u, tabs, active: u.active === id ? (tabs[i - 1] || tabs[i] || 'home') : u.active };
@@ -150,7 +159,7 @@ export default function App() {
 
       <Chat me={me} spaces={spaces} members={members} unread={unread} active={ui.convo}
         setActive={(convo) => setUi((u) => ({ ...u, convo }))} rail={ui.rail} setRail={(rail) => setUi((u) => ({ ...u, rail }))}
-        notice={notice} live={live} />
+        notice={notice} live={live} onOpenItem={openItem} />
 
       <main className="stage">
         <div className="tabs" role="tablist" aria-label="Open apps" onKeyDown={onTabKey}>
@@ -180,7 +189,10 @@ export default function App() {
                 ))}
               </ul>
             </div>
-          ) : ui.active === 'settings' ? (isAdmin ? <AdminPanel /> : null) : <AppPanel id={ui.active} />}
+          ) : ui.active === 'settings' ? (isAdmin ? <AdminPanel /> : null)
+            : ui.active === 'documents' ? <Docs key="documents" kind="document" me={me} members={members} notice={notice} openId={ui.doc} setOpenId={(doc) => setUi((u) => ({ ...u, doc }))} />
+            : ui.active === 'wiki' ? <Docs key="wiki" kind="wiki" me={me} members={members} notice={notice} openId={ui.page} setOpenId={(page) => setUi((u) => ({ ...u, page }))} />
+            : <AppPanel id={ui.active} />}
         </section>
       </main>
     </div>

@@ -14,11 +14,11 @@ dc down -v --remove-orphans >/dev/null 2>&1 || true
 dc up -d --wait postgres >/dev/null   # PostgREST waits: its login role does not exist yet
 for f in "$repo"/db/migrations/*.sql; do
   echo "migrate $(basename "$f")"
-  psql_owner -v auth_pw="$AUTHENTICATOR_PASSWORD" -v auth_svc_pw="$AUTH_SVC_PASSWORD" -v notify_svc_pw="$NOTIFY_SVC_PASSWORD" -v assist_svc_pw="$ASSIST_SVC_PASSWORD" -f "/weft-db/migrations/$(basename "$f")"
+  psql_owner -v auth_pw="$AUTHENTICATOR_PASSWORD" -v auth_svc_pw="$AUTH_SVC_PASSWORD" -v notify_svc_pw="$NOTIFY_SVC_PASSWORD" -v assist_svc_pw="$ASSIST_SVC_PASSWORD" -v collab_svc_pw="$COLLAB_SVC_PASSWORD" -f "/weft-db/migrations/$(basename "$f")"
 done
 echo "seed"
 python3 -I "$repo/tools/gen_seed.py" | psql_owner
-dc up -d --build postgrest svc assistant web >/dev/null
+dc up -d --build postgrest svc assistant collab web >/dev/null
 for i in $(seq 1 30); do
   curl -sf -o /dev/null http://127.0.0.1:3100/ -H "Accept: application/openapi+json" && break
   [ "$i" = 30 ] && { echo "PostgREST did not come up"; dc logs postgrest --tail 20; exit 1; }

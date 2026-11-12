@@ -5,13 +5,19 @@ const ASSISTANT = 'weft'; // URL alias for the person's own assistant space
 const SEL = 'id,body,created_at,author_id,meta,author:users(display_name,is_assistant)';
 const time = (iso) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-// "@Name" segments rendered as mentions.
-function Body({ text }) {
-  const parts = text.split(/(@[A-Za-z][\w-]*)/g);
-  return <p>{parts.map((p, i) => (p.startsWith('@') ? <span key={i} className="mention">{p}</span> : p))}</p>;
+// "@Name" segments rendered as mentions; weft://item/<id> links rendered as an open button.
+const ITEM = /weft:\/\/item\/([0-9a-f-]{36})/;
+function Body({ text, onOpenItem }) {
+  const parts = text.split(/(@[A-Za-z][\w-]*|weft:\/\/item\/[0-9a-f-]{36})/g);
+  return <p>{parts.map((p, i) => {
+    if (p.startsWith('@')) return <span key={i} className="mention">{p}</span>;
+    const m = ITEM.exec(p);
+    if (m) return <button key={i} type="button" className="source item-link" onClick={() => onOpenItem(m[1])}>Open it</button>;
+    return p;
+  })}</p>;
 }
 
-export default function Chat({ me, spaces, members, unread, active: activeRaw, setActive, rail, setRail, notice, live }) {
+export default function Chat({ me, spaces, members, unread, active: activeRaw, setActive, rail, setRail, notice, live, onOpenItem }) {
   const assistantSpace = spaces.find((s) => s.kind === 'assistant');
   const active = activeRaw === ASSISTANT ? (assistantSpace?.id ?? ASSISTANT) : activeRaw;
   const [thinking, setThinking] = useState(false);
@@ -158,7 +164,7 @@ export default function Chat({ me, spaces, members, unread, active: activeRaw, s
               return (
                 <li key={m.id} id={`msg-${m.id}`} className={`msg${mine ? ' msg--me' : ''}${m.author?.is_assistant ? ' msg--agent' : ''}`}>
                   <p className="msg-who">{mine ? 'You' : m.author?.display_name} <time dateTime={m.created_at}>{time(m.created_at)}</time></p>
-                  <Body text={m.body} />
+                  <Body text={m.body} onOpenItem={onOpenItem} />
                   {m.meta?.citations?.length > 0 && (
                     <p className="sources">{m.meta.citations.map((c, i) => (
                       <button key={c.id} type="button" className="source" title={`Open in ${c.label}`}

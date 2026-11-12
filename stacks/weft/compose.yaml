@@ -64,10 +64,20 @@ services:
       ASSIST_MASTER_KEY: ${ASSIST_MASTER_KEY:?}
       POSTGREST_URL: http://postgrest:3000
 
+  collab:
+    build: ../../services/collab
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DATABASE_URL_COLLAB: postgres://weft_collab:${COLLAB_SVC_PASSWORD:?}@postgres:5432/weft
+      COLLAB_DEBUG: ${COLLAB_DEBUG:-}
+      JWT_SECRET: ${JWT_SECRET}
+
   web:
     build: ../../services/web
     restart: unless-stopped
-    depends_on: [postgrest, svc, assistant]
+    depends_on: [postgrest, svc, assistant, collab]
     ports:
       - "127.0.0.1:3010:80"
       - "192.0.2.10:3010:80"
