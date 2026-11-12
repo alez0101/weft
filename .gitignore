@@ -5,3 +5,5 @@ data/*.csv
 stacks/colanode/test-accounts.txt
 stacks/affine/config/private.key
 stacks/affine/test-accounts.txt
+__pycache__/
+*.pyc
