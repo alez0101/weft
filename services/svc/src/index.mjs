@@ -388,7 +388,7 @@ async function listen() {
 }
 
 // ---------------------------------------------------------------- start
-for (const [port, mode] of [[8080, 'access'], [8081, 'test']]) {
+for (const [port, mode] of [[8080, 'public'], [8081, 'test']]) {
   const server = http.createServer(handler(mode));
   attachLive(server);
   server.listen(port, () => log(`weft-svc ${mode} listener on :${port}`));
