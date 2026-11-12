@@ -12,3 +12,7 @@ services:
     ports: !override
       - "127.0.0.1:3210:80"
       - "127.0.0.1:3211:8081"
+  assistant:
+    environment:
+      # The test stack embeds with the stand-in inside the assistant suite, never the homelab host's Ollama.
+      EMBED_URL: http://weft-assist-test:9009

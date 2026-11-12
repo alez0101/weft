@@ -3,6 +3,7 @@
 // The stand-in records every prompt it receives, so the checks can prove what never reached a
 // model: Organizers content must not appear in prompts for Pat, nor in any channel-scoped prompt.
 import http from 'node:http';
+import { SignJWT } from 'jose';
 
 const API = 'http://postgrest:3000';
 const AUTH = 'http://svc:8081';
@@ -11,14 +12,22 @@ const MOCK = 'http://weft-assist-test:9009';
 const SECRET = 'ORG-SECRET-7731';
 const results = [];
 const check = (name, ok, detail = '') => results.push({ name, ok: !!ok, detail });
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---------------- the stand-in model
-const mock = { primary: 'ok', secondary: 'ok', prompts: [], anthropic: [] };
+const mock = { primary: 'ok', secondary: 'ok', prompts: [], anthropic: [], embedCalls: 0 };
 http.createServer((req, res) => {
   let data = '';
   req.on('data', (c) => { data += c; });
   req.on('end', () => {
     const body = JSON.parse(data || '{}');
+    if (req.url.startsWith('/api/embed')) {
+      // A stand-in embedder: words hashed into 768 buckets, with a few synonyms sharing a bucket, so a
+      // paraphrase ("electricity") lands near the original ("power") while keyword search misses it.
+      mock.embedCalls++;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ embeddings: (body.input || []).map(vec) }));
+    }
     if (req.url.startsWith('/anthropic')) {
       // Anthropic Messages format, so the real SDK path (tools included) is exercised.
       const user = typeof body.messages?.[0]?.content === 'string' ? body.messages[0].content : '';
@@ -54,6 +63,15 @@ http.createServer((req, res) => {
     res.end(JSON.stringify({ model: `mock-${slot}`, choices: [{ message: { content: text } }], usage: { prompt_tokens: 1000, completion_tokens: 200 } }));
   });
 }).listen(9009);
+
+const SYN = { electricity: 'power', electric: 'power', outlet: 'power', generator: 'power', socket: 'power', storm: 'rain', drizzle: 'rain', downpour: 'rain' };
+const CONCEPT = new Set(Object.values(SYN));
+function vec(text) {
+  const v = new Array(768).fill(0);
+  const words = String(text).toLowerCase().replace(/^search_(document|query): /, '').match(/[a-z0-9]+/g) || [];
+  for (const w0 of words) { const w = SYN[w0] || w0; let h = 0; for (const c of w) h = (h * 31 + c.charCodeAt(0)) >>> 0; v[h % 768] += (SYN[w0] || CONCEPT.has(w0)) ? 4 : 1; }
+  const n = Math.hypot(...v) || 1; return v.map((x) => x / n);
+}
 
 // ---------------- helpers
 async function login(email) {
@@ -241,6 +259,42 @@ a6 = await askA(pat, await mine(pat), 'What is in the budget?');
 check('Tables: the Organizers Budget never reaches the model for Pat', a6.calls.length === 1 && !a6.calls[0].user.includes('ORG-BUDGET-SECRET'));
 a6 = await askA(olive, await mine(olive), 'CITE-DOC What is in the budget?');
 check('Tables: Olive in her own conversation gets the Budget, cited as a table', a6.calls[0]?.user.includes('ORG-BUDGET-SECRET') && /^Table: /.test(a6.reply?.meta?.citations?.[0]?.label || ''), JSON.stringify(a6.reply?.meta?.citations));
+
+// ================================================================ semantic search
+const POWERMSG = 'Porch P11 lost its outlet, the band cannot plug in';
+const [semMsg] = (await api(olive.token, '/messages', { method: 'POST', body: { space_id: spaces.festival, body: POWERMSG } })).rows;
+const [orgSem] = (await api(olive.token, '/messages', { method: 'POST', body: { space_id: spaces.organizers, body: 'Generator rental is booked ORG-SEM-SECRET' } })).rows;
+// Wait for the worker to embed them (it polls every few seconds).
+let embedded = false;
+for (let i = 0; i < 60 && !embedded; i++) {
+  embedded = (await api(olive.token, `/embeddings?source_id=in.(${semMsg.id},${orgSem.id})&select=source_id`)).rows.length === 2;
+  if (!embedded) await sleep(1000);
+}
+check('Semantic: the worker embedded new messages', embedded && mock.embedCalls > 0, `calls=${mock.embedCalls}`);
+check('Semantic: Pat cannot read the embedding of an Organizers message', (await api(pat.token, `/embeddings?source_id=eq.${orgSem.id}`)).rows.length === 0);
+const qv = `[${vec('search_query: generator').join(',')}]`;
+const patHits = (await api(pat.token, '/rpc/semantic_search', { method: 'POST', body: { p_query: qv, p_limit: 20 } })).rows || [];
+check('Semantic: Pat\'s vector search never returns Organizers content', patHits.length > 0 && !patHits.some((h) => h.source_id === orgSem.id || /ORG-SEM/.test(h.content)), JSON.stringify(patHits.slice(0, 2)));
+const scopedTok = await new SignJWT({ role: 'weft_assistant', scope_space: spaces.festival }).setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
+  .setSubject(olive.user?.id || JSON.parse(Buffer.from(olive.token.split('.')[1], 'base64url')).sub).setIssuedAt().setExpirationTime('120s').sign(new TextEncoder().encode(process.env.JWT_SECRET));
+const scopedHits = (await api(scopedTok, '/rpc/semantic_search', { method: 'POST', body: { p_query: qv, p_limit: 20 } })).rows || [];
+check('Semantic: a festival-scoped assistant search never returns Organizers content', scopedHits.length > 0 && !scopedHits.some((h) => h.source_id === orgSem.id));
+// A paraphrase keyword search would miss: "electricity" vs "outlet/plug".
+// In her own conversation there is no recent-channel context, so only search can bring the message in.
+a6 = await askA(pat, await mine(pat), 'Any electricity trouble?');
+check('Semantic: a paraphrased question finds the message ("electricity" finds "outlet")', (a6.calls[0]?.user || '').includes(POWERMSG), (a6.calls[0]?.user || '').slice(0, 400));
+check('Semantic: and still no Organizers content for Pat', !(a6.calls[0]?.user || '').includes('ORG-SEM-SECRET'));
+a6 = await askA(pat, spaces.festival, '@Weft any electricity trouble?');
+check('Semantic: Pat asking in #festival gets no Organizers content', !(a6.calls[0]?.user || '').includes('ORG-SEM-SECRET'));
+a6 = await askA(olive, spaces.festival, '@Weft any electricity trouble?');
+check('Semantic: Olive asking in #festival gets no Organizers content either', !(a6.calls[0]?.user || '').includes('ORG-SEM-SECRET'));
+a6 = await askA(olive, await mine(olive), 'Any electricity trouble?');
+check('Semantic: Olive in her own conversation does find the Organizers note (positive control)', (a6.calls[0]?.user || '').includes('ORG-SEM-SECRET'));
+await api(olive.token, `/messages?id=eq.${semMsg.id}`, { method: 'DELETE' });
+check('Semantic: deleting a message deletes its embedding', (await api(olive.token, `/embeddings?source_id=eq.${semMsg.id}`)).rows.length === 0);
+const prog = await assist(alex.token, '/assistant/admin/providers/embeddings');
+check('Semantic: admins can see embedding progress', prog.status === 200 && prog.data.chunks > 0, JSON.stringify(prog.data));
+check('Semantic: non-admins cannot', (await assist(pat.token, '/assistant/admin/providers/embeddings')).status === 403);
 
 // The fallback answers read-only: no tools are sent to it.
 await assist(alex.token, '/assistant/admin/providers/primary', { method: 'PUT', body: { ...anthropicSlot, enabled: false } });

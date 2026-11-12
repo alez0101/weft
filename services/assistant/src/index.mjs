@@ -23,6 +23,11 @@ if (MASTER.length !== 32) throw new Error('ASSIST_MASTER_KEY must be 32 bytes of
 const API = env('POSTGREST_URL', 'http://postgrest:3000');
 const ASSISTANT_ID = '00000000-0000-4000-8000-00000000a001';
 const CALL_TIMEOUT_MS = Number(env('CALL_TIMEOUT_MS', '60000'));
+// Semantic search: nomic-embed-text on the homelab host's Ollama by default (content stays in the house).
+const EMBED_URL = env('EMBED_URL', 'http://192.0.2.20:11434');
+const EMBED_MODEL = env('EMBED_MODEL', 'nomic-embed-text');
+const EMBED_DIM = Number(env('EMBED_DIM', '768'));
+const MAX_DISTANCE = Number(env('SEMANTIC_MAX_DISTANCE', '0.7'));
 const db = new pg.Pool({ connectionString: env('DATABASE_URL_ASSIST'), max: 4 });
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
@@ -99,6 +104,20 @@ async function retrieve(token, question, spaceId, scoped, excludeId) {
   if (TIMEY.test(question)) {
     (await rest(token, `/events?select=${ESELECT}&ends_at=gte.${new Date().toISOString()}&order=starts_at&limit=10`)).forEach((r) => put(`e${r.id}`, { type: 'event', ...r }));
   }
+  // Meaning, not just words: nearest neighbours of the question, read with the same token, so RLS and
+  // the channel scope apply exactly as above. If the embedder is down, keyword results stand alone.
+  try {
+    const [qv] = await embed([`search_query: ${question}`]);
+    const hits = (await rest(token, '/rpc/semantic_search', { method: 'POST', body: { p_query: `[${qv.join(',')}]`, p_limit: 12 } }))
+      .filter((h) => h.distance <= MAX_DISTANCE);
+    const ids = (type) => [...new Set(hits.filter((h) => h.source_type === type).map((h) => h.source_id))];
+    const chunkOf = new Map(hits.filter((h) => h.source_type === 'item').map((h) => [h.source_id, h.content]));
+    const mIds = ids('message'); const iIds = ids('item'); const eIds = ids('event');
+    if (mIds.length) (await rest(token, `/messages?select=${SELECT}&id=in.(${mIds.join(',')})`)).forEach(msg);
+    if (iIds.length) (await rest(token, `/items?select=${ISELECT}&id=in.(${iIds.join(',')})`))
+      .forEach((r) => put(`i${r.id}`, { type: 'item', ...r, text: (chunkOf.get(r.id) || excerpt(r.body_text, terms)).replace(/^[^\n]*\n/, '') }));
+    if (eIds.length) (await rest(token, `/events?select=${ESELECT}&id=in.(${eIds.join(',')})`)).forEach((r) => put(`e${r.id}`, { type: 'event', ...r }));
+  } catch (e) { log('semantic search skipped:', e.message); }
   const rank = { message: 0, item: 1, event: 2 };
   return [...out.values()].sort((a, b) => rank[a.type] - rank[b.type] || String(a.created_at || a.starts_at).localeCompare(String(b.created_at || b.starts_at))).slice(-28);
 }
@@ -417,6 +436,10 @@ const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 async function admin(user, method, parts, body) {
   const { rows } = await db.query('select weft_private.assist_is_admin($1) as a', [user.id]);
   if (!rows[0].a) return [403, { error: 'admins only' }];
+  if (method === 'GET' && parts[0] === 'embeddings') {
+    const { rows: c } = await db.query('select * from weft_private.embed_count()');
+    return [200, { model: EMBED_MODEL, url: EMBED_URL, sources: Number(c[0].sources), chunks: Number(c[0].chunks), paused: embedFailures > 0 }];
+  }
   if (method === 'GET' && parts.length === 0) {
     const { rows: p } = await db.query('select * from weft_private.providers_public()');
     return [200, p];
@@ -453,6 +476,57 @@ async function admin(user, method, parts, body) {
   }
   return [404, { error: 'not found' }];
 }
+
+// ---------------------------------------------------------------- embeddings
+async function embed(texts) {
+  const r = await fetch(`${EMBED_URL}/api/embed`, { method: 'POST', signal: AbortSignal.timeout(30000),
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: EMBED_MODEL, input: texts }) });
+  if (!r.ok) throw new Error(`embedder HTTP ${r.status}`);
+  const d = await r.json();
+  if (!Array.isArray(d.embeddings) || d.embeddings.length !== texts.length || d.embeddings.some((v) => v.length !== EMBED_DIM)) throw new Error('embedder returned unexpected vectors');
+  return d.embeddings;
+}
+
+// Split long text into chunks of about 1000 characters on paragraph (or row) boundaries.
+function chunks(text) {
+  const out = []; let cur = '';
+  for (const para of String(text).split(/\n+/)) {
+    if ((cur + '\n' + para).length > 1000 && cur) { out.push(cur); cur = ''; }
+    cur = cur ? `${cur}\n${para}` : para;
+  }
+  if (cur.trim()) out.push(cur);
+  return out.slice(0, 40);
+}
+
+// Embed whatever is new or changed, every few seconds; back off while the embedder is unreachable.
+let embedFailures = 0;
+async function embedWorker() {
+  try {
+    const { rows } = await db.query('select * from weft_private.embed_pending($1, $2)', [24, EMBED_MODEL]);
+    if (rows.length) {
+      const items = rows.map((r) => {
+        const title = r.source_type === 'item' ? r.body.split('\n')[0] : '';
+        return { r, parts: (r.source_type === 'item' ? chunks(r.body).map((c, i) => (i === 0 ? c : `${title}\n${c}`)) : [r.body]).filter((x) => x.trim()) };
+      });
+      const flat = items.flatMap((x) => x.parts.map((p) => `search_document: ${p}`));
+      const vecs = flat.length ? await embed(flat) : [];
+      let k = 0;
+      for (const { r, parts } of items) {
+        const payload = parts.map((p) => ({ content: p, embedding: `[${vecs[k++].join(',')}]` }));
+        await db.query('select weft_private.embed_store($1,$2,$3,$4,$5)', [r.source_type, r.source_id, r.hash, EMBED_MODEL, JSON.stringify(payload)]);
+      }
+      if (embedFailures) log('embedder reachable again');
+      embedFailures = 0;
+      setTimeout(embedWorker, 200); // more may be waiting
+      return;
+    }
+    embedFailures = 0;
+  } catch (e) {
+    if (embedFailures++ % 12 === 0) log('embedding paused:', e.message);
+  }
+  setTimeout(embedWorker, embedFailures ? 30000 : 5000);
+}
+setTimeout(embedWorker, 3000);
 
 // ---------------------------------------------------------------- HTTP
 const send = (res, status, body) => { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); };
