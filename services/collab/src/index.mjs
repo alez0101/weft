@@ -62,9 +62,9 @@ const server = new Server({
     try { ({ payload: claims } = await jwtVerify(token, JWT_SECRET, { algorithms: ['HS256'] })); } catch { throw new Error('not signed in'); }
     if (claims.role !== 'weft_user' || !claims.sub) throw new Error('not a user token');
     const row = await asUser(claims.sub, async (c) => (await c.query(
-      'select space_id, kind, weft_private.can_edit(space_id) as can_edit from weft.items where id = $1', [documentName])).rows[0]);
+      'select space_id, kind, managed, weft_private.can_edit(space_id) as can_edit from weft.items where id = $1', [documentName])).rows[0]);
     if (!row) throw new Error('no access'); // RLS: not a member of the document's space, or no such document
-    connectionConfig.readOnly = !row.can_edit;
+    connectionConfig.readOnly = !row.can_edit || row.managed; // managed pages change only by publishing from the repo
     return { user: claims.sub, space: row.space_id, exp: claims.exp, doc: documentName, kind: row.kind };
   },
 
@@ -118,6 +118,7 @@ async function listen() {
     let n; try { n = JSON.parse(m.payload); } catch { return; }
     if (n.t === 'members' && n.op === 'DELETE') closeWhere((c) => c.user === n.user && c.space === n.space, 'removed from the space');
     // A document deleted, or moved to another space: everyone reconnects and is re-checked against the new space.
+    if (n.t === 'doc_reset') closeWhere((c) => c.doc === n.id, 'page republished; reconnect');
     if (n.t === 'account' && n.disabled) closeWhere((c) => c.user === n.user, 'account disabled');
     if (n.t === 'items' && n.op === 'DELETE') closeWhere((c) => c.doc === n.id, 'document deleted');
     if (n.t === 'items' && n.op === 'UPDATE') closeWhere((c) => c.doc === n.id && c.space !== n.space, 'document moved to another space');

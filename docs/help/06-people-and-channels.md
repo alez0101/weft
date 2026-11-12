@@ -1,6 +1,7 @@
 ---
 title: People and channels
 parent: Weft help
+summary: Making channels, adding people, roles, and accounts (admins).
 ---
 ### Make a channel
 

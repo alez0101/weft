@@ -1,6 +1,7 @@
 ---
-title: Assistant settings (admins)
-parent: Weft help
+title: Assistant settings
+parent: Weft admin
+summary: Primary and fallback models, keys and monthly caps.
 ---
 Admins see a **Settings** app on Home. It controls which models the assistant uses. Being an admin does not let you see spaces you are not in.
 

@@ -122,14 +122,14 @@ create policy messages_post on weft.messages for insert to weft_user
     author_id = weft_private.uid()
     and weft_private.is_member(space_id)
     and (thread_root_id is null or exists (
-      select 1 from weft.messages r where r.id = thread_root_id and r.space_id = messages.space_id))
+      select 1 from weft.messages r where r.id = messages.thread_root_id and r.space_id = messages.space_id))
   );
 create policy messages_post_assistant on weft.messages for insert to weft_assistant
   with check (
     author_id = weft_private.assistant_id()
     and weft_private.is_member(space_id)
     and (thread_root_id is null or exists (
-      select 1 from weft.messages r where r.id = thread_root_id and r.space_id = messages.space_id))
+      select 1 from weft.messages r where r.id = messages.thread_root_id and r.space_id = messages.space_id))
   );
 create policy messages_edit on weft.messages for update to weft_user
   using (author_id = weft_private.uid() and weft_private.is_member(space_id))
@@ -145,14 +145,14 @@ create policy items_create on weft.items for insert to weft_user
     created_by = weft_private.uid()
     and weft_private.can_edit(space_id)
     and (parent_id is null or exists (
-      select 1 from weft.items p where p.id = parent_id and p.space_id = items.space_id))
+      select 1 from weft.items p where p.id = items.parent_id and p.space_id = items.space_id))
   );
 create policy items_edit on weft.items for update to weft_user
   using (weft_private.can_edit(space_id))
   with check (
     weft_private.can_edit(space_id)
     and (parent_id is null or exists (
-      select 1 from weft.items p where p.id = parent_id and p.space_id = items.space_id))
+      select 1 from weft.items p where p.id = items.parent_id and p.space_id = items.space_id))
   );
 create policy items_delete on weft.items for delete to weft_user
   using (weft_private.can_edit(space_id));

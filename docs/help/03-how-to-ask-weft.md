@@ -1,6 +1,7 @@
 ---
 title: How to ask Weft
 parent: Weft help
+summary: Where to ask, what to expect, and examples.
 ---
 ### Where to ask
 

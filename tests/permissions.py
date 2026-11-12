@@ -27,7 +27,7 @@ NAME = {"u-alex": "Alex", "u-org": "Olive", "u-vol": "Vic", "u-pub": "Pat"}
 
 # Expected membership, from data/sample/members.csv plus the seeded DMs and personal spaces.
 SPACES = {
-    "u-alex": {"festival": "owner", "volunteers": "owner", "organizers": "owner", "dm-alex-olive": "editor", "personal-u-alex": "owner", "assistant-u-alex": "owner", "help": "owner"},
+    "u-alex": {"festival": "owner", "volunteers": "owner", "organizers": "owner", "dm-alex-olive": "editor", "personal-u-alex": "owner", "assistant-u-alex": "owner", "help": "owner", "weft-admin": "editor"},
     "u-org": {"festival": "editor", "volunteers": "editor", "organizers": "editor", "dm-alex-olive": "editor", "dm-olive-vic": "editor", "personal-u-org": "owner", "assistant-u-org": "owner", "help": "viewer"},
     "u-vol": {"festival": "viewer", "volunteers": "editor", "dm-olive-vic": "editor", "personal-u-vol": "owner", "assistant-u-vol": "owner", "help": "viewer"},
     "u-pub": {"festival": "viewer", "personal-u-pub": "owner", "assistant-u-pub": "owner", "help": "viewer"},
@@ -37,7 +37,7 @@ KEY_OF = {v: k for k, v in SID.items()}
 # Which spaces were seeded with rows of each kind.
 SEEDED = {
     "messages": {"festival", "volunteers", "organizers", "dm-alex-olive", "dm-olive-vic"},
-    "items": {"festival", "volunteers", "organizers", "personal-u-alex", "help"},
+    "items": {"festival", "volunteers", "organizers", "personal-u-alex", "help", "weft-admin"},
     "events": {"festival", "volunteers"},
 }
 HOST_CONTACTS = uid("item", "host-contacts")
@@ -412,6 +412,97 @@ def people():
     check("Accounts: admin changes are logged", int(owner_sql(f"select count(*) from weft_private.admin_log where actor_id = '{A}'")) >= 4)
 
 
+# ---------------------------------------------------------------- sub-pages and thread replies (positive controls)
+def trees():
+    olive = mint("u-org")
+    st, rows = call("POST", "/items", olive, {"space_id": SID["festival"], "kind": "wiki", "title": "Tree parent"})
+    parent = rows[0]["id"] if st == 201 else None
+    st, _ = call("POST", "/items", olive, {"space_id": SID["festival"], "kind": "wiki", "title": "Tree child", "parent_id": parent}, prefer="return=minimal")
+    check("Trees: a sub-page under a page in the same space is allowed", st == 201, str(st))
+    st, _ = call("POST", "/items", olive, {"space_id": SID["organizers"], "kind": "wiki", "title": "Cross child", "parent_id": parent}, prefer="return=minimal")
+    check("Trees: a sub-page under a page in another space is refused", refused(st), str(st))
+    st, rows = call("POST", "/messages", olive, {"space_id": SID["festival"], "body": "thread root"})
+    root = rows[0]["id"] if st == 201 else None
+    st, _ = call("POST", "/messages", olive, {"space_id": SID["festival"], "body": "a reply", "thread_root_id": root}, prefer="return=minimal")
+    check("Trees: a thread reply in the same channel is allowed", st == 201, str(st))
+    st, _ = call("POST", "/messages", olive, {"space_id": SID["organizers"], "body": "cross reply", "thread_root_id": root}, prefer="return=minimal")
+    check("Trees: a reply in another channel to that thread is refused", refused(st), str(st))
+
+
+# ---------------------------------------------------------------- wikis kept in the repo
+def wikis():
+    import shutil, tempfile
+    pat, olive, alex = mint("u-pub"), mint("u-org"), mint("u-alex")
+    P, O, A = (uid("user", k) for k in ("u-pub", "u-org", "u-alex"))
+    ADMIN = SID["weft-admin"]
+    help_index, admin_index = uid("item", "help", "01-weft-help.md"), uid("item", "weft-admin", "01-weft-admin.md")
+    st, rows = call("GET", f"/members?space_id=eq.{ADMIN}&select=user_id,role", alex)
+    check("Wikis: the admin wiki has exactly the active admins, as editors", rows == [{"user_id": A, "role": "editor"}], str(rows))
+    for who, tok in (("Pat", pat), ("Olive", olive)):
+        st, rows = call("GET", f"/items?space_id=eq.{ADMIN}&select=id", tok)
+        check(f"Wikis: {who} (not admin) sees no admin pages", st == 200 and rows == [], str(rows))
+    st, rows = call("GET", f"/items?id=eq.{admin_index}&select=body_text,managed", alex)
+    body = rows[0]["body_text"] if rows else ""
+    check("Wikis: the admin index lists every admin page", rows and rows[0]["managed"] and all(t in body for t in ("Accounts and access", "Operations", "Technical specification", "Testing")), body[:200])
+    st, rows = call("GET", f"/items?id=eq.{help_index}&select=body_text", pat)
+    check("Wikis: the help index lists the help pages", rows and "People and channels" in rows[0]["body_text"] and "<!-- pages -->" not in rows[0]["body_text"], str(rows)[:200])
+    check("Wikis: admin-only pages are no longer in help", owner_sql(f"select count(*) from weft.items where space_id = '{SID['help']}' and title like 'Assistant settings%'") == "0")
+    # Managed pages are read-only for everyone, owners and admins included.
+    st, body = call("PATCH", f"/items?id=eq.{help_index}", alex, {"title": "changed"})
+    check("Wikis: even an owner cannot change a managed page", st == 400 and "Weft repo" in json.dumps(body), f"{st} {body}")
+    st, body = call("DELETE", f"/items?id=eq.{admin_index}", alex)
+    check("Wikis: nor delete one", st == 400 and owner_sql(f"select count(*) from weft.items where id = '{admin_index}'") == "1", f"{st}")
+    st, body = call("PATCH", f"/items?id=eq.{help_index}", alex, {"space_id": SID["festival"]})
+    check("Wikis: nor move one", st == 400, f"{st}")
+    st, rows = call("POST", "/items", alex, {"space_id": ADMIN, "kind": "wiki", "title": "Alex notes", "parent_id": admin_index, "body_text": "mine"})
+    mine = rows[0]["id"] if st == 201 else None
+    st2, _ = call("PATCH", f"/items?id=eq.{mine}", alex, {"title": "Alex notes 2"})
+    check("Wikis: an admin can add and edit their own page under a managed one", st == 201 and st2 == 200, f"{st} {st2}")
+    # The kept channels cannot be renamed, deleted or have their members changed by hand.
+    st, _ = call("PATCH", f"/spaces?id=eq.{SID['help']}", alex, {"name": "renamed"})
+    st2, _ = call("DELETE", f"/spaces?id=eq.{SID['help']}", alex)
+    check("Wikis: the help channel cannot be renamed or deleted", st == 400 and st2 == 400 and owner_sql(f"select name from weft.spaces where id = '{SID['help']}'") == "help", f"{st} {st2}")
+    st, _ = call("POST", "/members", alex, {"space_id": ADMIN, "user_id": P, "role": "viewer"}, prefer="return=minimal")
+    check("Wikis: nobody can add a non-admin to the admin wiki", st in (400, 401, 403) and owner_sql(f"select count(*) from weft.members where space_id = '{ADMIN}' and user_id = '{P}'") == "0", str(st))
+    st, _ = call("DELETE", f"/members?space_id=eq.{ADMIN}&user_id=eq.{A}", alex)
+    check("Wikis: nor leave it", owner_sql(f"select count(*) from weft.members where space_id = '{ADMIN}' and user_id = '{A}'") == "1", str(st))
+    # Membership follows the admin flag.
+    call("POST", "/rpc/admin_set_user", alex, {"p_user": O, "p_is_admin": True})
+    st, rows = call("GET", f"/items?space_id=eq.{ADMIN}&select=id", olive)
+    check("Wikis: made admin, Olive joins the admin wiki", st == 200 and len(rows) >= 12, str(len(rows or [])))
+    call("POST", "/rpc/admin_set_user", alex, {"p_user": O, "p_disabled": True})
+    call("POST", "/rpc/admin_set_user", alex, {"p_user": O, "p_disabled": False})
+    call("POST", "/rpc/admin_set_user", alex, {"p_user": O, "p_is_admin": False})
+    st, rows = call("GET", f"/items?space_id=eq.{ADMIN}&select=id", olive)
+    check("Wikis: no longer admin, she leaves it", st == 200 and rows == [] and owner_sql(f"select count(*) from weft.members where space_id = '{ADMIN}' and user_id = '{O}'") == "0", str(rows))
+    # Publishing: a changed file rewrites its page (and drops the saved editor state); a removed file deletes it.
+    tmp = tempfile.mkdtemp()
+    try:
+        shutil.copytree(os.path.join(ROOT, "docs"), os.path.join(tmp, "docs"))
+        f = os.path.join(tmp, "docs", "admin", "06-troubleshooting.md")
+        open(f, "a").write("\nPUBLISH-CHECK-7781\n")
+        os.remove(os.path.join(tmp, "docs", "admin", "15-testing.md"))
+        owner_sql(f"update weft.items set ydoc = '\\x00' where id = '{uid('item', 'weft-admin', '06-troubleshooting.md')}'")
+        sql = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "tools", "sync_wikis.py"), "--root", tmp], capture_output=True, text=True, check=True).stdout
+        res = subprocess.run(DC + ["exec", "-T", "postgres", "psql", "-v", "ON_ERROR_STOP=1", "-qAt", "-U", "weft_owner", "-d", "weft"], input=sql, capture_output=True, text=True, check=True).stdout
+        tid = uid("item", "weft-admin", "06-troubleshooting.md")
+        check("Wikis: publishing reports what changed", "updated: Troubleshooting" in res and "removed: Testing" in res, res.strip()[-200:])
+        check("Wikis: the changed page has the new text and no stale editor state",
+              owner_sql(f"select body_text like '%PUBLISH-CHECK-7781%' and ydoc is null from weft.items where id = '{tid}'") == "t")
+        check("Wikis: the removed page is gone, and the index no longer lists it",
+              owner_sql(f"select count(*) from weft.items where id = '{uid('item', 'weft-admin', '15-testing.md')}'") == "0"
+              and owner_sql(f"select position('**Testing**' in body_text) from weft.items where id = '{uid('item', 'weft-admin', '10-technical-specification.md')}'") == "0")
+        check("Wikis: an admin's own page survives publishing", owner_sql(f"select count(*) from weft.items where id = '{mine}'") == "1")
+    finally:
+        shutil.rmtree(tmp)
+        sql = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "tools", "sync_wikis.py")], capture_output=True, text=True, check=True).stdout
+        res = subprocess.run(DC + ["exec", "-T", "postgres", "psql", "-v", "ON_ERROR_STOP=1", "-qAt", "-U", "weft_owner", "-d", "weft"], input=sql, capture_output=True, text=True, check=True).stdout
+    check("Wikis: publishing the repo again restores both pages", "updated: Troubleshooting" in res and "created: Testing" in res, res.strip()[-200:])
+    res = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "tools", "sync_wikis.py")], capture_output=True, text=True, check=True).stdout
+    res = subprocess.run(DC + ["exec", "-T", "postgres", "psql", "-v", "ON_ERROR_STOP=1", "-qAt", "-U", "weft_owner", "-d", "weft"], input=res, capture_output=True, text=True, check=True).stdout
+    check("Wikis: publishing with nothing changed changes nothing", not any(l.startswith(("created", "updated", "removed")) for l in res.splitlines()), res[-200:])
+
+
 # ---------------------------------------------------------------- teeth
 def teeth():
     """Loosen one policy on purpose and confirm the suite would catch it, then restore it."""
@@ -434,6 +525,8 @@ if __name__ == "__main__":
     assistant_era()
     tables()
     people()
+    trees()
+    wikis()
     if "--teeth" in sys.argv:
         teeth()
     width = max(len(n) for n, _, _ in results)

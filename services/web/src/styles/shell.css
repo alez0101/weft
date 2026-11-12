@@ -198,3 +198,4 @@
 .users-table tbody th { font-weight: 500; overflow-wrap: anywhere; }
 .users-table tr.is-disabled th, .users-table tr.is-disabled td:not(:last-child) { color: var(--color-muted); }
 .users-account { display: flex; align-items: center; justify-content: space-between; gap: var(--space-xs); }
+.docs-managed { margin-top: var(--space-2xs); color: var(--color-muted); font-size: var(--text-sm); }

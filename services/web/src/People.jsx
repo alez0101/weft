@@ -73,6 +73,8 @@ export function ChannelPeople({ me, space, onClose, onGone }) {
             </li>
           ))}
         </ul>
+        {space.admins_only && <p className="people-hint">Every admin is in this channel, and only admins. Membership follows the admin setting in Settings.</p>}
+        {space.everyone && <p className="people-hint">Everyone who signs in to Weft can read this channel.</p>}
         <p className="people-hint">{Object.entries(ROLE).map(([k, v]) => `${v}: ${ROLE_HINT[k]}`).join('. ')}.</p>
 
         {owner && (
@@ -109,7 +111,7 @@ export function ChannelPeople({ me, space, onClose, onGone }) {
         {error && <p className="send-error" role="alert">{error}</p>}
 
         <footer className="people-foot">
-          {!space.everyone && mine && !(owner && owners === 1) && (
+          {!space.everyone && !space.admins_only && mine && !(owner && owners === 1) && (
             <button className="btn btn--sm" type="button" onClick={() => window.confirm(`Leave # ${space.name}? You will need an owner to add you back.`)
               && run(async () => { await api(`/members?space_id=eq.${space.id}&user_id=eq.${me.id}`, { method: 'DELETE', prefer: 'return=minimal' }); onGone(); })}>Leave channel</button>
           )}

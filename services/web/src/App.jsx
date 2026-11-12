@@ -102,7 +102,7 @@ export default function App() {
 
   const refreshSpaces = useCallback(async () => {
     const [s, m] = await Promise.all([
-      api('/spaces?kind=in.(channel,dm,assistant)&select=id,kind,name,everyone&order=name'),
+      api('/spaces?kind=in.(channel,dm,assistant)&select=id,kind,name,everyone,admins_only&order=name'),
       api('/members?select=space_id,role,user:users(id,display_name)'),
     ]);
     setSpaces(s); setMembers(m);

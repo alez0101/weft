@@ -1,6 +1,7 @@
 ---
 title: Weft help
 parent:
+summary: What Weft is and how to find your way around.
 ---
 Weft puts chat, documents, a wiki, whiteboards, tables and a calendar in one place, with an assistant that answers from what you can see.
 
@@ -12,10 +13,6 @@ Weft puts chat, documents, a wiki, whiteboards, tables and a calendar in one pla
 
 ### Pages in this wiki
 
-- **What Weft can do**: the assistant's actions, and what it will never do.
-- **How to ask Weft**: where to ask, what to expect, and examples.
-- **Who can see what**: spaces, roles and sharing.
-- **People and channels**: making channels, adding people, roles, and accounts (admins).
-- **Assistant settings (admins)**: models, keys and spending caps.
+<!-- pages -->
 
-These pages are in the **help** channel, which everyone can read. Only the channel's owners can edit them.
+These pages are in the **help** channel, which everyone can read. They are kept in the Weft repo and published from there, so they always match the current version.

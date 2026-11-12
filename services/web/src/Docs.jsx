@@ -77,13 +77,16 @@ export default function Docs({ kind, me, members, openId, setOpenId, notice }) {
     try {
       const [s, i] = await Promise.all([
         api('/spaces?kind=in.(channel,personal)&select=id,kind,name&order=kind.desc,name'),
-        api(`/items?kind=eq.${kind}&select=id,title,space_id,parent_id,updated_at&order=title`),
+        api(`/items?kind=eq.${kind}&select=id,title,space_id,parent_id,updated_at,managed&order=title`),
       ]);
       setSpaces(s); setItems(i); setError('');
     } catch (e) { setError(e.message); }
   }, [kind]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (notice?.t === 'items') load(); }, [notice, load]);
+  // A page republished from the repo reopens with a fresh copy (never merged into the old one).
+  const [fresh, setFresh] = useState(0);
+  useEffect(() => { if (notice?.t === 'doc_reset' && notice.id === openId) { setFresh((n) => n + 1); load(); } }, [notice, openId, load]);
 
   const myRole = (spaceId) => members.find((m) => m.space_id === spaceId && m.user?.id === me.id)?.role
     ?? (spaces.find((s) => s.id === spaceId)?.kind === 'personal' ? 'owner' : null);
@@ -176,7 +179,7 @@ export default function Docs({ kind, me, members, openId, setOpenId, notice }) {
           <>
             <header className="docs-head">
               <label className="visually-hidden" htmlFor={`title-${kind}`}>Title</label>
-              <input id={`title-${kind}`} className="docs-title" value={title} readOnly={!canEditIn(current.space_id)}
+              <input id={`title-${kind}`} className="docs-title" value={title} readOnly={!canEditIn(current.space_id) || current.managed}
                 onChange={(e) => setTitle(e.target.value)} onBlur={saveTitle} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
               <p className="docs-meta"><span>{spaceLabel(currentSpace || {})}</span>{status && <span className="docs-status">{status}</span>}</p>
               <div className="docs-share">
@@ -186,7 +189,7 @@ export default function Docs({ kind, me, members, openId, setOpenId, notice }) {
                   {channels.map((c) => <option key={c.id} value={c.id}>#{c.name}</option>)}
                 </select>
                 <button className="btn btn--sm" onClick={share} disabled={!shareTo}>Share</button>
-                {canEditIn(current.space_id) && (<>
+                {canEditIn(current.space_id) && !current.managed && (<>
                   <label className="visually-hidden" htmlFor={`move-${kind}`}>Move to space</label>
                   <select id={`move-${kind}`} value="" onChange={(e) => { if (e.target.value) moveTo(e.target.value); }}>
                     <option value="">Move to…</option>
@@ -196,12 +199,13 @@ export default function Docs({ kind, me, members, openId, setOpenId, notice }) {
                 </>)}
               </div>
               {note && <p className="slot-status" role="status">{note}</p>}
+              {current.managed && <p className="docs-managed">This page is kept in the Weft repo and updates when it is published, so it cannot be edited here. You can add your own pages under it.</p>}
             </header>
             {kind === 'table'
               ? <div className="docs-table"><Table key={current.id} item={current} editable={canEditIn(current.space_id)} notice={notice} /></div>
               : kind === 'whiteboard'
               ? <div className="docs-board"><Board key={current.id} item={current} onStatus={setStatus} /></div>
-              : <div className="docs-editor"><Editor key={current.id} item={current} me={me} onStatus={setStatus} /></div>}
+              : <div className="docs-editor"><Editor key={`${current.id}-${fresh}`} item={current} me={me} onStatus={setStatus} /></div>}
           </>
         ) : missing ? (
           <div className="empty"><h2>You don't have access to this {noun}</h2><p>It belongs to a space you're not in, or it was deleted. Ask someone in that space to add you.</p></div>

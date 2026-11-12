@@ -1,6 +1,7 @@
 ---
 title: What Weft can do
 parent: Weft help
+summary: The assistant's actions, and what it will never do.
 ---
 Weft can answer questions and propose three actions. It never acts on its own: every action waits for the person who asked to confirm it.
 

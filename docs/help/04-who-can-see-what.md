@@ -1,6 +1,7 @@
 ---
 title: Who can see what
 parent: Weft help
+summary: Spaces, roles and sharing.
 ---
 Everything in Weft lives in a **space**: a channel, a direct message, your personal space, or your Weft conversation. You see something only if you are a member of its space. The same rule applies to chat, documents, the calendar, search and the assistant.
 
