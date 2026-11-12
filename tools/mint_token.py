@@ -3,7 +3,7 @@
 
 Usage: python3 -I tools/mint_token.py <user-key> [--assistant] [--scope <space-key>] [--ttl 3600]
 User keys: u-alex u-org u-vol u-pub. Space keys: festival volunteers organizers dm-... personal-...
-The secret is read from stacks/weft/.env. Never expose a minted token beyond the Weft server.
+The secret is read from stacks/weft-test/.env (the test stack) unless WEFT_ENV_FILE names another. Never expose a minted token beyond the Weft server.
 """
 import argparse
 import base64
@@ -23,11 +23,12 @@ def uid(*parts):
 
 
 def secret():
-    with open(os.path.join(ROOT, "stacks", "weft", ".env")) as f:
+    path = os.environ.get("WEFT_ENV_FILE") or os.path.join(ROOT, "stacks", "weft-test", ".env")  # test stack by default
+    with open(path) as f:
         for line in f:
             if line.startswith("JWT_SECRET="):
                 return line.split("=", 1)[1].strip()
-    raise SystemExit("JWT_SECRET not found in stacks/weft/.env")
+    raise SystemExit(f"JWT_SECRET not found in {path}")
 
 
 def b64(data):

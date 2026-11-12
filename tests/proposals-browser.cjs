@@ -1,3 +1,4 @@
+// Targets the TEST stack by default (start it with: tests/run.sh --keep). WEFT_BASE overrides.
 // Phase 6 browser check: proposal cards (confirm / dismiss / undo; others see who decides). Needs the
 // stand-in model (services/assistant/test/mock.mjs) configured as an anthropic primary at http://weft-mock:9009/anthropic.
 const { chromium } = require('playwright');
@@ -6,7 +7,7 @@ const { chromium } = require('playwright');
   const open = async (who) => {
     const ctx = await b.newContext({ viewport: { width: 1440, height: 900 }, timezoneId: 'America/Los_Angeles' }); const p = await ctx.newPage();
     p.on('pageerror', (e) => errs.push(`${who}: ${e.message}`));
-    await p.goto('http://localhost:3011/', { waitUntil: 'networkidle' });
+    await p.goto((process.env.WEFT_BASE || 'http://localhost:3211/'), { waitUntil: 'networkidle' });
     await p.getByRole('button', { name: who }).click(); await p.waitForSelector('.rail-title');
     await p.getByRole('button', { name: 'festival', exact: true }).click(); await p.waitForTimeout(800);
     return p;

@@ -1,0 +1,32 @@
+# Testing
+
+**Tests never touch the live stack.** Everything runs against `weft-test`: a separate compose project
+built from the same code (`stacks/weft/compose.yaml` plus `stacks/weft-test/compose.test.yaml`), with its
+own database volume, its own secrets (`stacks/weft-test/.env`, git-ignored) and its own ports, all on
+127.0.0.1:
+
+| | live (`weft-core`) | test (`weft-test`) |
+| --- | --- | --- |
+| Postgres | 127.0.0.1:55434 | 127.0.0.1:55444 |
+| PostgREST | 127.0.0.1:3100 | 127.0.0.1:3200 |
+| Web, public door | 3010 (localhost + LAN; the tunnel) | 127.0.0.1:3210 |
+| Web, test sign-in | 127.0.0.1:3011 | 127.0.0.1:3211 |
+
+## Commands
+
+    tests/run.sh            rebuild the test stack, run all four suites (197 checks), remove the test stack
+    tests/run.sh --keep     same, but leave the test stack up (for the browser checks)
+    db/reset.sh             rebuild the test stack's database only
+    db/reset.sh --live --yes-wipe-live   rebuild the LIVE database: destroys real accounts, keys and edits
+
+Browser checks (`tests/*-browser.cjs`, `tests/two-browsers.cjs`) need Playwright (on the Weft server: run them
+from /tmp/pw) and target the test stack's 3211 by default; set `WEFT_BASE` to point elsewhere.
+`tools/mint_token.py` signs with the test stack's secret unless `WEFT_ENV_FILE` names another .env.
+
+## Suites
+
+- `tests/permissions.py`: row-level security, every user, table and action, plus the teeth check (95).
+- `services/svc/test/live.mjs`: live notices reach members only (20).
+- `services/assistant/test/assistant.mjs`: retrieval scoping, citations, settings, failover, proposals,
+  with stand-in models that record every request (59).
+- `services/collab/test/collab.mjs`: document access, read-only, saving, live sync, revocation (23).

@@ -18,7 +18,9 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 from mint_token import mint, uid  # noqa: E402
 
-API = os.environ.get("WEFT_API", "http://127.0.0.1:3100")
+API = os.environ.get("WEFT_API", "http://127.0.0.1:3200")   # the test stack
+DC = ["sudo", "docker", "compose", "-p", "weft-test", "-f", os.path.join(ROOT, "stacks/weft/compose.yaml"),
+      "-f", os.path.join(ROOT, "stacks/weft-test/compose.test.yaml"), "--env-file", os.path.join(ROOT, "stacks/weft-test/.env")]
 ASSISTANT = "00000000-0000-4000-8000-00000000a001"
 USERS = ["u-alex", "u-org", "u-vol", "u-pub"]
 NAME = {"u-alex": "Alex", "u-org": "Olive", "u-vol": "Vic", "u-pub": "Pat"}
@@ -75,9 +77,9 @@ def refused(status):
 
 def owner_sql(sql):
     """Run SQL as the database owner, for verification and the teeth test only."""
-    out = subprocess.run(["sudo", "docker", "compose", "exec", "-T", "postgres", "psql", "-v", "ON_ERROR_STOP=1",
-                          "-At", "-U", "weft_owner", "-d", "weft", "-c", sql],
-                         cwd=os.path.join(ROOT, "stacks", "weft"), capture_output=True, text=True, check=True)
+    out = subprocess.run(DC + ["exec", "-T", "postgres", "psql", "-v", "ON_ERROR_STOP=1",
+                               "-At", "-U", "weft_owner", "-d", "weft", "-c", sql],
+                         capture_output=True, text=True, check=True)
     return out.stdout.strip()
 
 

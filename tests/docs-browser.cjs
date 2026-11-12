@@ -1,3 +1,4 @@
+// Targets the TEST stack by default (start it with: tests/run.sh --keep). WEFT_BASE overrides.
 // Phase 4 browser check: co-editing, view-only, sharing, no-access. Run after db/reset.sh from a dir
 // with playwright installed (the Weft server: /tmp/pw):  node <repo>/tests/docs-browser.cjs
 const { chromium } = require('playwright');
@@ -6,7 +7,7 @@ const { chromium } = require('playwright');
   const open = async (who) => {
     const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } }); const p = await ctx.newPage();
     p.on('pageerror', (e) => errs.push(`${who}: ${e.message}`));
-    await p.goto('http://localhost:3011/', { waitUntil: 'networkidle' });
+    await p.goto((process.env.WEFT_BASE || 'http://localhost:3211/'), { waitUntil: 'networkidle' });
     await p.getByRole('button', { name: who }).click(); await p.waitForSelector('.rail-title');
     return p;
   };

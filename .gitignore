@@ -9,3 +9,4 @@ __pycache__/
 *.pyc
 node_modules/
 services/web/dist/
+stacks/weft-test/.env

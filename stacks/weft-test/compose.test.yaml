@@ -1,0 +1,14 @@
+# Test stack: the same services as stacks/weft/compose.yaml, run as compose project "weft-test" with its
+# own database volume, its own secrets (.env here) and its own ports, all on 127.0.0.1. Not reachable
+# from the LAN or the tunnel. Used only by tests/run.sh and db/reset.sh (the default target).
+services:
+  postgres:
+    ports: !override
+      - "127.0.0.1:55444:5432"
+  postgrest:
+    ports: !override
+      - "127.0.0.1:3200:3000"
+  web:
+    ports: !override
+      - "127.0.0.1:3210:80"
+      - "127.0.0.1:3211:8081"

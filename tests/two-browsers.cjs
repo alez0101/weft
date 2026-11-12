@@ -1,3 +1,4 @@
+// Targets the TEST stack by default (start it with: tests/run.sh --keep). WEFT_BASE overrides.
 // Two signed-in browsers chatting live on the test port (127.0.0.1:3011). Run after tests/run.sh:
 //   cd <dir with playwright installed> && node <repo>/tests/two-browsers.cjs
 // (the Weft server: /tmp/pw has playwright; see the headless-browser memory.)
@@ -8,7 +9,7 @@ const { chromium } = require('playwright');
   const open = async (who) => {
     const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } });
     const p = await ctx.newPage(); p.on('pageerror', (e) => errs.push(`${who}: ${e.message}`));
-    await p.goto('http://localhost:3011/', { waitUntil: 'networkidle' });
+    await p.goto((process.env.WEFT_BASE || 'http://localhost:3211/'), { waitUntil: 'networkidle' });
     await p.getByRole('button', { name: who }).click();
     await p.waitForSelector('.rail-title');
     return p;
