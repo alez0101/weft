@@ -163,3 +163,38 @@
   border: 1px solid var(--color-muted); border-radius: var(--radius-input); background: var(--color-paper); color: var(--color-ink);
 }
 .tbl-type { align-self: center; min-width: 6rem; font-size: var(--text-sm); color: var(--color-muted); }
+
+/* People: channel members dialog, new channel form, admin accounts. */
+.people { width: min(560px, calc(100vw - 2 * var(--space-md))); max-height: min(720px, calc(100vh - 2 * var(--space-lg))); overflow: auto;
+  padding: var(--space-md) var(--space-lg) var(--space-lg); border: 0; border-radius: var(--radius-card);
+  background: var(--color-paper); color: var(--color-ink); box-shadow: 0 0 0 1px var(--color-rule), var(--shadow-card); }
+.people::backdrop { background: color-mix(in oklab, var(--color-ink) 35%, transparent); }
+.people-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); margin-bottom: var(--space-sm); }
+.people-head h2 { font-size: var(--text-section); overflow-wrap: break-word; min-width: 0; }
+.people-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2xs); }
+.person { display: flex; align-items: center; gap: var(--space-xs); padding: var(--space-2xs) 0; border-bottom: var(--rule-hair) solid var(--color-rule); }
+.person-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.person-name small, .users-table small { display: block; color: var(--color-muted); font-size: var(--text-sm); }
+.person-role { color: var(--color-ink-2); font-size: var(--text-sm); }
+.people-hint { margin-top: var(--space-xs); color: var(--color-muted); font-size: var(--text-sm); }
+.people-add { display: grid; gap: var(--space-2xs); margin-top: var(--space-md); }
+.people-add > label { font-weight: 500; font-size: var(--text-sm); }
+.people-add .pair { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
+.people-add select, .people-add input { flex: 1 1 160px; min-width: 0; }
+.people-foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-xs); margin-top: var(--space-lg); }
+.btn--danger { color: var(--color-error); }
+.convo-group--action { display: flex; align-items: center; justify-content: space-between; }
+.convo-group--action .icon-btn { width: 28px; height: 28px; }
+.new-channel { display: grid; gap: var(--space-2xs); padding: 0 var(--space-xs) var(--space-xs); }
+.new-channel .pair { display: flex; gap: var(--space-xs); }
+.link-btn { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.link-btn:hover { color: var(--color-ink); }
+.link-btn:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.admin-sub { margin-top: var(--space-xl); margin-bottom: var(--space-sm); }
+.users { margin-block: var(--space-md); }
+.users-table { width: 100%; border-collapse: collapse; margin-top: var(--space-sm); }
+.users-table th, .users-table td { padding: var(--space-xs); text-align: left; border-bottom: var(--rule-hair) solid var(--color-rule); vertical-align: middle; }
+.users-table thead th { font-size: var(--text-sm); font-weight: 500; color: var(--color-muted); }
+.users-table tbody th { font-weight: 500; overflow-wrap: anywhere; }
+.users-table tr.is-disabled th, .users-table tr.is-disabled td:not(:last-child) { color: var(--color-muted); }
+.users-account { display: flex; align-items: center; justify-content: space-between; gap: var(--space-xs); }

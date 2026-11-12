@@ -125,6 +125,15 @@ close(patVol);
 const again = await open(pat.token, items['Volunteer roles']);
 check('And she cannot reopen it', again.failed && !again.scope, `${again.failed} ${again.scope}`); close(again);
 
+// ---------------- a disabled account loses its open sessions
+const vicOpen = await open(vic.token, items['Run of show']);
+await api(alex.token, '/rpc/admin_set_user', { method: 'POST', body: { p_user: vic.user.id, p_disabled: true } });
+for (let i = 0; i < 60 && !vicOpen.closed; i++) await sleep(50);
+check('Disabling Vic closes his open document session', vicOpen.closed); close(vicOpen);
+const vicAgain = await open(vic.token, items['Run of show']);
+check('And his unexpired token cannot reopen it', vicAgain.failed && !vicAgain.scope, `${vicAgain.failed} ${vicAgain.scope}`); close(vicAgain);
+await api(alex.token, '/rpc/admin_set_user', { method: 'POST', body: { p_user: vic.user.id, p_disabled: false } });
+
 // ---------------- moving or deleting a document closes its sessions
 const [mv] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'document', title: 'Move test' } })).rows;
 const patMv = await open(pat.token, mv.id);

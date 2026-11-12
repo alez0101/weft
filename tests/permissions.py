@@ -299,6 +299,119 @@ def tables():
     check("Tables: Olive's Budget edit is in the audit log", st == 200 and len(rows) >= 1, str(st))
 
 
+# ---------------------------------------------------------------- people (channels, members, accounts)
+TEST_SIGNIN = os.environ.get("WEFT_SIGNIN", "http://127.0.0.1:3211/auth/test-login")
+
+
+def test_signin(email):
+    req = urllib.request.Request(TEST_SIGNIN, method="POST", data=json.dumps({"email": email}).encode(),
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req) as r:
+            return r.status, json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode()
+
+
+def people():
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, V, O, A = (uid("user", k) for k in ("u-pub", "u-vol", "u-org", "u-alex"))
+    # Channels and members
+    st, ch = call("POST", "/rpc/create_channel", pat, {"p_name": "  Pat club "})
+    check("People: anyone can create a channel", st == 200 and isinstance(ch, str), f"{st} {ch}")
+    check("People: its name is trimmed", owner_sql(f"select name from weft.spaces where id = '{ch}'") == "Pat club")
+    st, _ = call("POST", "/rpc/create_channel", pat, {"p_name": "x" * 61})
+    check("People: a name over 60 characters is refused", st == 400, str(st))
+    st, rows = call("GET", f"/members?space_id=eq.{ch}&select=user_id,role", pat)
+    check("People: the creator becomes its owner", rows == [{"user_id": P, "role": "owner"}], str(rows))
+    st, _ = call("POST", "/members", pat, {"space_id": ch, "user_id": V, "role": "viewer"}, prefer="return=minimal")
+    check("People: the owner adds someone", st == 201, str(st))
+    st, _ = call("POST", "/members", vic, {"space_id": ch, "user_id": O, "role": "viewer"}, prefer="return=minimal")
+    check("People: a viewer cannot add people", refused(st), str(st))
+    call("PATCH", f"/members?space_id=eq.{ch}&user_id=eq.{V}", vic, {"role": "owner"})
+    check("People: a viewer cannot promote himself", owner_sql(f"select role from weft.members where space_id = '{ch}' and user_id = '{V}'") == "viewer")
+    call("PATCH", f"/spaces?id=eq.{ch}", vic, {"name": "Vic club"})
+    check("People: a viewer cannot rename the channel", owner_sql(f"select name from weft.spaces where id = '{ch}'") == "Pat club")
+    st, body = call("DELETE", f"/members?space_id=eq.{ch}&user_id=eq.{P}", pat)
+    check("People: the last owner cannot leave", st == 400 and "needs an owner" in json.dumps(body)
+          and owner_sql(f"select count(*) from weft.members where space_id = '{ch}' and user_id = '{P}'") == "1", f"{st} {body}")
+    st, body = call("PATCH", f"/members?space_id=eq.{ch}&user_id=eq.{P}", pat, {"role": "editor"})
+    check("People: the last owner cannot demote herself", st == 400, f"{st} {body}")
+    st, _ = call("PATCH", f"/members?space_id=eq.{ch}&user_id=eq.{V}", pat, {"role": "owner"})
+    st2, _ = call("DELETE", f"/members?space_id=eq.{ch}&user_id=eq.{P}", pat)
+    check("People: with another owner, she can leave", st == 200 and st2 in (200, 204)
+          and owner_sql(f"select count(*) from weft.members where space_id = '{ch}' and user_id = '{P}'") == "0", f"{st} {st2}")
+    st, rows = call("GET", f"/spaces?id=eq.{ch}", pat)
+    check("People: after leaving she cannot see the channel", st == 200 and rows == [], str(rows))
+    st, _ = call("DELETE", f"/spaces?id=eq.{ch}", vic)
+    check("People: the owner deletes the channel, members and all", st in (200, 204)
+          and owner_sql(f"select count(*) from weft.spaces where id = '{ch}'") == "0"
+          and owner_sql(f"select count(*) from weft.members where space_id = '{ch}'") == "0", str(st))
+    st, _ = call("POST", "/members", pat, {"space_id": SID["organizers"], "user_id": P, "role": "owner"}, prefer="return=minimal")
+    check("People: Pat cannot add herself to Organizers", refused(st), str(st))
+    call("PATCH", f"/spaces?id=eq.{SID['festival']}", pat, {"name": "Pat fest"})
+    check("People: a viewer cannot rename #festival", owner_sql(f"select name from weft.spaces where id = '{SID['festival']}'") == "festival")
+    st, _ = call("POST", "/spaces", mint("u-org", assistant=True), {"kind": "channel", "name": "bot channel"})
+    check("People: the assistant cannot create channels", refused(st), str(st))
+    st, _ = call("POST", "/rpc/create_channel", mint("u-org", assistant=True), {"p_name": "bot channel"})
+    st2, _ = call("POST", "/rpc/create_channel", mint("u-org", scope="festival"), {"p_name": "scoped channel"})
+    check("People: nor through the function, nor a channel-scoped token", refused(st) and refused(st2), f"{st} {st2}")
+    # What co-members can read about each other
+    st, _ = call("GET", "/users?select=id,last_seen_at", pat)
+    check("People: last sign-in is not readable by other people", refused(st), str(st))
+    st, rows = call("GET", "/users?select=id,display_name,email&is_assistant=is.false", pat)
+    check("People: names and emails of people you share a space with are", st == 200 and any(r["id"] == O for r in rows), str(st))
+    # Admins
+    st, _ = call("POST", "/rpc/admin_users", pat, {})
+    check("Accounts: Pat (not admin) cannot list accounts", refused(st), str(st))
+    st, rows = call("POST", "/rpc/admin_users", alex, {})
+    check("Accounts: an admin lists every account, with last sign-in", st == 200 and {P, V, O, A} <= {r["id"] for r in rows}
+          and "last_seen_at" in rows[0] and ASSISTANT not in {r["id"] for r in rows}, str(st))
+    st, _ = call("POST", "/rpc/admin_users", mint("u-alex", scope="festival"), {})
+    check("Accounts: a channel-scoped token cannot list accounts", refused(st), str(st))
+    st, _ = call("POST", "/rpc/admin_users", mint("u-alex", assistant=True), {})
+    check("Accounts: the assistant cannot list accounts", refused(st), str(st))
+    st, _ = call("POST", "/rpc/admin_set_user", pat, {"p_user": V, "p_disabled": True})
+    check("Accounts: Pat cannot disable Vic", refused(st) and owner_sql(f"select disabled from weft.users where id = '{V}'") == "f", str(st))
+    st, _ = call("POST", "/rpc/admin_set_user", pat, {"p_user": P, "p_is_admin": True})
+    check("Accounts: Pat cannot make herself admin through the function", refused(st), str(st))
+    st, body = call("POST", "/rpc/admin_set_user", alex, {"p_user": A, "p_is_admin": False})
+    check("Accounts: an admin cannot change their own account", st == 400 and owner_sql(f"select is_admin from weft.users where id = '{A}'") == "t", f"{st} {body}")
+    st, _ = call("POST", "/rpc/admin_set_user", alex, {"p_user": ASSISTANT, "p_disabled": True})
+    check("Accounts: the assistant account cannot be changed", st in (400, 404), str(st))
+    # Disable Pat: she loses everything at once, keeps her memberships, and cannot sign in.
+    st, _ = call("POST", "/rpc/admin_set_user", alex, {"p_user": P, "p_disabled": True})
+    check("Accounts: an admin disables Pat", st == 200, str(st))
+    try:
+        st1, r1 = call("GET", f"/messages?space_id=eq.{SID['festival']}&limit=1", pat)
+        st2, r2 = call("GET", "/spaces?select=id", pat)
+        st3, r3 = call("GET", "/items?select=id&limit=1", pat)
+        check("Accounts: a disabled account's existing token sees nothing", (st1, st2, st3) == (200, 200, 200) and r1 == [] and r2 == [] and r3 == [], f"{st1} {st2} {st3}")
+        st, _ = call("POST", "/messages", pat, {"space_id": SID["festival"], "body": "still here?"})
+        check("Accounts: a disabled account cannot post", refused(st), str(st))
+        st, _ = call("POST", "/rpc/create_channel", pat, {"p_name": "disabled club"})
+        st2, _ = call("POST", "/spaces", pat, {"kind": "channel", "name": "disabled club"}, prefer="return=minimal")
+        check("Accounts: a disabled account cannot create channels", refused(st) and refused(st2), f"{st} {st2}")
+        st, _ = call("POST", "/rpc/semantic_search", mint("u-pub", assistant=True), {"p_query": "[" + ",".join(["0.03"] * 768) + "]", "p_limit": 5})
+        check("Accounts: the assistant acting for a disabled account finds nothing", st == 200 and _ == [], str(st))
+        st, body = test_signin("pat.public@example.com")
+        check("Accounts: a disabled account cannot sign in", st == 403 and "disabled" in str(body), f"{st} {body}")
+        check("Accounts: her memberships are kept", owner_sql(f"select count(*) from weft.members where user_id = '{P}'") != "0")
+    finally:
+        st, _ = call("POST", "/rpc/admin_set_user", alex, {"p_user": P, "p_disabled": False})
+    st1, r1 = call("GET", f"/messages?space_id=eq.{SID['festival']}&limit=1", pat)
+    check("Accounts: enabled again, Pat sees #festival as before", st1 == 200 and len(r1) == 1, f"{st1}")
+    st, body = test_signin("pat.public@example.com")
+    check("Accounts: and can sign in", st == 200, str(st))
+    # Admin changes are logged; a second admin can be made and unmade.
+    st, _ = call("POST", "/rpc/admin_set_user", alex, {"p_user": O, "p_is_admin": True})
+    st2, rows = call("POST", "/rpc/admin_users", olive, {})
+    st3, _ = call("POST", "/rpc/admin_set_user", alex, {"p_user": O, "p_is_admin": False})
+    st4, _ = call("POST", "/rpc/admin_users", olive, {})
+    check("Accounts: an admin makes Olive admin, then not", (st, st2, st3) == (200, 200, 200) and refused(st4), f"{st} {st2} {st3} {st4}")
+    check("Accounts: admin changes are logged", int(owner_sql(f"select count(*) from weft_private.admin_log where actor_id = '{A}'")) >= 4)
+
+
 # ---------------------------------------------------------------- teeth
 def teeth():
     """Loosen one policy on purpose and confirm the suite would catch it, then restore it."""
@@ -320,6 +433,7 @@ if __name__ == "__main__":
     audit_and_tokens()
     assistant_era()
     tables()
+    people()
     if "--teeth" in sys.argv:
         teeth()
     width = max(len(n) for n, _, _ in results)

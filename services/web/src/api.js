@@ -13,6 +13,7 @@ export async function authMode() {
 
 async function accessSession() {
   const r = await fetch('/auth/session', { credentials: 'same-origin' });
+  if (r.status === 403) throw new Error((await r.json().catch(() => ({}))).error || 'This account cannot sign in.');
   if (!r.ok) throw new Error(r.status === 401 ? 'Your Cloudflare Access session was not accepted.' : 'Sign-in failed.');
   return r.json();
 }
@@ -21,6 +22,7 @@ async function testSession(email) {
   const r = await fetch('/auth/test-login', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }),
   });
+  if (r.status === 403) throw new Error((await r.json().catch(() => ({}))).error || 'Test sign-in refused.');
   if (!r.ok) throw new Error('Test sign-in refused.');
   return r.json();
 }
@@ -67,7 +69,8 @@ export function connectLive(onNotice, onState) {
     ws = new WebSocket(`${proto}://${location.host}/live?token=${encodeURIComponent(token)}`);
     ws.onopen = () => { delay = 1000; onState('live'); };
     ws.onmessage = (e) => { try { onNotice(JSON.parse(e.data)); } catch { /* ignore */ } };
-    ws.onclose = () => {
+    ws.onclose = (e) => {
+      if (e.code === 4003) { stopped = true; onState('disabled'); return; } // an admin disabled this account
       onState('reconnecting');
       if (!stopped) setTimeout(open, delay);
       delay = Math.min(delay * 2, 15000);

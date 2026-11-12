@@ -15,6 +15,7 @@ Weft puts chat, documents, a wiki, whiteboards, tables and a calendar in one pla
 - **What Weft can do**: the assistant's actions, and what it will never do.
 - **How to ask Weft**: where to ask, what to expect, and examples.
 - **Who can see what**: spaces, roles and sharing.
+- **People and channels**: making channels, adding people, roles, and accounts (admins).
 - **Assistant settings (admins)**: models, keys and spending caps.
 
 These pages are in the **help** channel, which everyone can read. Only the channel's owners can edit them.

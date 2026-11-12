@@ -110,6 +110,22 @@ const expired = await new SignJWT({ role: 'weft_user' }).setProtectedHeader({ al
   .setExpirationTime(Math.floor(Date.now() / 1000) - 60).sign(new TextEncoder().encode(process.env.JWT_SECRET));
 check('An expired token cannot open a socket', !(await socket(expired)).ok);
 
+// An admin disables Pat: her open socket closes at once, and a socket opened with her old token hears nothing.
+const sPat2 = await socket(pat.token);
+const closed = new Promise((r) => { sPat2.ws.on('close', (code) => r(code)); setTimeout(() => r(null), 3000); });
+await api(alex.token, '/rpc/admin_set_user', { method: 'POST', body: { p_user: pat.user.id, p_disabled: true } });
+check('Disabling an account closes its live socket (code 4003)', (await closed) === 4003);
+const sPat3 = await socket(pat.token);
+clear(sPat3);
+const festMsg2 = (await api(olive.token, '/messages', { method: 'POST', body: { space_id: spaces.festival, body: 'live test: after disable' } })).rows[0];
+await sleep(1200);
+check('A disabled account hears nothing, even with an unexpired token', got(sPat3, () => true).length === 0, JSON.stringify(sPat3.inbox));
+const relogin = await fetch(`${AUTH}/auth/test-login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'pat.public@example.com' }) });
+check('A disabled account cannot get a new token', relogin.status === 403);
+await api(alex.token, '/rpc/admin_set_user', { method: 'POST', body: { p_user: pat.user.id, p_disabled: false } });
+sPat3.ws.close();
+void festMsg2;
+
 [sOlive, sVic, sPat].forEach((s) => s.ws.close());
 const w = Math.max(...results.map((r) => r.name.length));
 for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name.padEnd(w)}  ${r.ok ? '' : r.detail}`);

@@ -118,6 +118,7 @@ async function listen() {
     let n; try { n = JSON.parse(m.payload); } catch { return; }
     if (n.t === 'members' && n.op === 'DELETE') closeWhere((c) => c.user === n.user && c.space === n.space, 'removed from the space');
     // A document deleted, or moved to another space: everyone reconnects and is re-checked against the new space.
+    if (n.t === 'account' && n.disabled) closeWhere((c) => c.user === n.user, 'account disabled');
     if (n.t === 'items' && n.op === 'DELETE') closeWhere((c) => c.doc === n.id, 'document deleted');
     if (n.t === 'items' && n.op === 'UPDATE') closeWhere((c) => c.doc === n.id && c.space !== n.space, 'document moved to another space');
     if (n.t === 'members' && n.op === 'UPDATE') closeWhere((c) => c.user === n.user && c.space === n.space, 'role changed; reconnect'); // reconnect re-reads the role

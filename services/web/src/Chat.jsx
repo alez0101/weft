@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, assistant } from './api.js';
+import { ChannelPeople, NewChannel } from './People.jsx';
 
 const ASSISTANT = 'weft'; // URL alias for the person's own assistant space
 const SEL = 'id,body,created_at,author_id,meta,author:users(display_name,is_assistant)';
@@ -20,7 +21,9 @@ function Body({ text, onOpenItem, onOpenEvent }) {
   })}</p>;
 }
 
-export default function Chat({ me, spaces, members, unread, active: activeRaw, setActive, rail, setRail, notice, live, onOpenItem, onOpenEvent }) {
+export default function Chat({ me, spaces, members, unread, active: activeRaw, setActive, rail, setRail, notice, live, onOpenItem, onOpenEvent, onSpacesChanged }) {
+  const [peopleOpen, setPeopleOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
   const assistantSpace = spaces.find((s) => s.kind === 'assistant');
   const active = activeRaw === ASSISTANT ? (assistantSpace?.id ?? ASSISTANT) : activeRaw;
   const [thinking, setThinking] = useState(false);
@@ -120,7 +123,8 @@ export default function Chat({ me, spaces, members, unread, active: activeRaw, s
 
   const title = current?.kind === 'assistant' || active === ASSISTANT ? 'Weft' : current ? (current.kind === 'channel' ? `# ${current.name}` : nameOf(current)) : '';
   const sub = current?.kind === 'assistant' ? 'Answers from everything you can open, with links to where each answer came from. In a channel, @Weft answers only from that channel.'
-    : current?.kind === 'channel' ? `${members.filter((m) => m.space_id === current.id).length} members` : 'Direct message';
+    : current?.kind === 'channel' ? null : 'Direct message';
+  const memberCount = current?.kind === 'channel' ? members.filter((m) => m.space_id === current.id).length : 0;
 
   return (
     <aside className="rail" aria-label="Chat">
@@ -136,7 +140,11 @@ export default function Chat({ me, spaces, members, unread, active: activeRaw, s
         <ul className="convo-list">
           <li><ConvoButton id={assistantSpace?.id ?? ASSISTANT} icon={<span className="who who--agent" aria-hidden="true">W</span>} label="Weft" meta="assistant" /></li>
         </ul>
-        <p className="convo-group">Channels</p>
+        <div className="convo-group convo-group--action">
+          <p>Channels</p>
+          {rail !== 'collapsed' && !creating && <button className="icon-btn" type="button" aria-label="New channel" title="New channel" onClick={() => setCreating(true)}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4.5v11M4.5 10h11" /></svg></button>}
+        </div>
+        {creating && <NewChannel onCancel={() => setCreating(false)} onCreated={async (id) => { await onSpacesChanged(); setCreating(false); setActive(id); setPeopleOpen(true); }} />}
         <ul className="convo-list">
           {channels.map((s) => <li key={s.id}><ConvoButton id={s.id} icon={<span className="hash" aria-hidden="true" data-initial={s.name.charAt(0)}>#</span>} label={s.name} /></li>)}
           {!channels.length && <li className="convo-empty">No channels yet.</li>}
@@ -151,7 +159,9 @@ export default function Chat({ me, spaces, members, unread, active: activeRaw, s
       <section className="thread" aria-live="polite">
         <header className="thread-head">
           <h3>{title}</h3>
-          <p className="thread-sub">{sub}{live !== 'live' && active !== ASSISTANT ? ' · reconnecting' : ''}</p>
+          <p className="thread-sub">{sub ?? <button type="button" className="link-btn" onClick={() => setPeopleOpen(true)} aria-haspopup="dialog">{memberCount} {memberCount === 1 ? 'member' : 'members'}, see people</button>}{live !== 'live' && active !== ASSISTANT ? ' (reconnecting)' : ''}</p>
+          {peopleOpen && current?.kind === 'channel' && <ChannelPeople key={current.id} me={me} space={current} onClose={() => { setPeopleOpen(false); onSpacesChanged().catch(() => {}); }}
+            onGone={async () => { setPeopleOpen(false); await onSpacesChanged().catch(() => {}); setActive(ASSISTANT); }} />}
         </header>
         {active === ASSISTANT ? (
           <div className="thread-empty"><p>Setting up your conversation with Weft…</p></div>

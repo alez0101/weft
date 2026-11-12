@@ -102,7 +102,7 @@ export default function App() {
 
   const refreshSpaces = useCallback(async () => {
     const [s, m] = await Promise.all([
-      api('/spaces?kind=in.(channel,dm,assistant)&select=id,kind,name&order=name'),
+      api('/spaces?kind=in.(channel,dm,assistant)&select=id,kind,name,everyone&order=name'),
       api('/members?select=space_id,role,user:users(id,display_name)'),
     ]);
     setSpaces(s); setMembers(m);
@@ -117,7 +117,7 @@ export default function App() {
       setNotice(n);
       if (n.t === 'members') refreshSpaces().then(refreshUnread).catch(() => {});
       if (n.t === 'messages') refreshUnread();
-    }, setLive);
+    }, (s) => { if (s === 'disabled') setFatal('This account has been disabled. Ask a Weft admin if you think that is a mistake.'); else setLive(s); });
   }, [session, refreshSpaces, refreshUnread]);
 
   // A conversation that is no longer visible (left the space) falls back to the assistant.
@@ -168,7 +168,7 @@ export default function App() {
         <button className="avatar" type="button" aria-label={`Signed in as ${me.display_name}`} title={me.display_name}>{me.display_name.charAt(0).toUpperCase()}</button>
       </header>
 
-      <Chat me={me} spaces={spaces} members={members} unread={unread} active={ui.convo}
+      <Chat me={me} spaces={spaces} members={members} unread={unread} active={ui.convo} onSpacesChanged={refreshSpaces}
         setActive={(convo) => setUi((u) => ({ ...u, convo }))} rail={ui.rail} setRail={(rail) => setUi((u) => ({ ...u, rail }))}
         notice={notice} live={live} onOpenItem={openItem} onOpenEvent={openEvent} />
 
@@ -200,7 +200,7 @@ export default function App() {
                 ))}
               </ul>
             </div>
-          ) : ui.active === 'settings' ? (isAdmin ? <AdminPanel /> : null)
+          ) : ui.active === 'settings' ? (isAdmin ? <AdminPanel me={me} /> : null)
             : ui.active === 'documents' ? <Docs key="documents" kind="document" me={me} members={members} notice={notice} openId={ui.doc} setOpenId={(doc) => setUi((u) => ({ ...u, doc }))} />
             : ui.active === 'wiki' ? <Docs key="wiki" kind="wiki" me={me} members={members} notice={notice} openId={ui.page} setOpenId={(page) => setUi((u) => ({ ...u, page }))} />
             : ui.active === 'whiteboard' ? <Docs key="whiteboard" kind="whiteboard" me={me} members={members} notice={notice} openId={ui.board} setOpenId={(board) => setUi((u) => ({ ...u, board }))} />

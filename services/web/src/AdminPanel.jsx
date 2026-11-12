@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { assistant } from './api.js';
+import { AdminUsers } from './People.jsx';
 
 const KIND_LABEL = { anthropic: 'Anthropic', openai: 'OpenAI-compatible', ollama: 'Ollama' };
 const usd = (n) => (n === null || n === undefined || n === '' ? '' : `$${Number(n).toFixed(2)}`);
@@ -80,7 +81,7 @@ function Slot({ slot, initial, onSaved }) {
   );
 }
 
-export default function AdminPanel() {
+export default function AdminPanel({ me }) {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState('');
   const load = useCallback(() => assistant('/admin/providers').then(setRows).catch((e) => setError(e.message)), []);
@@ -88,7 +89,9 @@ export default function AdminPanel() {
 
   return (
     <div className="admin">
-      <h2>Assistant settings</h2>
+      <h2>Settings</h2>
+      <AdminUsers me={me} />
+      <h2 className="admin-sub">Assistant</h2>
       <p className="admin-lead">Weft asks the primary first and falls back to the secondary when the primary has no key, reaches its monthly cap, times out or errors. It never re-asks a question the primary declined. Every answer shows which model wrote it.</p>
       {error ? <p role="alert" className="send-error">Settings could not load: {error}</p>
         : !rows ? <div className="skeleton" aria-label="Loading settings"><span /><span /><span /></div>

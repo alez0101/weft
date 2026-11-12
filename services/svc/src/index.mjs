@@ -105,6 +105,7 @@ function handler(mode) {
       if (req.method === 'GET' && url.pathname === '/healthz') return send(res, 200, { ok: true, sockets: sockets.size });
       send(res, 404, { error: 'not found' });
     } catch (e) {
+      if (e.code === 'WD001') return send(res, 403, { error: 'This account is disabled. Ask a Weft admin.' });
       log('error', url.pathname, e.message);
       send(res, 500, { error: 'internal error' });
     }
@@ -151,6 +152,12 @@ async function deliver(notice) {
     for (const [ws, e] of sockets) {
       if (e.user === notice.user) e.spaces = await spacesOf(e.user);
     }
+  }
+  if (notice.t === 'account') {
+    // An admin disabled (or enabled) an account: its sockets close now; the client's reconnect is refused
+    // at sign-in. Nothing about it is sent to anyone else.
+    for (const [ws, e] of sockets) if (e.user === notice.user && notice.disabled) ws.close(4003, 'account disabled');
+    return;
   }
   const text = JSON.stringify(notice);
   for (const [ws, e] of sockets) {
