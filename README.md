@@ -1,9 +1,9 @@
-# Unified Collaboration Workspace
+# Weft
 
-Homelab prototype: one Postgres data layer with thin views on top (grid, calendar,
+The thread woven through every view. Homelab prototype of a unified collaboration workspace: one Postgres data layer with thin views on top (grid, calendar,
 docs, whiteboard, chat), where permissions follow the data. Runs on the Weft server.
 
-Plan of record lives in Notion: Second Brain / Projects / Unified Collaboration Workspace.
+Plan of record lives in Notion: Second Brain / Projects / Weft.
 
 ## Layout
 

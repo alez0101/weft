@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a synthetic Porchfest-style dataset for the collab-workspace prototype.
+"""Generate a synthetic Porchfest-style dataset for the Weft prototype.
 
 Everything is fabricated: people, bands, streets and emails are invented, and emails
 use the reserved example.com domain. Seeded, so every run produces identical files.
