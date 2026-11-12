@@ -9,6 +9,7 @@ import { withCollaboration } from '@blocknote/core/yjs'; // Yjs 13 binding, matc
 import { BlockNoteView } from '@blocknote/mantine';
 import '@blocknote/mantine/style.css';
 import { api, currentToken } from './api.js';
+import { useEffectiveMode } from './mode.js';
 
 // Cursor colours come from the theme tokens (deeper tints so the name tags stay readable).
 const CURSOR_TOKENS = ['--color-accent-deep', '--color-accent', '--color-ink-2', '--color-muted'];
@@ -46,6 +47,7 @@ function Editor({ item, me, onStatus }) {
 }
 
 function SyncedEditor({ state, me, editable }) {
+  const appearance = useEffectiveMode();
   // BlockNote 0.57: collaboration is opted into with withCollaboration(); a bare `collaboration`
   // option is silently ignored and the editor runs on a private, unsynced document.
   const editor = useCreateBlockNote(withCollaboration({
@@ -55,7 +57,7 @@ function SyncedEditor({ state, me, editable }) {
       user: { id: me.id, name: me.display_name, color: colorFor(me.id) },
     },
   }), [state]);
-  return <BlockNoteView editor={editor} editable={editable} theme="light" />;
+  return <BlockNoteView editor={editor} editable={editable} theme={appearance} />;
 }
 
 export default function Docs({ kind, me, members, openId, setOpenId, notice }) {

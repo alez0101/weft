@@ -1,5 +1,5 @@
 /* Hallmark · shape: app screen · genre: modern-minimal · theme: Dose (deal 3/3, seed weft-in-browser-collaboration-suite-96a5·23962e76·2026-11-12·r0)
- * nav: top bar + persistent chat rail + in-page tab strip · signature: live chat beside the tab strip · states: loading, empty, error, full · dose: white
+ * nav: top bar + persistent chat rail + in-page tab strip · signature: live chat beside the tab strip · states: loading, empty, error, full · dose: white + night · modes: light+dark
  * axes: light/grotesk-sans/chromatic-green · posture: committed · contrast: pass · v2.0.0 */
 /* Hallmark · pre-emit critique: P2 H2 E2 S3 R2 V2 · weakest: E, app tabs are honest placeholders until their phases land */
 /* Additions for the real shell: sign-in, chat states, mention badge. Everything else is the mockup's app.css. */
@@ -87,3 +87,20 @@
 .item-link { border: 0; cursor: pointer; margin-left: var(--space-2xs); font-family: var(--font-body); }
 @media (max-width: 60rem) { .docs { grid-template-columns: minmax(0, 1fr); } .docs-list { border-right: 0; border-bottom: 1px solid var(--color-rule); } }
 .docs-main { padding-inline: var(--space-lg); }
+
+/* Dark mode: the theme switch, and BlockNote reading the same tokens in both modes. */
+.mode-switch {
+  height: var(--ctl-h); padding: 0 var(--space-xs); border: 1px solid var(--color-muted); border-radius: var(--radius-input);
+  background: var(--color-paper); color: var(--color-ink); font-size: var(--text-sm);
+}
+.mode-switch:hover { border-color: var(--color-ink-2); }
+.bn-container {
+  --bn-colors-editor-background: transparent; --bn-colors-editor-text: var(--color-ink);
+  --bn-colors-menu-background: var(--color-paper); --bn-colors-menu-text: var(--color-ink);
+  --bn-colors-tooltip-background: var(--color-paper-3); --bn-colors-tooltip-text: var(--color-ink);
+  --bn-colors-hovered-background: var(--color-paper-2); --bn-colors-hovered-text: var(--color-ink);
+  --bn-colors-selected-background: var(--color-accent-soft); --bn-colors-selected-text: var(--color-ink);
+  --bn-colors-disabled-background: var(--color-paper-2); --bn-colors-disabled-text: var(--color-muted);
+  --bn-colors-border: var(--color-rule); --bn-colors-side-menu: var(--color-muted);
+  --bn-font-family: var(--font-body);
+}

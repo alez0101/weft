@@ -184,7 +184,7 @@ body { height: 100dvh; background: var(--color-paper-2); }
 .tab-close:hover { background: var(--color-paper-3); color: var(--color-ink); }
 .tab-dot { width: 10px; height: 10px; border-radius: 3px; background: color-mix(in oklab, var(--t) 90%, var(--color-ink) 8%); }
 
-.panel { min-height: 0; overflow: auto; background: var(--color-paper); }
+.panel { min-height: 0; overflow: auto; background: var(--color-paper); color: var(--color-ink); }
 
 /* ---------- home ---------- */
 .home { max-width: 980px; margin-inline: auto; padding: var(--space-2xl) var(--space-xl); }

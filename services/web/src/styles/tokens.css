@@ -23,3 +23,35 @@
   --shadow-lift: 0 1px 1px oklch(30% 0.03 165 / 0.10), 8px 18px 28px -14px oklch(36% 0.06 165 / 0.32), 18px 40px 60px -30px oklch(40% 0.08 165 / 0.30);
   --tracking-display: -0.03em; --display-weight: 700;
 }
+
+/* Dark mode: Dose's night ground, every token re-derived (hue never moves), never inverted.
+   [data-mode] wins over the system preference; without it the device setting decides. */
+:root { color-scheme: light dark; }
+[data-mode="dark"] {
+  color-scheme: dark;
+  --color-paper: oklch(14% 0.01 170); --color-paper-2: oklch(17% 0.012 165); --color-paper-3: oklch(20.5% 0.016 160);
+  --color-ink: oklch(94% 0.01 160); --color-ink-2: oklch(84% 0.012 165); --color-muted: oklch(70% 0.02 165);
+  --color-rule: oklch(31% 0.018 150);
+  --color-accent: oklch(72% 0.11 160); --color-accent-deep: oklch(64% 0.1 162); --color-accent-soft: oklch(33% 0.05 160); --color-accent-ink: oklch(16% 0.02 165);
+  --color-focus: oklch(76% 0.12 160);
+  --color-error: oklch(70% 0.15 27); --color-success: oklch(72% 0.11 150);
+  --p-mon: oklch(46% 0.05 22); --p-tue: oklch(48% 0.055 64); --p-wed: oklch(52% 0.06 98); --p-thu: oklch(47% 0.07 160);
+  --p-fri: oklch(47% 0.045 210); --p-sat: oklch(45% 0.045 270); --p-sun: oklch(45% 0.045 322);
+  --light: oklch(30% 0.012 84); --glint: oklch(92% 0.01 160 / 0.22);
+  --shadow-card: 0 0 0 0 transparent; --shadow-lift: inset 0 0 0 1px var(--color-rule);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-mode]) {
+    color-scheme: dark;
+    --color-paper: oklch(14% 0.01 170); --color-paper-2: oklch(17% 0.012 165); --color-paper-3: oklch(20.5% 0.016 160);
+    --color-ink: oklch(94% 0.01 160); --color-ink-2: oklch(84% 0.012 165); --color-muted: oklch(70% 0.02 165);
+    --color-rule: oklch(31% 0.018 150);
+    --color-accent: oklch(72% 0.11 160); --color-accent-deep: oklch(64% 0.1 162); --color-accent-soft: oklch(33% 0.05 160); --color-accent-ink: oklch(16% 0.02 165);
+    --color-focus: oklch(76% 0.12 160);
+    --color-error: oklch(70% 0.15 27); --color-success: oklch(72% 0.11 150);
+    --p-mon: oklch(46% 0.05 22); --p-tue: oklch(48% 0.055 64); --p-wed: oklch(52% 0.06 98); --p-thu: oklch(47% 0.07 160);
+    --p-fri: oklch(47% 0.045 210); --p-sat: oklch(45% 0.045 270); --p-sun: oklch(45% 0.045 322);
+    --light: oklch(30% 0.012 84); --glint: oklch(92% 0.01 160 / 0.22);
+    --shadow-card: 0 0 0 0 transparent; --shadow-lift: inset 0 0 0 1px var(--color-rule);
+  }
+}

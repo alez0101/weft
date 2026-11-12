@@ -3,6 +3,7 @@ import { api, authMode, connectLive, signIn } from './api.js';
 import Chat from './Chat.jsx';
 import AdminPanel from './AdminPanel.jsx';
 import Docs from './Docs.jsx';
+import { applyMode, storedMode } from './mode.js';
 
 const APPS = [
   { id: 'documents', label: 'Documents', tint: '--p-thu', real: true, glyph: <><path d="M11 6h13l7 7v21H11z" /><path d="M24 6v7h7M16 20h10M16 25h10M16 30h6" /></> },
@@ -81,6 +82,7 @@ export default function App() {
   const [notice, setNotice] = useState(null);
   const [live, setLive] = useState('connecting');
   const [isAdmin, setIsAdmin] = useState(null); // null until known
+  const [theme, setModeState] = useState(storedMode);
 
   useEffect(() => { authMode().then(setMode).catch((e) => setFatal(e.message)); }, []);
 
@@ -154,6 +156,10 @@ export default function App() {
           <input type="search" placeholder="Search arrives with the assistant" disabled />
         </label>
         <span className="mock-note">{mode === 'test' ? 'Test sign-in, sample data' : 'Sample data'}</span>
+        <label className="visually-hidden" htmlFor="mode-switch">Appearance</label>
+        <select id="mode-switch" className="mode-switch" value={theme} onChange={(e) => { applyMode(e.target.value); setModeState(e.target.value); }}>
+          <option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option>
+        </select>
         <button className="avatar" type="button" aria-label={`Signed in as ${me.display_name}`} title={me.display_name}>{me.display_name.charAt(0).toUpperCase()}</button>
       </header>
 
