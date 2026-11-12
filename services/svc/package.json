@@ -1,0 +1,17 @@
+{
+  "name": "weft-svc",
+  "private": true,
+  "type": "module",
+  "description": "Weft sign-in (Cloudflare Access -> Weft token) and live notifications (LISTEN/NOTIFY -> websockets)",
+  "scripts": {
+    "start": "node src/index.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "jose": "^6.2.17",
+    "pg": "^8.23.1",
+    "ws": "^8.22.2"
+  }
+}

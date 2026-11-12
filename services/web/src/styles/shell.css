@@ -1,0 +1,23 @@
+/* Hallmark · shape: app screen · genre: modern-minimal · theme: Dose (deal 3/3, seed weft-in-browser-collaboration-suite-96a5·23962e76·2026-11-12·r0)
+ * nav: top bar + persistent chat rail + in-page tab strip · signature: live chat beside the tab strip · states: loading, empty, error, full · dose: white
+ * axes: light/grotesk-sans/chromatic-green · posture: committed · contrast: pass · v2.0.0 */
+/* Hallmark · pre-emit critique: P2 H2 E2 S3 R2 V2 · weakest: E, app tabs are honest placeholders until their phases land */
+/* Additions for the real shell: sign-in, chat states, mention badge. Everything else is the mockup's app.css. */
+
+#root { display: contents; }
+
+.signin { display: grid; align-content: center; justify-items: start; gap: var(--space-sm); min-height: 100dvh; max-width: 520px; margin-inline: auto; padding: var(--space-xl); }
+.signin h1 { font-size: var(--text-section); }
+.signin p { color: var(--color-ink-2); }
+.signin-list { list-style: none; margin: var(--space-sm) 0 0; padding: 0; display: grid; gap: var(--space-xs); width: 100%; }
+.signin-list .btn { width: 100%; text-align: left; }
+.signin-error { color: var(--color-ink); background: var(--color-paper-3); padding: var(--space-xs) var(--space-sm); border-radius: var(--radius-input); }
+
+.convo-empty { padding: var(--space-2xs) var(--space-xs); font-size: var(--text-sm); color: var(--color-muted); }
+.convo-count.has-mention { background: var(--color-accent-deep); }
+.thread-empty { display: grid; gap: var(--space-xs); align-content: start; padding: var(--space-md); color: var(--color-ink-2); font-size: var(--text-sm); list-style: none; }
+.skeleton--chat { margin: 0; padding: var(--space-md); }
+.send-error { padding: var(--space-2xs) var(--space-md); font-size: var(--text-sm); color: var(--color-ink); background: var(--color-paper-3); }
+.btn:disabled:hover { filter: none; }
+.composer input:disabled { background: var(--color-paper-2); cursor: not-allowed; }
+.empty .tile { margin-bottom: var(--space-xs); }

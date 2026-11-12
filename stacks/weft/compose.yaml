@@ -1,5 +1,7 @@
-# Weft Phase 2: the data layer. Postgres + pgvector, PostgREST in front.
-# Both bound to 127.0.0.1 only: nothing here is reachable from the LAN or the tunnel yet.
+# Weft: Postgres + pgvector, PostgREST, weft-svc (sign-in + live), and web (nginx + the React shell).
+# Postgres and PostgREST are bound to 127.0.0.1 only. web is the one way in:
+#   3010 on localhost and the LAN IP (the homelab host's tunnel -> weft.example.org, behind Cloudflare Access)
+#   3011 on localhost only (test sign-in for the seeded example.com accounts)
 # Rebuild from nothing with ../../db/reset.sh
 name: weft-core
 
@@ -36,6 +38,29 @@ services:
       PGRST_LOG_LEVEL: warn
     ports:
       - "127.0.0.1:3100:3000"
+
+  svc:
+    build: ../../services/svc
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DATABASE_URL_AUTH: postgres://weft_auth:${AUTH_SVC_PASSWORD:?}@postgres:5432/weft
+      DATABASE_URL_NOTIFY: postgres://weft_notify:${NOTIFY_SVC_PASSWORD:?}@postgres:5432/weft
+      JWT_SECRET: ${JWT_SECRET}
+      TOKEN_TTL: "900"
+      ACCESS_TEAM_DOMAIN: ${ACCESS_TEAM_DOMAIN:?}
+      ACCESS_AUD: ${ACCESS_AUD:?}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+
+  web:
+    build: ../../services/web
+    restart: unless-stopped
+    depends_on: [postgrest, svc]
+    ports:
+      - "127.0.0.1:3010:80"
+      - "192.0.2.10:3010:80"
+      - "127.0.0.1:3011:8081"
 
 volumes:
   pg_data:
