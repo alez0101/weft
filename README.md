@@ -8,7 +8,9 @@ Plan of record lives in Notion: Second Brain / Projects / Unified Collaboration 
 ## Layout
 
 - `stacks/` - one Compose project per stack (Phase 1: `colanode/`)
-- `data/` - test dataset (Porchfest Modesto schedule CSV), not committed if it holds personal info
+- `data/sample/` - **synthetic** Porchfest-style dataset (fake people, streets, bands; example.com emails),
+  regenerate with `python3 -I tools/gen_sample.py`. Real data, if ever used, goes in `data/` and is git-ignored.
+- `tools/` - helper scripts
 - `docs/` - phase write-ups and findings
 
 ## the Weft server notes
