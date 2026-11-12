@@ -28,7 +28,14 @@
   <!-- Chat rail: always visible, like Teams -->
   <aside class="rail" aria-label="Chat">
     <nav class="convos" aria-label="Conversations">
-      <h2 class="rail-title">Chat</h2>
+      <div class="rail-head">
+        <h2 class="rail-title">Chat</h2>
+        <div class="rail-size" role="group" aria-label="Chat width">
+          <button class="icon-btn" type="button" data-rail="collapsed" aria-label="Collapse chat" title="Collapse chat"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 5 7.5 10l5 5"/></svg></button>
+          <button class="icon-btn" type="button" data-rail="normal" aria-label="Normal chat width" title="Normal width"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3.5" y="4.5" width="13" height="11" rx="1.5"/><path d="M8 4.5v11"/></svg></button>
+          <button class="icon-btn" type="button" data-rail="wide" aria-label="Expand chat" title="Expand chat"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 5l5 5-5 5"/></svg></button>
+        </div>
+      </div>
       <ul class="convo-list">
         <li><button class="convo is-active" data-convo="weft" aria-current="true"><span class="who who--agent" aria-hidden="true">W</span><span class="convo-name">Weft</span><span class="convo-meta">assistant</span></button></li>
       </ul>

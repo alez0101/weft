@@ -43,14 +43,16 @@
   const $ = (s, el = document) => el.querySelector(s);
   const tabsEl = $('#tabs');
   const stage = $('.stage');
-  let state = { tabs: [], active: 'home', convo: 'weft', row: null };
+  let state = { tabs: [], active: 'home', convo: 'weft', row: null, rail: 'normal' };
+  const RAILS = ['collapsed', 'normal', 'wide'];
+  const shell = $('.shell');
 
   // ---------- URL state ----------
   const readHash = () => {
     const h = new URLSearchParams(location.hash.slice(1));
     const tabs = (h.get('tabs') || '').split(',').filter((t) => APPS[t]);
     const active = h.get('active');
-    return { tabs, active: active === 'home' || tabs.includes(active) ? active : 'home', convo: CONVOS[h.get('convo')] ? h.get('convo') : 'weft', row: h.get('row') };
+    return { tabs, active: active === 'home' || tabs.includes(active) ? active : 'home', convo: CONVOS[h.get('convo')] ? h.get('convo') : 'weft', row: h.get('row'), rail: RAILS.includes(h.get('chat')) ? h.get('chat') : 'normal' };
   };
   const writeHash = () => {
     const h = new URLSearchParams();
@@ -58,6 +60,7 @@
     h.set('active', state.active);
     h.set('convo', state.convo);
     if (state.row) h.set('row', state.row);
+    if (state.rail !== 'normal') h.set('chat', state.rail);
     history.replaceState(null, '', '#' + h.toString());
   };
 
@@ -180,6 +183,19 @@
     }, 700);
   }
 
+  // ---------- chat width ----------
+  function setRail(size) {
+    state.rail = size;
+    if (size === 'normal') shell.removeAttribute('data-rail'); else shell.dataset.rail = size;
+    writeHash();
+  }
+  // Names stay readable when the rail collapses to icons.
+  for (const b of document.querySelectorAll('.convo')) {
+    const name = b.querySelector('.convo-name').textContent;
+    b.setAttribute('aria-label', name); b.title = name;
+    const hash = b.querySelector('.hash'); if (hash) hash.dataset.initial = name.charAt(0);
+  }
+
   // ---------- wiring ----------
   document.addEventListener('click', (e) => {
     const closer = e.target.closest('[data-close]');
@@ -188,8 +204,10 @@
     if (opener) { e.preventDefault(); open(opener.dataset.open, opener.dataset.row); return; }
     const tab = e.target.closest('.tab');
     if (tab) { activate(tab.dataset.tab); return; }
+    const size = e.target.closest('.rail-size [data-rail]');
+    if (size) { setRail(size.dataset.rail); return; }
     const convo = e.target.closest('.convo');
-    if (convo) renderConvo(convo.dataset.convo);
+    if (convo) { if (state.rail === 'collapsed') setRail('normal'); renderConvo(convo.dataset.convo); }
   });
 
   // Arrow keys move along the tab strip; Delete closes a tab.
@@ -215,6 +233,7 @@
   // Restore from the URL.
   const saved = readHash();
   state.row = saved.row;
+  setRail(saved.rail);
   for (const t of saved.tabs) { state.tabs.push(t); buildTab(t); buildPanel(t); }
   activate(saved.active);
   renderConvo(saved.convo);

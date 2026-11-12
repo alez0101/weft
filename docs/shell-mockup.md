@@ -9,5 +9,6 @@ Teams-like chat rail on the left with the AI assistant as a chat participant.
 - Sample data only, taken from `data/sample/`. Nothing saves; tab and chat state live in the URL.
 - Try: click "Schedule sheet, row 18" in the Weft chat (opens Sheets with the row highlighted),
   open apps from Home, switch channels, type `@Weft` in a channel, reload (tabs survive).
+- The chat rail collapses to an icon strip or widens (buttons in its header; kept in the URL as `chat=`).
 - The assistant's replies to new messages are canned: it says it is a mockup.
 - Design pass: Hallmark, app scope, Dose theme; lint clean (0 FAIL).
