@@ -119,7 +119,7 @@ export default function Chat({ me, spaces, members, unread, active: activeRaw, s
   };
 
   const title = current?.kind === 'assistant' || active === ASSISTANT ? 'Weft' : current ? (current.kind === 'channel' ? `# ${current.name}` : nameOf(current)) : '';
-  const sub = current?.kind === 'assistant' ? 'Answers from everything you can open, with sources. In a channel, @Weft answers only from that channel.'
+  const sub = current?.kind === 'assistant' ? 'Answers from everything you can open, with links to where each answer came from. In a channel, @Weft answers only from that channel.'
     : current?.kind === 'channel' ? `${members.filter((m) => m.space_id === current.id).length} members` : 'Direct message';
 
   return (

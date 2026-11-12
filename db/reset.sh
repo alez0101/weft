@@ -18,6 +18,7 @@ for f in "$repo"/db/migrations/*.sql; do
 done
 echo "seed"
 python3 -I "$repo/tools/gen_seed.py" | psql_owner
+python3 -I "$repo/tools/seed_help.py" | psql_owner   # the help wiki, from docs/help/
 dc up -d --build postgrest svc assistant collab web >/dev/null
 for i in $(seq 1 30); do
   curl -sf -o /dev/null http://127.0.0.1:3100/ -H "Accept: application/openapi+json" && break

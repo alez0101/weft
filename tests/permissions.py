@@ -25,17 +25,17 @@ NAME = {"u-alex": "Alex", "u-org": "Olive", "u-vol": "Vic", "u-pub": "Pat"}
 
 # Expected membership, from data/sample/members.csv plus the seeded DMs and personal spaces.
 SPACES = {
-    "u-alex": {"festival": "owner", "volunteers": "owner", "organizers": "owner", "dm-alex-olive": "editor", "personal-u-alex": "owner", "assistant-u-alex": "owner"},
-    "u-org": {"festival": "editor", "volunteers": "editor", "organizers": "editor", "dm-alex-olive": "editor", "dm-olive-vic": "editor", "personal-u-org": "owner", "assistant-u-org": "owner"},
-    "u-vol": {"festival": "viewer", "volunteers": "editor", "dm-olive-vic": "editor", "personal-u-vol": "owner", "assistant-u-vol": "owner"},
-    "u-pub": {"festival": "viewer", "personal-u-pub": "owner", "assistant-u-pub": "owner"},
+    "u-alex": {"festival": "owner", "volunteers": "owner", "organizers": "owner", "dm-alex-olive": "editor", "personal-u-alex": "owner", "assistant-u-alex": "owner", "help": "owner"},
+    "u-org": {"festival": "editor", "volunteers": "editor", "organizers": "editor", "dm-alex-olive": "editor", "dm-olive-vic": "editor", "personal-u-org": "owner", "assistant-u-org": "owner", "help": "viewer"},
+    "u-vol": {"festival": "viewer", "volunteers": "editor", "dm-olive-vic": "editor", "personal-u-vol": "owner", "assistant-u-vol": "owner", "help": "viewer"},
+    "u-pub": {"festival": "viewer", "personal-u-pub": "owner", "assistant-u-pub": "owner", "help": "viewer"},
 }
 SID = {k: uid("space", k) for s in SPACES.values() for k in s}
 KEY_OF = {v: k for k, v in SID.items()}
 # Which spaces were seeded with rows of each kind.
 SEEDED = {
     "messages": {"festival", "volunteers", "organizers", "dm-alex-olive", "dm-olive-vic"},
-    "items": {"festival", "volunteers", "organizers", "personal-u-alex"},
+    "items": {"festival", "volunteers", "organizers", "personal-u-alex", "help"},
     "events": {"festival", "volunteers"},
 }
 HOST_CONTACTS = uid("item", "host-contacts")

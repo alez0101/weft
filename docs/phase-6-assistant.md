@@ -40,6 +40,16 @@ Built 2026-11-12; this completes version 1. `tests/run.sh` passes 190 checks fro
     policy. **Undo removes the event with the asker's own token**, so the assistant still never deletes.
   - The instructions let Weft describe what it can do without citations, and stop it saying "sources".
 
+## The help wiki (2026-11-12)
+
+Weft's own documentation lives in Weft: the **help** channel's wiki ("Weft help" with pages on what Weft
+can do, how to ask it, who can see what, and assistant settings). The source is `docs/help/*.md`
+(front matter: title, parent); `tools/seed_help.py` turns it into wiki pages, on every reset and safely
+on the live database (it never overwrites a page that exists, so edits made in Weft survive). The channel
+is flagged `everyone` (`012_everyone_spaces.sql`): each sign-in adds the person as a viewer; admins own it.
+Weft can answer "how do I..." from these pages in your Weft conversation; in other channels it cannot, by
+the channel rule. To publish a change made in Weft back to the repo, copy the page text into the file.
+
 ## Changing the stand-in models
 
 `services/assistant/test/assistant.mjs` serves both formats from one process: OpenAI-compatible at `/primary`
