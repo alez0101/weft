@@ -47,9 +47,23 @@ Built 2026-11-12. `tests/run.sh` now runs three suites from a clean rebuild: 95 
 - Only admins read or change settings; keys never come back; you cannot ask with someone else's
   message or about one you cannot see; in a channel Weft answers only when mentioned.
 
+## Learned from the real fallback model (qwen2.5:3b)
+
+- It cited sources while saying it found nothing, and later wrote only citation markers. Fixes: an
+  exact `NOT_FOUND` reply that Weft turns into its "couldn't find" message, a worked example of the
+  answer format in the instructions, and a guard that turns a words-free reply into "Here is what I
+  found" over the source chips.
+- Earlier @Weft questions were being retrieved as if they were answers; messages that ask @Weft are
+  now excluded from sources.
+- It still misses questions that need reasoning about authors ("who asked about ..."). Expected for
+  a 3B fallback; the primary should handle them.
+
 ## Not done yet
 
-- **Ollama on the homelab host is not reachable from the Weft server**: it listens only on the homelab host's docker0
-  (10.100.0.1), deliberately. Needs a decision before it can be the fallback.
+- Done 2026-11-12: Ollama on the homelab host now also listens on its LAN IP (`192.0.2.20:11434`), Alex's
+  choice over a tunnel. The docker0 binding stays for another app and another service. Backup:
+  `a backup of the Ollama compose file`. Ollama has no login, so anything on
+  the LAN can use it; remove the LAN line in that compose file to undo. Fallback model is
+  `qwen2.5:3b`, because the homelab host keeps at most two models loaded (qwen2.5:3b + nomic-embed-text).
 - **The Anthropic key**: Alex creates one in the Anthropic console and enters it in Settings.
 - Semantic (vector) search: full-text only in 3b; pgvector embeddings come with Phase 6.

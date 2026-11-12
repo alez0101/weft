@@ -71,7 +71,7 @@ async function retrieve(token, question, spaceId, scoped, excludeId) {
   const terms = [...new Set(question.toLowerCase().replace(/@weft\b/g, ' ').match(/[a-z0-9][a-z0-9'-]{1,}/g) || [])]
     .filter((w) => !STOP.has(w)).slice(0, 8);
   const found = new Map();
-  const add = (rows) => rows.forEach((r) => { if (!r.author?.is_assistant && r.space?.kind !== 'assistant' && r.id !== excludeId) found.set(r.id, r); });
+  const add = (rows) => rows.forEach((r) => { if (!r.author?.is_assistant && r.space?.kind !== 'assistant' && r.id !== excludeId && !/@weft\b/i.test(r.body)) found.set(r.id, r); });
   if (terms.length) {
     const q = encodeURIComponent(terms.join(' or '));
     add(await rest(token, `/messages?select=${SELECT}&body=wfts(english).${q}&order=created_at.desc&limit=12`));
@@ -80,7 +80,7 @@ async function retrieve(token, question, spaceId, scoped, excludeId) {
   return [...found.values()].sort((a, b) => a.created_at.localeCompare(b.created_at)).slice(-20);
 }
 
-const SYSTEM = `You are Weft, the assistant inside a small team's workspace. Answer the question using only the numbered sources provided. Cite every fact with its source number in square brackets, like [2]. If the sources do not answer the question, say that you could not find it in what this person can see, and do not guess. Never mention, invent or speculate about sources you were not given. Keep answers short and plain.`;
+const SYSTEM = `You are Weft, the assistant inside a small team's workspace. Answer the question using only the numbered sources provided. Cite every fact with its source number in square brackets, like [2]. If the sources do not contain the answer, reply with exactly NOT_FOUND and nothing else; do not guess. Never mention, invent or speculate about sources you were not given. Address the asker as you. Keep answers short and plain: one or two full sentences.\n\nExample. Sources: [1] #festival, Olive, 2026-04-01 09:00: The info booth opens at 11:00. Question: When does the info booth open? Answer: The info booth opens at 11:00 [1].`;
 
 function prompt(question, sources) {
   const lines = sources.map((s, i) => `[${i + 1}] ${s.space.kind === 'channel' ? `#${s.space.name}` : 'direct message'}, ${s.author?.display_name}, ${s.created_at.slice(0, 16).replace('T', ' ')}: ${s.body}`);
@@ -185,13 +185,16 @@ async function ask(user, messageId) {
     } else if (result.refused) {
       body = "I can't help with that one.";
     } else {
-      const used = [...new Set([...result.text.matchAll(/\[(\d{1,2})\]/g)].map((m) => Number(m[1])))].filter((n) => n >= 1 && n <= sources.length);
+      const notFound = /^\W*NOT_FOUND\W*$/i.test(result.text) || result.text.includes('NOT_FOUND');
+      const used = notFound ? [] : [...new Set([...result.text.matchAll(/\[(\d{1,2})\]/g)].map((m) => Number(m[1])))].filter((n) => n >= 1 && n <= sources.length);
       if (!used.length) {
         body = "I couldn't find anything about that in what you can see.";
       } else {
         // Renumber the citations in order of first use so the chips read 1, 2, 3.
         const order = new Map(used.map((n, i) => [n, i + 1]));
         body = result.text.replace(/\[(\d{1,2})\]/g, (all, n) => (order.has(Number(n)) ? `[${order.get(Number(n))}]` : ''));
+        // A reply made only of citation markers is not an answer; show the sources plainly instead.
+        if (!/[a-z]{3,}/i.test(body.replace(/\[\d+\]/g, ''))) body = `Here is what I found: ${used.map((n) => `[${order.get(n)}]`).join(' ')}`;
         citations = used.map((n) => {
           const s = sources[n - 1];
           return { id: s.id, space_id: s.space_id, label: `${s.space.kind === 'channel' ? `#${s.space.name}` : 'direct message'}, ${s.author?.display_name}` };

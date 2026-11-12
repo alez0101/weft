@@ -56,10 +56,11 @@ create table if not exists weft_private.assistant_runs (
 create index if not exists assistant_runs_month_idx on weft_private.assistant_runs (slot, at);
 
 -- Starting configuration (Alex, 2026-11-12): Anthropic primary, Ollama on the homelab host as fallback.
+-- qwen2.5:3b because the homelab host's Ollama keeps at most two models loaded (qwen2.5:3b + nomic-embed-text).
 -- No key yet; the admin enters it in the settings screen.
 insert into weft_private.providers (slot, kind, base_url, model, effort, monthly_cap_usd, price_in, price_out)
 values ('primary', 'anthropic', null, 'claude-opus-5-5', 'low', 10.00, 4.00, 20.00),
-       ('secondary', 'ollama', 'http://ollama-unreachable.invalid:11434', 'qwen3:4b', null, null, 0, 0)
+       ('secondary', 'ollama', 'http://192.0.2.20:11434', 'qwen2.5:3b', null, null, 0, 0)
 on conflict (slot) do nothing;
 
 -- ---------- the assistant service's login and its functions ----------
