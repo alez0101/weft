@@ -1,7 +1,9 @@
 # Weft Phase 1 baseline: Colanode 0.4.7 on the Weft server.
 # Adapted from colanode/colanode hosting/docker/docker-compose.yaml:
 # - versions pinned, secrets moved to .env (git-ignored), default passwords removed
-# - every port bound to 127.0.0.1 only. Docker-published ports bypass ufw, so a
+# - Postgres bound to 127.0.0.1 only; web and server also on the LAN IP so the homelab host's
+#   Cloudflare tunnel can reach them (public access goes through Cloudflare Access).
+# - Originally every port was bound to 127.0.0.1 only. Docker-published ports bypass ufw, so a
 #   0.0.0.0 binding would expose Postgres to the LAN regardless of firewall rules.
 # - local filesystem storage instead of S3/MinIO
 name: weft-colanode
@@ -54,12 +56,14 @@ services:
       - server_storage:/var/lib/colanode/storage
     ports:
       - "127.0.0.1:3000:3000"
+      - "192.0.2.10:3000:3000"   # LAN, for the homelab host's Cloudflare tunnel (weft.example.org /config and /client)
 
   web:
     image: ghcr.io/colanode/web:0.4.7
     restart: unless-stopped
     ports:
       - "127.0.0.1:4000:80"
+      - "192.0.2.10:4000:80"     # LAN, for the homelab host's Cloudflare tunnel (weft.example.org everything else)
 
 volumes:
   postgres_data:

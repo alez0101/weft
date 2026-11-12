@@ -1,16 +1,57 @@
 {
   "name": "Weft Colanode (the Weft server)",
-  "web": { "domain": "localhost:4000" },
-  "mode": "standalone",
-  "cors": { "origin": ["http://localhost:4000"], "maxAge": 7200 },
-  "account": { "verificationType": "automatic", "otpTimeout": 600, "google": { "enabled": false } },
-  "postgres": { "url": "env://POSTGRES_URL" },
-  "redis": { "url": "env://REDIS_URL", "db": 0, "eventsChannel": "events" },
-  "storage": {
-    "tus": { "locker": { "type": "redis", "prefix": "colanode:tus:lock" }, "cache": { "type": "none" } },
-    "provider": { "type": "file", "directory": "/var/lib/colanode/storage" }
+  "web": {
+    "domain": "weft.example.org"
   },
-  "email": { "enabled": false, "from": { "email": "colanode@example.com", "name": "Weft Colanode" } },
-  "workspace": { "maxFileSize": "104857600" },
-  "logging": { "level": "info" }
+  "mode": "standalone",
+  "cors": {
+    "origin": [
+      "https://weft.example.org",
+      "http://localhost:4000"
+    ],
+    "maxAge": 7200
+  },
+  "account": {
+    "verificationType": "manual",
+    "otpTimeout": 600,
+    "google": {
+      "enabled": false
+    }
+  },
+  "postgres": {
+    "url": "env://POSTGRES_URL"
+  },
+  "redis": {
+    "url": "env://REDIS_URL",
+    "db": 0,
+    "eventsChannel": "events"
+  },
+  "storage": {
+    "tus": {
+      "locker": {
+        "type": "redis",
+        "prefix": "colanode:tus:lock"
+      },
+      "cache": {
+        "type": "none"
+      }
+    },
+    "provider": {
+      "type": "file",
+      "directory": "/var/lib/colanode/storage"
+    }
+  },
+  "email": {
+    "enabled": false,
+    "from": {
+      "email": "colanode@example.com",
+      "name": "Weft Colanode"
+    }
+  },
+  "workspace": {
+    "maxFileSize": "104857600"
+  },
+  "logging": {
+    "level": "info"
+  }
 }
