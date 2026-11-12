@@ -1,6 +1,7 @@
 // Version 1.5 browser check: live cell edits and new rows across two browsers, viewer read-only, hidden Budget.
 // Targets the test stack (tests/run.sh --keep). Run from a dir with playwright (npm install playwright).
 const { chromium } = require('playwright');
+const SHOTS = process.env.WEFT_SHOTS || require('os').tmpdir(); // where screenshots go
 const BASE = process.env.WEFT_BASE || 'http://localhost:3211/';
 (async () => {
   const b = await chromium.launch(); const errs = [];
@@ -21,7 +22,7 @@ const BASE = process.env.WEFT_BASE || 'http://localhost:3211/';
   const t0 = Date.now();
   await alex.waitForFunction(([id]) => document.querySelector(`.ag-row[row-index="0"] [col-id="${id}"]`)?.innerText.includes('edited live'), [colId], { timeout: 6000 });
   console.log(`Alex saw Olive's cell edit live: ${Date.now() - t0} ms`);
-  await alex.screenshot({ path: '/tmp/pw/tables-alex-dark.png' });
+  await alex.screenshot({ path: SHOTS + '/tables-alex-dark.png' });
   await olive.getByRole('button', { name: 'Add row' }).click(); await olive.waitForTimeout(1500);
   console.log('Alex row count after Olive adds a row:', await alex.locator('.ag-row').count());
   const pat = await open('Pat Public');

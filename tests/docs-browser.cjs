@@ -2,6 +2,7 @@
 // Phase 4 browser check: co-editing, view-only, sharing, no-access. Run after db/reset.sh from a dir
 // with playwright installed (npm install playwright):  node <repo>/tests/docs-browser.cjs
 const { chromium } = require('playwright');
+const SHOTS = process.env.WEFT_SHOTS || require('os').tmpdir(); // where screenshots go
 (async () => {
   const b = await chromium.launch(); const errs = [];
   const open = async (who) => {
@@ -35,7 +36,7 @@ const { chromium } = require('playwright');
   await alex.keyboard.press('Control+End'); await alex.keyboard.press('Enter'); await alex.keyboard.type('Alex replies in the same doc');
   await olive.getByText('Alex replies in the same doc').waitFor({ timeout: 5000 });
   console.log('Olive saw Alex: yes');
-  await olive.screenshot({ path: '/tmp/pw/p4-coedit.png' });
+  await olive.screenshot({ path: SHOTS + '/p4-coedit.png' });
 
   const vic = await open('Vic Volunteer'); await openDoc(vic, 'Documents', 'Run of show');
   console.log('Vic status:', await vic.locator('.docs-status').innerText(), '| editable:', await vic.locator('.bn-editor').getAttribute('contenteditable'));
@@ -49,9 +50,9 @@ const { chromium } = require('playwright');
   await pat.locator('.item-link').last().click(); await pat.waitForTimeout(1200);
   console.log('Pat follows the link:', (await pat.locator('.docs-main').innerText()).split('\n')[0]);
   console.log('Pat list has Host contacts:', await pat.getByRole('button', { name: 'Host contacts' }).count());
-  await pat.screenshot({ path: '/tmp/pw/p4-noaccess.png' });
+  await pat.screenshot({ path: SHOTS + '/p4-noaccess.png' });
   await openDoc(pat, 'Wiki', 'Rain plan');
   console.log('Pat on Rain plan:', await pat.locator('.docs-status').innerText());
-  await pat.screenshot({ path: '/tmp/pw/p4-wiki.png' });
+  await pat.screenshot({ path: SHOTS + '/p4-wiki.png' });
   console.log('page errors:', errs); await b.close();
 })();

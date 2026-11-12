@@ -5,7 +5,7 @@ table column called "Needs power" and a message about a dead outlet. It adds no 
 
 ## How it works
 
-- **Embedder:** `nomic-embed-text` (768 dimensions) on the homelab host's Ollama, `http://192.0.2.20:11434/api/embed`.
+- **Embedder:** `nomic-embed-text` (768 dimensions) on an Ollama server on the LAN (`EMBED_URL`, e.g. `http://192.0.2.20:11434/api/embed`).
   Documents are embedded as `search_document: ...` and questions as `search_query: ...` (nomic's prefixes).
   Settings: `EMBED_URL`, `EMBED_MODEL`, `EMBED_DIM`, `SEMANTIC_MAX_DISTANCE` (default 0.7, cosine) on the
   assistant service.
@@ -28,7 +28,7 @@ table column called "Needs power" and a message about a dead outlet. It adds no 
 ## Tests
 
 The test stack points `EMBED_URL` at a stand-in inside the assistant suite (hashed bag of words with a small
-synonym map), never at the homelab host. The checks:
+synonym map), never at a real Ollama. The checks:
 
 - the worker embeds new messages;
 - Pat cannot read the embedding of an Organizers message, and her vector search never returns one;

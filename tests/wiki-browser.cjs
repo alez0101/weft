@@ -2,6 +2,7 @@
 // page republished while open reopens on the new text without duplicating it. Test stack (run.sh --keep).
 // Run from a dir with playwright (npm install playwright). WEFT_REPO points at the repo (for the publish step).
 const { chromium } = require('playwright');
+const SHOTS = process.env.WEFT_SHOTS || require('os').tmpdir(); // where screenshots go
 const { execSync } = require('child_process');
 const BASE = process.env.WEFT_BASE || 'http://localhost:3211/';
 const REPO = process.env.WEFT_REPO || `${process.env.HOME}/work/weft`;
@@ -25,7 +26,7 @@ const DC = `${DOCKER} compose -p weft-test -f ${REPO}/stacks/weft/compose.yaml -
   const text = await alex.locator('.docs-editor .bn-editor').innerText();
   out('index lists pages:', ['Accounts and access', 'Publishing the wikis', 'Technical specification', 'Architecture'].map((t) => `${t}=${text.includes(t)}`).join(' '));
   out('managed note:', await alex.locator('.docs-managed').count(), '| editable:', await alex.locator('.docs-editor [contenteditable="true"]').count(), '| Move/Delete controls:', await alex.locator('.docs-head select[id^="move-"]').count());
-  await alex.screenshot({ path: '/tmp/pw/wiki-admin-index.png' });
+  await alex.screenshot({ path: SHOTS + '/wiki-admin-index.png' });
   // Republish Troubleshooting with a change while Alex has it open.
   await alex.locator('.doc-link', { hasText: 'Troubleshooting' }).first().click(); await alex.waitForSelector('.docs-editor .bn-editor'); await alex.waitForTimeout(800);
   const before = (await alex.locator('.docs-editor .bn-editor').innerText()).length;

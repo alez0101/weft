@@ -18,7 +18,7 @@ alter role weft_auth password :'auth_svc_pw';
 alter role weft_notify password :'notify_svc_pw';
 
 -- First sign-in creates the person and a personal space. If bootstrap is true (the email matches
--- the configured admin), they are also made owner of every existing channel, so the real Alex
+-- the configured admin), they are also made owner of every existing channel, so the real admin
 -- can see the sample channels. Never called for anyone Cloudflare Access did not verify.
 create or replace function weft_private.provision_user(p_email text, p_name text, p_bootstrap boolean)
 returns table (id uuid, display_name text)

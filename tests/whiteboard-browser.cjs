@@ -1,6 +1,7 @@
 // Version 1.5 browser check: two people on one whiteboard, viewer in view mode, fonts served by Weft.
 // Targets the test stack (tests/run.sh --keep). Run from a dir with playwright (npm install playwright).
 const { chromium } = require('playwright');
+const SHOTS = process.env.WEFT_SHOTS || require('os').tmpdir(); // where screenshots go
 const BASE = process.env.WEFT_BASE || 'http://localhost:3211/';
 (async () => {
   const b = await chromium.launch(); const errs = []; const fontReqs = [];
@@ -27,7 +28,7 @@ const BASE = process.env.WEFT_BASE || 'http://localhost:3211/';
   await alex.waitForTimeout(2000);
   const after = await alex.screenshot({ clip: canvasBox });
   console.log("Alex's canvas changed live:", Buffer.compare(before, after) !== 0);
-  await olive.screenshot({ path: '/tmp/pw/board-olive.png' }); await alex.screenshot({ path: '/tmp/pw/board-alex.png' });
+  await olive.screenshot({ path: SHOTS + '/board-olive.png' }); await alex.screenshot({ path: SHOTS + '/board-alex.png' });
   const vic = await open('Vic Volunteer');
   await vic.getByRole('button', { name: 'Untitled whiteboard', exact: true }).click(); await vic.waitForSelector('.excalidraw'); await vic.waitForTimeout(1500);
   console.log('Vic status:', await vic.locator('.docs-status').innerText(), '| view-mode class:', await vic.locator('.excalidraw.excalidraw--view-mode, .excalidraw .view-mode').count());

@@ -15,13 +15,13 @@ plus `tests/two-browsers.cjs` (two signed-in browsers chatting). All pass.
 
 ## Two front doors
 
-- **3010, public** (`https://weft.example.org` through the homelab host's tunnel and Cloudflare Access). `/auth/session`
+- **3010, public** (`https://weft.example.org` through a Cloudflare tunnel and Cloudflare Access). `/auth/session`
   verifies the `Cf-Access-Jwt-Assertion` header against the team's published keys, issuer
   `https://yourteam.cloudflareaccess.com` and the app's AUD tag, then issues a 15-minute Weft token.
   First sign-in creates the person and a personal space; the address in `BOOTSTRAP_ADMIN_EMAIL`
   (stacks/weft/.env) is also made owner of every channel so it can see the sample data.
   `/auth/test-login` returns 404 here.
-- **3011, test** (127.0.0.1 only; not reachable from the LAN or the homelab host, verified). `/auth/test-login`
+- **3011, test** (127.0.0.1 only; not reachable from the LAN or the tunnel host, verified). `/auth/test-login`
   signs in the seeded `@example.com` accounts only; any other address is refused by the database.
   Use an SSH tunnel to reach it from a laptop: `ssh -L 3011:127.0.0.1:3011 user@weft-server`.
 
@@ -42,6 +42,6 @@ expired sockets are closed and the client reconnects with a fresh token.
 
 ## Verified
 
-- 2026-11-12: Alex signed in through Cloudflare Access at `https://weft.example.org` and chatted. No
-  verification failures in the svc log (AUD tag confirmed); his account was created on first sign-in.
+- 2026-11-12: the owner signed in through Cloudflare Access at `https://weft.example.org` and chatted. No
+  verification failures in the svc log (AUD tag confirmed); their account was created on first sign-in.
   If a future sign-in fails, `docker compose logs svc` names the reason (audience, issuer or signature).

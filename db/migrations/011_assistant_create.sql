@@ -1,4 +1,4 @@
--- 011: the assistant may propose creating an event (Alex, 2026-11-12: "can you schedule an event?").
+-- 011: the assistant may propose creating an event (asked for 2026-11-12, after "can you schedule an event?" got a no).
 -- Still confirmation-gated, still subject to row-level security: it creates only where the asker can
 -- edit, and only inside the token's scope. The assistant still cannot delete; undoing a created event
 -- is a delete performed with the asker's own token, after they press Undo.

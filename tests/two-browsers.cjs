@@ -3,6 +3,7 @@
 //   cd <dir with playwright installed> && node <repo>/tests/two-browsers.cjs
 // (a folder where `npm install playwright` was done)
 const { chromium } = require('playwright');
+const SHOTS = process.env.WEFT_SHOTS || require('os').tmpdir(); // where screenshots go
 (async () => {
   const b = await chromium.launch();
   const errs = [];
@@ -42,7 +43,7 @@ const { chromium } = require('playwright');
   await pat.waitForTimeout(1500);
   const leaked = await pat.getByText('Organizers only').count();
   console.log('Organizers message visible to Pat:', leaked, '| Pat rail has organizers:', (await rail(pat)).includes('organizers'));
-  await pat.screenshot({ path: '/tmp/pw/p3-pat.png' }); await olive.screenshot({ path: '/tmp/pw/p3-olive.png' });
+  await pat.screenshot({ path: SHOTS + '/p3-pat.png' }); await olive.screenshot({ path: SHOTS + '/p3-olive.png' });
   await pat.locator('.app').first().click(); await pat.waitForTimeout(300);
   console.log('Pat opens Documents tab:', await pat.locator('.tab').allInnerTexts());
   console.log('page errors:', errs);

@@ -2,6 +2,7 @@
 // Phase 6 browser check: proposal cards (confirm / dismiss / undo; others see who decides). Needs the
 // stand-in model (services/assistant/test/mock.mjs) configured as an anthropic primary at http://weft-mock:9009/anthropic.
 const { chromium } = require('playwright');
+const SHOTS = process.env.WEFT_SHOTS || require('os').tmpdir(); // where screenshots go
 (async () => {
   const b = await chromium.launch(); const errs = [];
   const open = async (who) => {
@@ -18,10 +19,10 @@ const { chromium } = require('playwright');
   console.log('Olive sees:', (await olive.locator('.proposal').last().innerText()).replace(/\n+/g, ' | '));
   await pat.locator('.proposal').last().waitFor({ timeout: 8000 });
   console.log('Pat sees:  ', (await pat.locator('.proposal').last().innerText()).replace(/\n+/g, ' | '));
-  await olive.screenshot({ path: '/tmp/pw/p6-proposal.png' });
+  await olive.screenshot({ path: SHOTS + '/p6-proposal.png' });
   await olive.locator('.proposal').last().getByRole('button', { name: 'Confirm' }).click(); await olive.waitForTimeout(1200);
   console.log('after Confirm:', (await olive.locator('.proposal').last().innerText()).replace(/\n+/g, ' | '));
-  await olive.screenshot({ path: '/tmp/pw/p6-done.png' });
+  await olive.screenshot({ path: SHOTS + '/p6-done.png' });
   await olive.locator('.proposal').last().getByRole('button', { name: 'Undo' }).click(); await olive.waitForTimeout(1200);
   console.log('after Undo:', (await olive.locator('.proposal').last().innerText()).replace(/\n+/g, ' | '));
   console.log('errors:', errs); await b.close();

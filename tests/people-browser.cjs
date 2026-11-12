@@ -2,6 +2,7 @@
 // disabling an account that is signed in. Targets the test stack (tests/run.sh --keep).
 // Run from a dir with playwright (npm install playwright).
 const { chromium } = require('playwright');
+const SHOTS = process.env.WEFT_SHOTS || require('os').tmpdir(); // where screenshots go
 const BASE = process.env.WEFT_BASE || 'http://localhost:3211/';
 (async () => {
   const b = await chromium.launch(); const errs = []; const out = (...a) => console.log(...a);
@@ -24,7 +25,7 @@ const BASE = process.env.WEFT_BASE || 'http://localhost:3211/';
   await olive.waitForSelector('.person:has-text("Vic Volunteer")');
   out('status:', await olive.locator('dialog .slot-status').innerText());
   out('Olive (last owner) role select disabled:', await olive.locator(`.person:has-text("(you)") select`).isDisabled());
-  await olive.screenshot({ path: '/tmp/pw/people-panel-light.png' });
+  await olive.screenshot({ path: SHOTS + '/people-panel-light.png' });
   // 2. Vic sees the channel appear without a reload.
   const t0 = Date.now();
   await vic.waitForSelector('.convo:has-text("Load-in crew")', { timeout: 6000 });
@@ -32,7 +33,7 @@ const BASE = process.env.WEFT_BASE || 'http://localhost:3211/';
   await vic.locator('.convo:has-text("Load-in crew")').click();
   await vic.getByRole('button', { name: /members, see people/ }).click(); await vic.waitForSelector('dialog.people[open] .person');
   out('Vic (editor) sees role selects:', await vic.locator('dialog.people select').count(), '| Leave button:', await vic.getByRole('button', { name: 'Leave channel' }).count(), '| Delete button:', await vic.getByRole('button', { name: 'Delete channel' }).count());
-  await vic.screenshot({ path: '/tmp/pw/people-panel-dark.png' });
+  await vic.screenshot({ path: SHOTS + '/people-panel-dark.png' });
   await vic.keyboard.press('Escape');
   // 3. Olive makes Vic owner, then leaves; Vic then deletes the channel (prompt answered with its name).
   const vicId = await olive.locator('.person:has-text("Vic Volunteer") select').getAttribute('id');
@@ -47,7 +48,7 @@ const BASE = process.env.WEFT_BASE || 'http://localhost:3211/';
   const pat = await open('Pat Public'); const alex = await open('Alex (test admin)');
   await alex.locator('.app:has-text("Settings")').click(); await alex.waitForSelector('.users-table tbody tr');
   out('accounts listed:', (await alex.locator('.users-table tbody th').allInnerTexts()).map((s) => s.split('\n')[0]).join(', '));
-  await alex.screenshot({ path: '/tmp/pw/people-admin-light.png' });
+  await alex.screenshot({ path: SHOTS + '/people-admin-light.png' });
   await alex.locator('.users-table tr:has-text("Pat Public") button').click();
   const t1 = Date.now();
   await pat.waitForSelector('text=This account has been disabled', { timeout: 8000 });

@@ -1,7 +1,7 @@
 # Phase 1: Colanode baseline
 
-**Status: dropped 2026-11-12.** Alex signed in and found it a navigable portal rather than the
-launch-a-tool suite he has in mind; also a poor agent backend (opaque JSONB, CRDT-only writes,
+**Status: dropped 2026-11-12.** The owner signed in and found it a navigable portal rather than the
+launch-a-tool suite they have in mind; also a poor agent backend (opaque JSONB, CRDT-only writes,
 per-space permissions, stalled upstream). Stack stopped and volumes removed; files kept for reference.
 Succeeded by `phase-1b-affine.md`.
 
@@ -29,13 +29,13 @@ Data: synthetic set loaded by `tools/colanode-loader/run.sh`. Test logins: `stac
 
 ## Access for the week of use
 
-`https://weft.example.org` through the homelab host's Cloudflare tunnel, behind Cloudflare Access (added 2026-11-12).
+`https://weft.example.org` through a Cloudflare tunnel on another host, behind Cloudflare Access (added 2026-11-12).
 Tunnel rules: `^/(config|client)(/|$)` -> `http://192.0.2.10:3000`, everything else ->
 `http://192.0.2.10:4000`, on one hostname so the Access cookie covers the API and websockets too.
-Web and server are therefore also bound to the Weft server's LAN IP (Postgres is not), and sign-ups are set
+Web and server are therefore also bound to the server's LAN IP (Postgres is not), and sign-ups are set
 to manual approval. In the app, add the server as `https://weft.example.org/config`.
 Temporary: remove both tunnel rules and the CNAME when Phase 1 ends (backup and undo notes in the
-cloudflared README on the homelab host).
+cloudflared notes on the tunnel host).
 
 ## The four questions
 

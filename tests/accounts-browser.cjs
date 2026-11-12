@@ -2,6 +2,7 @@
 // an invite link, staying signed in across a reload, signing out and in, a wrong password, and the
 // admin invite screen. Needs tests/run.sh --keep. Run from a dir with playwright (WEFT_REPO = the repo).
 const { chromium } = require('playwright');
+const SHOTS = process.env.WEFT_SHOTS || require('os').tmpdir(); // where screenshots go
 const { execSync } = require('child_process');
 const BASE = process.env.WEFT_PUBLIC || 'http://localhost:3210';
 const REPO = process.env.WEFT_REPO || `${process.env.HOME}/work/weft`;
@@ -14,7 +15,7 @@ const ROBIN = `robin.${Date.now().toString(36)}@example.org`;
   // 1. invite
   await p.goto(link(ROBIN), { waitUntil: 'networkidle' });
   out('link page:', (await p.locator('.signin-form p').first().innerText()).replace(/\s+/g, ' '));
-  await p.screenshot({ path: '/tmp/pw/accounts-invite.png' });
+  await p.screenshot({ path: SHOTS + '/accounts-invite.png' });
   await p.getByLabel('Your name, as others will see it').fill('Robin New');
   await p.getByLabel('Password (at least 12 characters)').fill('robin likes long passwords');
   await p.getByLabel('The same password again').fill('robin likes long passwords');
@@ -30,7 +31,7 @@ const ROBIN = `robin.${Date.now().toString(36)}@example.org`;
   await p.getByLabel('Email').fill(ROBIN); await p.getByLabel('Password').fill('not the password at all');
   await p.getByRole('button', { name: 'Sign in' }).click(); await p.waitForSelector('.signin-error');
   out('wrong password says:', await p.locator('.signin-error').innerText());
-  await p.screenshot({ path: '/tmp/pw/accounts-signin.png' });
+  await p.screenshot({ path: SHOTS + '/accounts-signin.png' });
   await p.getByLabel('Password').fill('robin likes long passwords'); await p.getByRole('button', { name: 'Sign in' }).click();
   await p.waitForSelector('.rail-title'); out('signed in again with the password');
   // 4. used link
@@ -46,7 +47,7 @@ const ROBIN = `robin.${Date.now().toString(36)}@example.org`;
   const url = await p2.locator('#new-link-url').inputValue();
   out('admin made an invite link:', url.startsWith(`${BASE}/#link=`), '| open links listed:', await p2.locator('.open-links li').count());
   out('password column:', (await p2.locator('.users-table tr:has-text("Robin New") td').nth(3).innerText()).split('\n')[0]);
-  await p2.screenshot({ path: '/tmp/pw/accounts-admin.png', fullPage: false });
+  await p2.screenshot({ path: SHOTS + '/accounts-admin.png', fullPage: false });
   const p3 = await (await b.newContext()).newPage();
   await p3.goto(link(ROBIN, true).replace(/#link=.*/, '#link=' + 'z'.repeat(43)), { waitUntil: 'networkidle' });
   await p3.waitForSelector('.signin-error'); out('bad link says:', await p3.locator('.signin-error').innerText());

@@ -12,7 +12,7 @@ Built 2026-11-12; this completes version 1. `tests/run.sh` passes 190 checks fro
 - Questions about time ("when", "schedule", "move" ...) also pull upcoming events in scope.
 - Citations carry a type; in the UI a message chip jumps to the message, a document chip opens Documents
   or Wiki, an event chip opens the Calendar on that event.
-- Full-text search only. Semantic search (pgvector + nomic-embed-text on the homelab host) is a possible follow-up.
+- Full-text search only. Semantic search (pgvector + nomic-embed-text on a LAN Ollama) is a possible follow-up.
 
 ## Acting (governed)
 
@@ -29,7 +29,7 @@ Built 2026-11-12; this completes version 1. `tests/run.sh` passes 190 checks fro
   cannot be unsent by the assistant (that would be a delete).
 - The fallback model is called without tools, so it can only answer.
 
-## Added after Alex's first real try (2026-11-12)
+## Added after the owner's first real try (2026-11-12)
 
 - "Can you schedule an event?" got a correct but unhelpful no (only change and send existed), and
   "actions available?" got "couldn't find anything" (the cite-or-NOT_FOUND rule covered questions about

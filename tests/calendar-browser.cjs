@@ -2,6 +2,7 @@
 // Phase 5 browser check (Pacific time): drag-create, live update, view-only, share link. Run after db/reset.sh
 // from a dir with playwright installed (npm install playwright):  node <repo>/tests/calendar-browser.cjs
 const { chromium } = require('playwright');
+const SHOTS = process.env.WEFT_SHOTS || require('os').tmpdir(); // where screenshots go
 (async () => {
   const b = await chromium.launch(); const errs = [];
   const open = async (who) => {
@@ -24,7 +25,7 @@ const { chromium } = require('playwright');
   const x = hb.x + hb.width / 2;
   await olive.waitForTimeout(1500);
   await olive.mouse.move(x, r10.y + 8); await olive.mouse.down(); await olive.mouse.move(x, r11.y - 4, { steps: 8 }); await olive.mouse.up();
-  await olive.waitForSelector('.cal-form', { timeout: 5000 }).catch(async (e) => { await olive.screenshot({ path: '/tmp/pw/cal-dragfail.png' }); throw e; });
+  await olive.waitForSelector('.cal-form', { timeout: 5000 }).catch(async (e) => { await olive.screenshot({ path: SHOTS + '/cal-dragfail.png' }); throw e; });
   console.log('draft time:', await olive.locator('.cal-form .cal-when').innerText());
   await olive.fill('#ev-title', 'Porch captain walkthrough'); await olive.selectOption('#ev-space', { label: '#festival' }); await olive.fill('#ev-loc', 'P01');
   const t0 = Date.now(); await olive.getByRole('button', { name: 'Add event' }).click();
@@ -39,7 +40,7 @@ const { chromium } = require('playwright');
   await pat.getByRole('tab', { name: 'Home' }).click(); await pat.getByRole('button', { name: 'festival', exact: true }).click(); await pat.waitForTimeout(1000);
   await pat.getByRole('button', { name: 'Open in Calendar' }).last().click(); await pat.waitForSelector('.cal-detail', { timeout: 6000 });
   console.log('Pat opened it from chat:', (await pat.locator('.cal-detail h3').innerText()));
-  await pat.screenshot({ path: '/tmp/pw/cal-pat.png' });
+  await pat.screenshot({ path: SHOTS + '/cal-pat.png' });
   // Day view of the festival.
   await olive.getByRole('button', { name: 'next' }).click().catch(() => {});
   console.log('errors:', errs); await b.close();

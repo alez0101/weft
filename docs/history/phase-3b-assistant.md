@@ -60,12 +60,11 @@ Built 2026-11-12. `tests/run.sh` now runs three suites from a clean rebuild: 95 
 
 ## Not done yet
 
-- Done 2026-11-12: Ollama on the homelab host now also listens on its LAN IP (`192.0.2.20:11434`), Alex's
-  choice over a tunnel. The docker0 binding stays for another app and another service. Backup:
-  `a backup of the Ollama compose file`. Ollama has no login, so anything on
-  the LAN can use it; remove the LAN line in that compose file to undo. Fallback model is
-  `qwen2.5:3b`, because the homelab host keeps at most two models loaded (qwen2.5:3b + nomic-embed-text).
-- Done 2026-11-12: Alex entered the Anthropic key in Settings. Test connection 1.0 s; real answers about
+- Done 2026-11-12: the Ollama host on the LAN now also listens on its LAN address (for example
+  `http://192.0.2.20:11434`), chosen over a tunnel; its existing Docker-network binding stays for the
+  other containers there. Ollama has no login, so anything on the LAN can use it. The fallback model is
+  `qwen2.5:3b`, because that host keeps at most two models loaded (qwen2.5:3b + nomic-embed-text).
+- Done 2026-11-12: the owner entered the Anthropic key in Settings. Test connection 1.0 s; real answers about
   1.7 s and $0.0015 to $0.0023 each (the $10 cap is roughly 5,000 questions). Claude answered correctly the
   author question qwen2.5:3b missed.
 - Semantic (vector) search: full-text only in 3b; pgvector embeddings come with Phase 6.
