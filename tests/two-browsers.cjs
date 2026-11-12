@@ -1,7 +1,7 @@
 // Targets the TEST stack by default (start it with: tests/run.sh --keep). WEFT_BASE overrides.
 // Two signed-in browsers chatting live on the test stack (127.0.0.1:3211). Run after tests/run.sh:
 //   cd <dir with playwright installed> && node <repo>/tests/two-browsers.cjs
-// (the Weft server: /tmp/pw has playwright; see the headless-browser memory.)
+// (a folder where `npm install playwright` was done)
 const { chromium } = require('playwright');
 (async () => {
   const b = await chromium.launch();

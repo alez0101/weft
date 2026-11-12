@@ -2,7 +2,7 @@
 // leave), creating a channel, and the admin list of accounts. Every rule is enforced by the database;
 // these screens only offer what the rules allow and show the database's answer when it says no.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api } from './api.js';
+import { api, auth } from './api.js';
 
 const ROLE = { owner: 'Owner', editor: 'Editor', viewer: 'Viewer' };
 const ROLE_HINT = { owner: 'manages the channel and its people', editor: 'writes documents, tables and events', viewer: 'reads and chats' };
@@ -150,10 +150,37 @@ export function NewChannel({ onCreated, onCancel }) {
   );
 }
 
-export function AdminUsers({ me }) {
+// A link made for someone, shown once: only a hash of its secret is kept.
+function NewLink({ link, onDone }) {
+  const url = `${location.origin}/#link=${link.token}`;
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="new-link" role="status">
+      <p>{link.purpose === 'invite' ? 'Invite' : 'Password reset'} link for <strong>{link.email}</strong>, single use, until {new Date(link.expires_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}. Send it to them privately; it is shown only now.</p>
+      <span className="pair">
+        <label className="visually-hidden" htmlFor="new-link-url">Link</label>
+        <input id="new-link-url" readOnly value={url} onFocus={(e) => e.target.select()} />
+        <button className="btn btn--sm" type="button" onClick={async () => { try { await navigator.clipboard.writeText(url); setCopied(true); } catch { document.getElementById('new-link-url').select(); } }}>{copied ? 'Copied' : 'Copy'}</button>
+        <button className="btn btn--sm" type="button" onClick={onDone}>Done</button>
+      </span>
+    </div>
+  );
+}
+
+export function AdminUsers({ me, info }) {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
+  const accounts = info?.methods?.includes('password');
+  const [links, setLinks] = useState([]);
+  const [made, setMade] = useState(null);
+  const [inviteTo, setInviteTo] = useState('');
+  const loadLinks = useCallback(() => (accounts ? auth('/admin/links').then(setLinks).catch(() => {}) : Promise.resolve()), [accounts]);
+  useEffect(() => { loadLinks(); }, [loadLinks]);
+  const makeLink = async (email, purpose) => {
+    setError(''); setStatus('');
+    try { setMade(await auth('/admin/links', { method: 'POST', body: { email, purpose } })); setInviteTo(''); loadLinks(); } catch (e) { setError(e.message); }
+  };
   const load = useCallback(() => api('/rpc/admin_users').then(setRows), []);
   useEffect(() => { load().catch((e) => setError(e.message)); }, [load]);
   const change = async (u, body, done) => {
@@ -164,12 +191,24 @@ export function AdminUsers({ me }) {
   return (
     <section className="slot users" aria-labelledby="users-title">
       <header className="slot-head"><h3 id="users-title">People</h3></header>
-      <p className="admin-lead">Everyone who has signed in. Accounts are created on first sign-in through Cloudflare Access, so to let someone new in, add their email to the Access policy first. A disabled account cannot sign in or see anything, and keeps its channels for when it is enabled again.</p>
+      <p className="admin-lead">{accounts
+        ? 'Everyone with a Weft account. To let someone in, make an invite link and send it to them; they choose their own password. A disabled account cannot sign in or see anything, and keeps its channels for when it is enabled again.'
+        : 'Everyone who has signed in. Accounts are created on first sign-in through Cloudflare Access, so to let someone new in, add their email to the Access policy first. A disabled account cannot sign in or see anything, and keeps its channels for when it is enabled again.'}</p>
+      {accounts && (
+        <form className="people-add" aria-label="Invite someone" onSubmit={(e) => { e.preventDefault(); makeLink(inviteTo.trim(), 'invite'); }}>
+          <label htmlFor="invite-email">Invite someone</label>
+          <span className="pair">
+            <input id="invite-email" type="email" placeholder="Their email" value={inviteTo} onChange={(e) => setInviteTo(e.target.value)} />
+            <button className="btn btn--primary btn--sm" type="submit" disabled={!inviteTo.includes('@')}>Make invite link</button>
+          </span>
+        </form>
+      )}
+      {made && <NewLink link={made} onDone={() => setMade(null)} />}
       {error && <p className="send-error" role="alert">{error}</p>}
       {status && <p className="slot-status" role="status">{status}</p>}
       {!rows ? <div className="skeleton" aria-label="Loading people"><span /><span /></div> : (
         <table className="users-table">
-          <thead><tr><th scope="col">Name</th><th scope="col">Channels</th><th scope="col">Last sign-in</th><th scope="col">Admin</th><th scope="col">Account</th></tr></thead>
+          <thead><tr><th scope="col">Name</th><th scope="col">Channels</th><th scope="col">Last sign-in</th>{accounts && <th scope="col">Password</th>}<th scope="col">Admin</th><th scope="col">Account</th></tr></thead>
           <tbody>
             {rows.map((u) => {
               const self = u.id === me.id;
@@ -178,6 +217,7 @@ export function AdminUsers({ me }) {
                   <th scope="row">{u.display_name}{self ? ' (you)' : ''}<small>{u.email}</small></th>
                   <td>{u.spaces}</td>
                   <td>{day(u.last_seen_at)}</td>
+                  {accounts && <td className="users-account">{u.has_password ? 'Set' : 'Not set'}{!self && <button className="btn btn--sm" type="button" onClick={() => makeLink(u.email, 'reset')}>Reset link<span className="visually-hidden"> for {u.display_name}</span></button>}</td>}
                   <td><label className="toggle"><input type="checkbox" checked={u.is_admin} disabled={self}
                     onChange={(e) => change(u, { p_is_admin: e.target.checked }, `${u.display_name} ${e.target.checked ? 'is now an admin' : 'is no longer an admin'}.`)} />
                     <span className="visually-hidden">Admin: {u.display_name}</span></label></td>
@@ -189,6 +229,19 @@ export function AdminUsers({ me }) {
             })}
           </tbody>
         </table>
+      )}
+      {accounts && links.length > 0 && (
+        <div className="open-links">
+          <h4>Links not used yet</h4>
+          <ul>
+            {links.map((l) => (
+              <li key={l.id} className="person">
+                <span className="person-name">{l.purpose === 'invite' ? 'Invite' : 'Reset'} for {l.email}<small>until {new Date(l.expires_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</small></span>
+                <button className="btn btn--sm" type="button" onClick={async () => { try { await auth(`/admin/links/${l.id}`, { method: 'DELETE' }); loadLinks(); } catch (e) { setError(e.message); } }}>Cancel link<span className="visually-hidden"> for {l.email}</span></button>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </section>
   );

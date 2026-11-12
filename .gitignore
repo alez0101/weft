@@ -1,5 +1,6 @@
 .env
 *.env
+!.env.example
 data/*.csv
 **/volumes/
 stacks/colanode/test-accounts.txt

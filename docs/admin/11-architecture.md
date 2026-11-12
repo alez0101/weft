@@ -9,14 +9,14 @@ summary: The services, how a request flows, and the two front doors.
 | --- | --- | --- |
 | postgres | `pgvector/pgvector:0.8.7-pg17` | all data, row-level security, LISTEN/NOTIFY, vectors |
 | postgrest | `postgrest/postgrest:v16.5` | the API, generated from the `weft` schema |
-| svc | `services/svc` (Node) | sign-in (Cloudflare Access to a Weft token) and live notices over websockets |
+| svc | `services/svc` (Node) | sign-in (Weft accounts, optionally Cloudflare Access) and live notices over websockets |
 | assistant | `services/assistant` (Node, Anthropic SDK) | answers, proposals, provider settings, the embedding worker |
 | collab | `services/collab` (Hocuspocus 4.8, Yjs 13) | live co-editing of documents, wiki pages and whiteboards |
 | web | `services/web` (nginx, React 19, Vite) | the app, and the one entry point for everything above |
 
 ### A request
 
-1. The browser asks `/auth/session`. svc checks Cloudflare's `Cf-Access-Jwt-Assertion` (team `yourteam.cloudflareaccess.com`, the Weft app's AUD tag), creates the account on first sign-in, and returns a Weft token (HS256, 15 minutes, renewed before it expires).
+1. The browser signs in at `/auth/`: with an email and password, an invite or reset link, or (if configured) Cloudflare Access's signed header. svc returns a Weft token (HS256, 15 minutes) and, for Weft accounts, sets a session cookie that renews the token before it expires.
 2. Every API call sends that token to PostgREST at `/api/`. PostgREST switches to the database role in the token (`weft_user`), and row-level security decides every row.
 3. The browser keeps one websocket at `/live`. svc listens to Postgres notices and forwards each one only to members of its space. A notice carries the table, operation, id and space, never content; the browser fetches the row through the API, so the database still decides.
 4. Documents open a second websocket at `/collab`. The collab server checks and loads each document as the person, through row-level security.
@@ -24,8 +24,8 @@ summary: The services, how a request flows, and the two front doors.
 
 ### Front doors
 
-- **3010**: the public app, the tunnel's target. The test sign-in returns 404 here.
-- **3011**: test sign-in for the `@example.com` accounts, the Weft server only.
+- **The app port** (`WEFT_BIND`:`WEFT_PORT`): everything people use. The test sign-in returns 404 here.
+- **127.0.0.1:3011**: test sign-in for the `@example.com` accounts, from the server only.
 
 ### Libraries
 

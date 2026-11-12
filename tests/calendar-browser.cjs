@@ -1,6 +1,6 @@
 // Targets the TEST stack by default (start it with: tests/run.sh --keep). WEFT_BASE overrides.
 // Phase 5 browser check (Pacific time): drag-create, live update, view-only, share link. Run after db/reset.sh
-// from a dir with playwright installed (the Weft server: /tmp/pw):  node <repo>/tests/calendar-browser.cjs
+// from a dir with playwright installed (npm install playwright):  node <repo>/tests/calendar-browser.cjs
 const { chromium } = require('playwright');
 (async () => {
   const b = await chromium.launch(); const errs = [];

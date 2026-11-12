@@ -1,8 +1,9 @@
-# Weft: Postgres + pgvector, PostgREST, weft-svc (sign-in + live), and web (nginx + the React shell).
+# Weft: Postgres + pgvector, PostgREST, svc (sign-in + live), assistant, collab, and web (nginx + the app).
 # Postgres and PostgREST are bound to 127.0.0.1 only. web is the one way in:
-#   3010 on localhost and the LAN IP (the homelab host's tunnel -> weft.example.org, behind Cloudflare Access)
-#   3011 on localhost only (test sign-in for the seeded example.com accounts)
-# Rebuild from nothing with ../../db/reset.sh
+#   WEFT_BIND:WEFT_PORT (default 127.0.0.1:3010) the app
+#   127.0.0.1:3011                               test sign-in for the seeded example.com accounts
+# Settings and secrets come from .env next to this file: copy .env.example, or run tools/make_env.py.
+# First start: see the README.
 name: weft-core
 
 services:
@@ -17,7 +18,7 @@ services:
       - pg_data:/var/lib/postgresql/data
       - ../../db:/weft-db:ro
     ports:
-      - "127.0.0.1:55434:5432"
+      - "127.0.0.1:${WEFT_DB_PORT:-55434}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U weft_owner -d weft"]
       interval: 5s
@@ -37,7 +38,7 @@ services:
       PGRST_DB_CHANNEL_ENABLED: "true"
       PGRST_LOG_LEVEL: warn
     ports:
-      - "127.0.0.1:3100:3000"
+      - "127.0.0.1:${WEFT_API_PORT:-3100}:3000"
 
   svc:
     build: ../../services/svc
@@ -49,9 +50,12 @@ services:
       DATABASE_URL_NOTIFY: postgres://weft_notify:${NOTIFY_SVC_PASSWORD:?}@postgres:5432/weft
       JWT_SECRET: ${JWT_SECRET}
       TOKEN_TTL: "900"
-      ACCESS_TEAM_DOMAIN: ${ACCESS_TEAM_DOMAIN:?}
-      ACCESS_AUD: ${ACCESS_AUD:?}
+      AUTH_METHODS: ${AUTH_METHODS:-password}            # password, cloudflare, or both
+      ACCESS_TEAM_DOMAIN: ${ACCESS_TEAM_DOMAIN:-}       # only for cloudflare
+      ACCESS_AUD: ${ACCESS_AUD:-}
       BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      SESSION_DAYS: ${SESSION_DAYS:-30}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}             # false only for plain http on a LAN address
 
   assistant:
     build: ../../services/assistant
@@ -63,6 +67,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       ASSIST_MASTER_KEY: ${ASSIST_MASTER_KEY:?}
       POSTGREST_URL: http://postgrest:3000
+      EMBED_URL: ${EMBED_URL:-}                         # Ollama for meaning search; empty = keyword search only
 
   collab:
     build: ../../services/collab
@@ -79,9 +84,8 @@ services:
     restart: unless-stopped
     depends_on: [postgrest, svc, assistant, collab]
     ports:
-      - "127.0.0.1:3010:80"
-      - "192.0.2.10:3010:80"
-      - "127.0.0.1:3011:8081"
+      - "${WEFT_BIND:-127.0.0.1}:${WEFT_PORT:-3010}:80"     # the app; WEFT_BIND=0.0.0.0 to reach it from the network
+      - "127.0.0.1:${WEFT_TEST_PORT:-3011}:8081"          # test sign-in: this machine only, always
 
 volumes:
   pg_data:

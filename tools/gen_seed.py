@@ -39,7 +39,7 @@ users = rows("users")
 user_id = {u["user_id"]: uid("user", u["user_id"]) for u in users}
 alex, olive, vic = user_id["u-alex"], user_id["u-org"], user_id["u-vol"]
 
-out.append(f"insert into users (id, email, display_name, is_assistant) values ({q(ASSISTANT)}, 'weft@example.com', 'Weft', true);")
+out.append(f"insert into users (id, email, display_name, is_assistant) values ({q(ASSISTANT)}, 'weft@example.com', 'Weft', true) on conflict (id) do nothing;")
 for u in users:
     out.append(f"insert into users (id, email, display_name) values ({q(user_id[u['user_id']])}, {q(u['email'])}, {q(u['display_name'])});")
 

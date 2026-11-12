@@ -5,16 +5,18 @@ summary: Where Weft runs, deploying, logs, the test stack and backups.
 ---
 ### Where it runs
 
-Weft runs on **the Weft server** (192.0.2.10) as the Docker compose project `weft-core`, from `~/work/weft/stacks/weft/compose.yaml`. The homelab host's Cloudflare Tunnel sends `weft.example.org` to the Weft server port 3010, with Cloudflare Access in front.
+Weft is one Docker compose project, `weft-core`, from `stacks/weft/compose.yaml` in the repo. Settings and secrets are in `stacks/weft/.env` next to it, which is never in git (`tools/make_env.py` creates it; `.env.example` explains every setting). Never paste its contents into a wiki page or chat.
 
 | Port | What | Reachable from |
 | --- | --- | --- |
-| 3010 | the app (nginx: web, API, sign-in, live, collab, assistant) | the Weft server and the LAN; the tunnel's target |
-| 3011 | the test sign-in door | the Weft server only |
-| 3100 | PostgREST directly | the Weft server only |
-| 55434 | Postgres | the Weft server only |
+| `WEFT_BIND`:`WEFT_PORT` (default 127.0.0.1:3010) | the app: web, API, sign-in, live, collab, assistant | as configured; put HTTPS in front of it |
+| 127.0.0.1:3011 | the test sign-in door | the server only |
+| 127.0.0.1:3100 | PostgREST directly | the server only |
+| 127.0.0.1:55434 | Postgres | the server only |
 
-Secrets (database passwords, the token secret, the key-encryption master key) are in `stacks/weft/.env` on the Weft server, which is not in git. Never paste them into a wiki page or chat.
+Weft speaks plain HTTP. On the internet, put it behind something that adds HTTPS (a reverse proxy or a tunnel); session cookies are marked secure and need it.
+
+The page **This instance**, if your admins wrote one under the Weft admin page, says where this particular Weft runs.
 
 ### Deploying a change without a reset
 
@@ -27,7 +29,7 @@ Never run `db/reset.sh --live --yes-wipe-live` unless you mean to destroy every 
 
 ### Logs
 
-`docker compose -p weft-core -f stacks/weft/compose.yaml --env-file stacks/weft/.env logs <service>`: `svc` names any sign-in failure (audience, issuer or signature); `assistant` notes skipped semantic search or a paused embedder; `collab` notes refused saves.
+`docker compose -p weft-core -f stacks/weft/compose.yaml --env-file stacks/weft/.env logs <service>`: `svc` logs sign-in lockouts, password resets and any Cloudflare verification failure; `assistant` notes skipped meaning search or a paused embedder; `collab` notes refused saves.
 
 ### The test stack
 
@@ -35,4 +37,4 @@ Never run `db/reset.sh --live --yes-wipe-live` unless you mean to destroy every 
 
 ### Backups
 
-⚠️ No backup of Weft's database is configured (checked 2026-11-12: no cron job or timer on the Weft server). Everything lives in the `weft-core_pg_data` Docker volume on the Weft server. Until a backup exists, a lost volume means lost messages, documents and keys. The repo holds the code, the migrations and the wiki sources, but no content.
+⚠️ Weft does not back itself up. Everything people write lives in the `weft-core_pg_data` Docker volume; the repo holds the code, the migrations and the wiki sources, but no content. Back the database up with `pg_dump` (for example `docker compose -p weft-core ... exec -T postgres pg_dump -U weft_owner -Fc weft > weft.dump`) on a schedule, and keep `stacks/weft/.env` safe too: without its `ASSIST_MASTER_KEY` the saved model keys cannot be read.

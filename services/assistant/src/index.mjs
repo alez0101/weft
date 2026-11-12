@@ -23,8 +23,9 @@ if (MASTER.length !== 32) throw new Error('ASSIST_MASTER_KEY must be 32 bytes of
 const API = env('POSTGREST_URL', 'http://postgrest:3000');
 const ASSISTANT_ID = '00000000-0000-4000-8000-00000000a001';
 const CALL_TIMEOUT_MS = Number(env('CALL_TIMEOUT_MS', '60000'));
-// Semantic search: nomic-embed-text on the homelab host's Ollama by default (content stays in the house).
-const EMBED_URL = env('EMBED_URL', 'http://192.0.2.20:11434');
+// Meaning search: an Ollama server with nomic-embed-text (EMBED_URL, e.g. http://ollama-host:11434).
+// Empty: meaning search is off and the assistant uses keyword search only.
+const EMBED_URL = env('EMBED_URL', '');
 const EMBED_MODEL = env('EMBED_MODEL', 'nomic-embed-text');
 const EMBED_DIM = Number(env('EMBED_DIM', '768'));
 const MAX_DISTANCE = Number(env('SEMANTIC_MAX_DISTANCE', '0.7'));
@@ -438,7 +439,7 @@ async function admin(user, method, parts, body) {
   if (!rows[0].a) return [403, { error: 'admins only' }];
   if (method === 'GET' && parts[0] === 'embeddings') {
     const { rows: c } = await db.query('select * from weft_private.embed_count()');
-    return [200, { model: EMBED_MODEL, url: EMBED_URL, sources: Number(c[0].sources), chunks: Number(c[0].chunks), paused: embedFailures > 0 }];
+    return [200, { model: EMBED_MODEL, url: EMBED_URL, sources: Number(c[0].sources), chunks: Number(c[0].chunks), paused: embedFailures > 0, enabled: !!EMBED_URL }];
   }
   if (method === 'GET' && parts.length === 0) {
     const { rows: p } = await db.query('select * from weft_private.providers_public()');
@@ -479,6 +480,7 @@ async function admin(user, method, parts, body) {
 
 // ---------------------------------------------------------------- embeddings
 async function embed(texts) {
+  if (!EMBED_URL) throw new Error('meaning search is off (no EMBED_URL)');
   const r = await fetch(`${EMBED_URL}/api/embed`, { method: 'POST', signal: AbortSignal.timeout(30000),
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: EMBED_MODEL, input: texts }) });
   if (!r.ok) throw new Error(`embedder HTTP ${r.status}`);
@@ -526,7 +528,7 @@ async function embedWorker() {
   }
   setTimeout(embedWorker, embedFailures ? 30000 : 5000);
 }
-setTimeout(embedWorker, 3000);
+if (EMBED_URL) setTimeout(embedWorker, 3000); else log('meaning search off: EMBED_URL is not set');
 
 // ---------------------------------------------------------------- HTTP
 const send = (res, status, body) => { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); };

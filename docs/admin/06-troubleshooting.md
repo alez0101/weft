@@ -5,9 +5,12 @@ summary: Known problems and what fixes them.
 ---
 ### Someone cannot sign in
 
-- Cloudflare's page never lets them through: their email is not in the Access policy.
+- "That email and password do not match": a wrong password, or no account yet. Make them a reset or invite link.
+- "Too many attempts": eight wrong passwords for that email (or 30 attempts from that address) in 15 minutes. Wait, or make them a reset link.
+- "This link has expired or was already used": make a new one. Links last three days and work once.
 - Weft says the account is disabled: an admin disabled it; **Enable** it in Settings.
-- Weft says the Cloudflare session was not accepted: check the `svc` log. Wrong audience means the Access app's AUD tag changed; update `ACCESS_AUD` in the environment file and restart `svc`.
+- Every admin is locked out: on the server, `python3 -I tools/weft_admin.py link <email> --reset --url <address>`.
+- With Cloudflare Access: check the `svc` log. A wrong audience means the Access app's AUD tag changed; update `ACCESS_AUD` in `.env` and restart `svc`.
 
 ### The API is down after a restart
 
@@ -15,12 +18,12 @@ PostgREST must start after the database's roles exist. If it started first, Dock
 
 ### The assistant answers "no model is available"
 
-Both slots are off, out of their monthly cap or failing. Open **Settings**, press **Test connection** on each slot, and check the monthly spend. The fallback runs on the homelab host's Ollama at `192.0.2.20:11434`; if the homelab host is down, only the primary answers.
+Both slots are off, out of their monthly cap or failing. Open **Settings**, press **Test connection** on each slot, and check the monthly spend. The fallback slot's address is in Settings; if that server is down, only the primary answers.
 
 ### The assistant misses things it should find
 
 - In a channel it only reads that channel. Ask in your own Weft conversation to search everything you can open.
-- Meaning search needs the homelab host's Ollama (`nomic-embed-text`). If it is down, keyword search still answers, and the `assistant` log says embedding is paused.
+- Meaning search needs an Ollama server with `nomic-embed-text` at `EMBED_URL`. If it is unset or down, keyword search still answers, and the `assistant` log says so.
 
 ### A document shows the same text twice, or edits do not reach others
 

@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 from mint_token import mint, uid  # noqa: E402
 
 API = os.environ.get("WEFT_API", "http://127.0.0.1:3200")   # the test stack
-DC = ["sudo", "docker", "compose", "-p", "weft-test", "-f", os.path.join(ROOT, "stacks/weft/compose.yaml"),
+DC = (os.environ.get("WEFT_DOCKER") or ("docker" if subprocess.run(["docker", "info"], capture_output=True).returncode == 0 else "sudo docker")).split() + ["compose", "-p", "weft-test", "-f", os.path.join(ROOT, "stacks/weft/compose.yaml"),
       "-f", os.path.join(ROOT, "stacks/weft-test/compose.test.yaml"), "--env-file", os.path.join(ROOT, "stacks/weft-test/.env")]
 ASSISTANT = "00000000-0000-4000-8000-00000000a001"
 USERS = ["u-alex", "u-org", "u-vol", "u-pub"]

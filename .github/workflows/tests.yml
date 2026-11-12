@@ -1,0 +1,14 @@
+# Runs the full suite on a fresh test stack. Manual and on pull requests only, to keep Actions minutes
+# down (a run takes about 10 minutes).
+name: tests
+on:
+  workflow_dispatch:
+  pull_request:
+jobs:
+  suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run every suite on a fresh test stack
+        run: tests/run.sh

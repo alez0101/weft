@@ -14,11 +14,11 @@ summary: How a question is answered, search, models and failover, proposals, cos
 
 ### Meaning search
 
-The assistant's embedding worker turns every message, page and event into vectors with `nomic-embed-text` on the homelab host's Ollama (768 dimensions, `pgvector` with an HNSW cosine index). It re-embeds anything whose text changed, within seconds. A vector is readable only if its source is, so the same rule applies. Up to 12 nearest matches within a distance limit join the keyword results. If the embedder is down, keyword search answers alone.
+When `EMBED_URL` points at an Ollama server, the assistant's embedding worker turns every message, page and event into vectors with `nomic-embed-text` (768 dimensions, `pgvector` with an HNSW cosine index). It re-embeds anything whose text changed, within seconds. A vector is readable only if its source is, so the same rule applies. Up to 12 nearest matches within a distance limit join the keyword results. If the embedder is down, keyword search answers alone.
 
 ### Models
 
-Two slots in Settings, primary and secondary, each Anthropic, OpenAI-compatible or Ollama. Today: Claude Opus 5.5 at low effort as primary, `qwen2.5:3b` on the homelab host's Ollama as fallback. The secondary answers when the primary has no key, is off, has reached its monthly cap, is rate-limited, times out or errors; never when the primary declined a question. Keys are encrypted with AES-256-GCM by the assistant before they are stored and never shown again.
+Two slots in Settings, primary and secondary, each Anthropic, OpenAI-compatible or Ollama. A new Weft starts with Claude Opus 5.5 at low effort as primary and an Ollama fallback that is off until configured. The secondary answers when the primary has no key, is off, has reached its monthly cap, is rate-limited, times out or errors; never when the primary declined a question. Keys are encrypted with AES-256-GCM by the assistant before they are stored and never shown again.
 
 ### Proposals
 

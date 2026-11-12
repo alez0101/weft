@@ -1,5 +1,5 @@
 // Version 1.5 browser check: live cell edits and new rows across two browsers, viewer read-only, hidden Budget.
-// Targets the test stack (tests/run.sh --keep). Run from a dir with playwright (the Weft server: /tmp/pw).
+// Targets the test stack (tests/run.sh --keep). Run from a dir with playwright (npm install playwright).
 const { chromium } = require('playwright');
 const BASE = process.env.WEFT_BASE || 'http://localhost:3211/';
 (async () => {

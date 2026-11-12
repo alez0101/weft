@@ -3,25 +3,31 @@
 # seed from data/sample and docs/help, then start the services and wait until the API answers.
 #
 #   db/reset.sh                        the TEST stack (compose project weft-test, 127.0.0.1 ports). Default.
-#   db/reset.sh --live --yes-wipe-live the LIVE stack behind weft.example.org. Destroys real accounts, keys,
-#                                      messages and edits. Only when you mean it.
+#   db/reset.sh --live --yes-wipe-live the real Weft (stacks/weft/.env; compose project WEFT_PROJECT, default
+#                                      weft-core). Destroys real accounts, keys, messages and edits. Only when
+#                                      you mean it. Add --sample to also load the sample data and accounts.
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/.." && pwd)"
+. "$repo/tools/docker.sh"
 
-target=test
+target=test; sample=yes
 if [ "${1:-}" = "--live" ]; then
+  [ "${3:-}" = "--sample" ] || sample=no
   [ "${2:-}" = "--yes-wipe-live" ] || { echo "Refusing: wiping the live database needs --live --yes-wipe-live" >&2; exit 2; }
   target=live
 fi
 
 if [ "$target" = live ]; then
-  envfile="$repo/stacks/weft/.env"; api=http://127.0.0.1:3100
-  DC=(sudo docker compose -p weft-core -f "$repo/stacks/weft/compose.yaml" --env-file "$envfile")
+  envfile="$repo/stacks/weft/.env"
+  [ -f "$envfile" ] || { echo "No $envfile yet: run python3 -I tools/make_env.py --admin you@example.org" >&2; exit 2; }
+  set -a; . "$envfile"; set +a
+  api="http://127.0.0.1:${WEFT_API_PORT:-3100}"
+  DC=("${DOCKER[@]}" compose -p "${WEFT_PROJECT:-weft-core}" -f "$repo/stacks/weft/compose.yaml" --env-file "$envfile")
 else
   envfile="$repo/stacks/weft-test/.env"; api=http://127.0.0.1:3200
-  DC=(sudo docker compose -p weft-test -f "$repo/stacks/weft/compose.yaml" -f "$repo/stacks/weft-test/compose.test.yaml" --env-file "$envfile")
+  set -a; . "$envfile"; set +a
+  DC=("${DOCKER[@]}" compose -p weft-test -f "$repo/stacks/weft/compose.yaml" -f "$repo/stacks/weft-test/compose.test.yaml" --env-file "$envfile")
 fi
-set -a; . "$envfile"; set +a
 dc() { "${DC[@]}" "$@"; }
 psql_owner() { dc exec -T postgres psql -v ON_ERROR_STOP=1 -q -U weft_owner -d weft "$@"; }
 
@@ -34,7 +40,7 @@ for f in "$repo"/db/migrations/*.sql; do
     -v assist_svc_pw="$ASSIST_SVC_PASSWORD" -v collab_svc_pw="$COLLAB_SVC_PASSWORD" -f "/weft-db/migrations/$(basename "$f")"
 done
 echo "seed"
-python3 -I "$repo/tools/gen_seed.py" | psql_owner
+if [ "$sample" = yes ]; then python3 -I "$repo/tools/gen_seed.py" | psql_owner; fi
 python3 -I "$repo/tools/sync_wikis.py" | psql_owner >/dev/null   # the help and admin wikis, from docs/help and docs/admin
 dc up -d --build postgrest svc assistant collab web >/dev/null
 for i in $(seq 1 60); do

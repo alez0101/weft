@@ -3,7 +3,7 @@
 
 Usage: python3 -I tools/mint_token.py <user-key> [--assistant] [--scope <space-key>] [--ttl 3600]
 User keys: u-alex u-org u-vol u-pub. Space keys: festival volunteers organizers dm-... personal-...
-The secret is read from stacks/weft-test/.env (the test stack) unless WEFT_ENV_FILE names another. Never expose a minted token beyond the Weft server.
+The secret is read from stacks/weft-test/.env (the test stack) unless WEFT_ENV_FILE names another. Never expose a minted token beyond this machine.
 """
 import argparse
 import base64

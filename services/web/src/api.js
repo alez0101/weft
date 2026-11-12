@@ -8,22 +8,39 @@ let reauth = null; // () => Promise<session>, set by signIn
 export async function authMode() {
   const r = await fetch('/auth/mode');
   if (!r.ok) throw new Error('sign-in service unavailable');
-  return (await r.json()).mode;
+  return r.json(); // { mode: 'public' | 'test', methods: ['password', 'cloudflare'] | ['test'] }
 }
+
+const errorOf = async (r, fallback) => { try { return (await r.json()).error || fallback; } catch { return fallback; } };
+const post = (path, body) => fetch(path, {
+  method: 'POST', credentials: 'same-origin',
+  headers: { 'Content-Type': 'application/json', 'X-Weft-Request': '1' }, body: JSON.stringify(body || {}),
+});
 
 async function accessSession() {
   const r = await fetch('/auth/session', { credentials: 'same-origin' });
-  if (r.status === 403) throw new Error((await r.json().catch(() => ({}))).error || 'This account cannot sign in.');
   if (!r.ok) throw new Error(r.status === 401 ? 'Your Cloudflare Access session was not accepted.' : 'Sign-in failed.');
   return r.json();
 }
-
 async function testSession(email) {
-  const r = await fetch('/auth/test-login', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }),
-  });
-  if (r.status === 403) throw new Error((await r.json().catch(() => ({}))).error || 'Test sign-in refused.');
-  if (!r.ok) throw new Error('Test sign-in refused.');
+  const r = await post('/auth/test-login', { email });
+  if (!r.ok) throw new Error(await errorOf(r, 'Test sign-in refused.'));
+  return r.json();
+}
+// Weft accounts: the session secret lives in an HttpOnly cookie; this trades it for a fresh token.
+async function refreshSession() {
+  const r = await post('/auth/refresh');
+  if (!r.ok) throw Object.assign(new Error('Your session has ended. Sign in again.'), { status: r.status });
+  return r.json();
+}
+async function passwordSession({ email, password }) {
+  const r = await post('/auth/login', { email, password });
+  if (!r.ok) throw new Error(await errorOf(r, 'Sign-in failed.'));
+  return r.json();
+}
+async function linkSession({ token, password, name }) {
+  const r = await post(`/auth/link/${encodeURIComponent(token)}`, { password, name });
+  if (!r.ok) throw new Error(await errorOf(r, 'That did not work.'));
   return r.json();
 }
 
@@ -35,9 +52,37 @@ function schedule(session) {
   return session;
 }
 
-export async function signIn(mode, email) {
-  reauth = mode === 'test' ? () => testSession(email) : accessSession;
-  return schedule(await reauth());
+// kind: 'test' (arg: email), 'cloudflare', 'password' (arg: {email, password}), 'resume' (the cookie),
+// 'link' (arg: {token, password, name}).
+export async function signIn(kind, arg) {
+  if (kind === 'test') reauth = () => testSession(arg);
+  else if (kind === 'cloudflare') reauth = accessSession;
+  else reauth = refreshSession;
+  const first = kind === 'password' ? () => passwordSession(arg) : kind === 'link' ? () => linkSession(arg) : reauth;
+  return schedule(await first());
+}
+
+export async function signOut() {
+  clearTimeout(refreshTimer); token = null; reauth = null;
+  await post('/auth/logout').catch(() => {});
+}
+
+export async function peekLink(linkToken) {
+  const r = await fetch(`/auth/link/${encodeURIComponent(linkToken)}`);
+  if (!r.ok) throw new Error(await errorOf(r, 'This link does not work.'));
+  return r.json();
+}
+
+// Signed-in calls to the sign-in service (password change, admin links).
+export async function auth(path, { method = 'GET', body } = {}) {
+  const r = await fetch(`/auth${path}`, {
+    method, credentials: 'same-origin', body: body === undefined ? undefined : JSON.stringify(body),
+    headers: { Authorization: `Bearer ${token}`, 'X-Weft-Request': '1', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+  });
+  let data = null;
+  try { data = await r.json(); } catch { /* empty */ }
+  if (!r.ok) throw new Error(data?.error || `${r.status}`);
+  return data;
 }
 
 export const currentToken = () => token;

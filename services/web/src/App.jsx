@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, authMode, connectLive, signIn } from './api.js';
+import { api, auth, authMode, connectLive, peekLink, signIn, signOut } from './api.js';
 import Chat from './Chat.jsx';
 import AdminPanel from './AdminPanel.jsx';
 import Docs from './Docs.jsx';
@@ -34,30 +34,133 @@ const readHash = () => {
   };
 };
 
-function SignIn({ mode, onSignedIn }) {
+// The secret of an invite or reset link travels in the URL fragment (#link=...), which browsers never
+// send to a server or in a Referer.
+// Read once, before anything rewrites the fragment.
+const LINK = new URLSearchParams(location.hash.slice(1)).get('link');
+const linkToken = () => LINK;
+
+function PasswordForm({ onSignedIn }) {
+  const [f, setF] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(mode === 'access');
-  const go = useCallback(async (email) => {
-    setBusy(true); setError('');
-    try { onSignedIn(await signIn(mode, email)); } catch (e) { setError(e.message); setBusy(false); }
-  }, [mode, onSignedIn]);
-  useEffect(() => { if (mode === 'access') go(); }, [mode, go]);
+  const [busy, setBusy] = useState(false);
+  return (
+    <form className="signin-form" onSubmit={async (e) => {
+      e.preventDefault(); setBusy(true); setError('');
+      try { onSignedIn(await signIn('password', f)); } catch (err) { setError(err.message); setBusy(false); }
+    }}>
+      <label htmlFor="signin-email">Email</label>
+      <input id="signin-email" type="email" autoComplete="username" required value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
+      <label htmlFor="signin-password">Password</label>
+      <input id="signin-password" type="password" autoComplete="current-password" required value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
+      <button className="btn btn--primary" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
+      {error && <p role="alert" className="signin-error">{error}</p>}
+      <p className="signin-hint">No account, or forgot your password? Ask a Weft admin for a link.</p>
+    </form>
+  );
+}
+
+function LinkPage({ token, onSignedIn }) {
+  const [info, setInfo] = useState(null);
+  const [error, setError] = useState('');
+  const [f, setF] = useState({ name: '', password: '', again: '' });
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { peekLink(token).then((i) => { setInfo(i); setF((x) => ({ ...x, name: i.display_name || '' })); }).catch((e) => setError(e.message)); }, [token]);
+  const leave = () => history.replaceState(null, '', location.pathname);
+  if (error && !info) return <><p role="alert" className="signin-error">{error}</p><button className="btn" onClick={() => { leave(); location.reload(); }}>Go to sign-in</button></>;
+  if (!info) return <p>Checking your link…</p>;
+  const invite = info.purpose === 'invite';
+  const mismatch = f.again && f.password !== f.again;
+  return (
+    <form className="signin-form" onSubmit={async (e) => {
+      e.preventDefault(); if (mismatch) return; setBusy(true); setError('');
+      try { const s = await signIn('link', { token, password: f.password, name: f.name }); leave(); onSignedIn(s); } catch (err) { setError(err.message); setBusy(false); }
+    }}>
+      <p>{invite ? 'Welcome to Weft. Choose a password for' : 'Choose a new password for'} <strong>{info.email}</strong>.</p>
+      {invite && (<><label htmlFor="link-name">Your name, as others will see it</label>
+        <input id="link-name" autoComplete="name" maxLength={80} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></>)}
+      <label htmlFor="link-password">Password (at least 12 characters)</label>
+      <input id="link-password" type="password" autoComplete="new-password" minLength={12} required value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
+      <label htmlFor="link-again">The same password again</label>
+      <input id="link-again" type="password" autoComplete="new-password" required value={f.again} onChange={(e) => setF({ ...f, again: e.target.value })} aria-invalid={mismatch || undefined} />
+      {mismatch && <p className="signin-hint" role="status">The two passwords are different.</p>}
+      <button className="btn btn--primary" type="submit" disabled={busy || mismatch}>{busy ? 'Saving…' : invite ? 'Create my account' : 'Save and sign in'}</button>
+      {error && <p role="alert" className="signin-error">{error}</p>}
+    </form>
+  );
+}
+
+function SignIn({ info, onSignedIn }) {
+  const [error, setError] = useState('');
+  const [step, setStep] = useState(info.mode === 'test' ? 'test' : linkToken() ? 'link' : 'resume');
+  const go = useCallback(async (kind, arg) => {
+    setError('');
+    try { onSignedIn(await signIn(kind, arg)); } catch (e) { setError(e.message); }
+  }, [onSignedIn]);
+  // On opening Weft: an existing session first, then Cloudflare Access if it is on, then the form.
+  useEffect(() => {
+    if (step !== 'resume') return;
+    (async () => {
+      try { onSignedIn(await signIn('resume')); return; } catch { /* no session */ }
+      if (info.methods.includes('cloudflare')) {
+        try { onSignedIn(await signIn('cloudflare')); return; } catch (e) { if (!info.methods.includes('password')) { setError(e.message); setStep('none'); return; } }
+      }
+      setStep(info.methods.includes('password') ? 'password' : 'none');
+    })();
+  }, [step, info, onSignedIn]);
 
   return (
     <main className="signin">
       <h1>Weft</h1>
-      {mode === 'test' ? (
+      {step === 'test' && (
         <>
-          <p>Test sign-in. This page only answers on the Weft server itself; the public address uses Cloudflare Access.</p>
+          <p>Test sign-in with the sample accounts. This page only answers on this machine.</p>
           <ul className="signin-list">
             {TEST_ACCOUNTS.map(([email, name]) => (
-              <li key={email}><button className="btn" disabled={busy} onClick={() => go(email)}>{name}</button></li>
+              <li key={email}><button className="btn" onClick={() => go('test', email)}>{name}</button></li>
             ))}
           </ul>
         </>
-      ) : busy ? <p>Signing you in…</p> : null}
-      {error && <p role="alert" className="signin-error">{error} {mode === 'access' && <button className="btn btn--sm" onClick={() => location.reload()}>Try again</button>}</p>}
+      )}
+      {step === 'resume' && <p>Signing you in…</p>}
+      {step === 'link' && <LinkPage token={linkToken()} onSignedIn={onSignedIn} />}
+      {step === 'password' && <PasswordForm onSignedIn={onSignedIn} />}
+      {error && <p role="alert" className="signin-error">{error} {step === 'none' && <button className="btn btn--sm" onClick={() => location.reload()}>Try again</button>}</p>}
     </main>
+  );
+}
+
+function AccountMenu({ me, info, onSignOut }) {
+  const [open, setOpen] = useState(false);
+  const [pw, setPw] = useState(null); // null: closed
+  const [status, setStatus] = useState('');
+  const canPassword = info.mode !== 'test' && info.methods.includes('password');
+  return (
+    <div className="account">
+      <button className="avatar" type="button" aria-label={`Signed in as ${me.display_name}`} title={me.display_name}
+        aria-expanded={open} aria-haspopup="true" onClick={() => setOpen((o) => !o)}>{me.display_name.charAt(0).toUpperCase()}</button>
+      {open && (
+        <div className="account-menu" role="group" aria-label="Your account">
+          <p className="account-name">{me.display_name}</p>
+          {canPassword && pw === null && <button className="btn btn--sm" type="button" onClick={() => { setPw({ current: '', next: '' }); setStatus(''); }}>Change password</button>}
+          {pw !== null && (
+            <form className="signin-form" onSubmit={async (e) => {
+              e.preventDefault(); setStatus('');
+              try { await auth('/password', { method: 'POST', body: pw }); setPw(null); setStatus('Password changed. Other browsers are signed out.'); }
+              catch (err) { setStatus(err.message); }
+            }}>
+              <label htmlFor="pw-current">Current password</label>
+              <input id="pw-current" type="password" autoComplete="current-password" required value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />
+              <label htmlFor="pw-next">New password (at least 12 characters)</label>
+              <input id="pw-next" type="password" autoComplete="new-password" minLength={12} required value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} />
+              <span className="pair"><button className="btn btn--primary btn--sm" type="submit">Save</button><button className="btn btn--sm" type="button" onClick={() => setPw(null)}>Cancel</button></span>
+            </form>
+          )}
+          {status && <p className="slot-status" role="status">{status}</p>}
+          {canPassword && <button className="btn btn--sm" type="button" onClick={onSignOut}>Sign out</button>}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -88,6 +191,7 @@ export default function App() {
   useEffect(() => { authMode().then(setMode).catch((e) => setFatal(e.message)); }, []);
 
   useEffect(() => {
+    if (!session) return; // leave the address alone until signed in (it may hold a #link)
     const h = new URLSearchParams();
     if (ui.tabs.length) h.set('tabs', ui.tabs.join(','));
     h.set('active', ui.active); h.set('convo', ui.convo);
@@ -98,7 +202,7 @@ export default function App() {
     if (ui.board) h.set('board', ui.board);
     if (ui.sheet) h.set('sheet', ui.sheet);
     history.replaceState(null, '', `#${h}`);
-  }, [ui]);
+  }, [ui, session]);
 
   const refreshSpaces = useCallback(async () => {
     const [s, m] = await Promise.all([
@@ -148,7 +252,7 @@ export default function App() {
 
   if (fatal) return <main className="signin"><h1>Weft</h1><p role="alert" className="signin-error">{fatal}</p></main>;
   if (!mode) return <main className="signin"><h1>Weft</h1><p>Loading…</p></main>;
-  if (!session) return <SignIn mode={mode} onSignedIn={setSession} />;
+  if (!session) return <SignIn info={mode} onSignedIn={setSession} />;
 
   const me = session.user;
   return (
@@ -160,12 +264,12 @@ export default function App() {
           <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5" /><path d="m13.2 13.2 3.8 3.8" /></svg>
           <input type="search" placeholder="Search arrives with the assistant" disabled />
         </label>
-        <span className="mock-note">{mode === 'test' ? 'Test sign-in, sample data' : 'Sample data'}</span>
+        {mode.mode === 'test' && <span className="mock-note">Test sign-in</span>}
         <label className="visually-hidden" htmlFor="mode-switch">Appearance</label>
         <select id="mode-switch" className="mode-switch" value={theme} onChange={(e) => { applyMode(e.target.value); setModeState(e.target.value); }}>
           <option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option>
         </select>
-        <button className="avatar" type="button" aria-label={`Signed in as ${me.display_name}`} title={me.display_name}>{me.display_name.charAt(0).toUpperCase()}</button>
+        <AccountMenu me={me} info={mode} onSignOut={async () => { await signOut(); location.hash = ''; location.reload(); }} />
       </header>
 
       <Chat me={me} spaces={spaces} members={members} unread={unread} active={ui.convo} onSpacesChanged={refreshSpaces}
@@ -200,7 +304,7 @@ export default function App() {
                 ))}
               </ul>
             </div>
-          ) : ui.active === 'settings' ? (isAdmin ? <AdminPanel me={me} /> : null)
+          ) : ui.active === 'settings' ? (isAdmin ? <AdminPanel me={me} info={mode} /> : null)
             : ui.active === 'documents' ? <Docs key="documents" kind="document" me={me} members={members} notice={notice} openId={ui.doc} setOpenId={(doc) => setUi((u) => ({ ...u, doc }))} />
             : ui.active === 'wiki' ? <Docs key="wiki" kind="wiki" me={me} members={members} notice={notice} openId={ui.page} setOpenId={(page) => setUi((u) => ({ ...u, page }))} />
             : ui.active === 'whiteboard' ? <Docs key="whiteboard" kind="whiteboard" me={me} members={members} notice={notice} openId={ui.board} setOpenId={(board) => setUi((u) => ({ ...u, board }))} />

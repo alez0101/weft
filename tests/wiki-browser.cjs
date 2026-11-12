@@ -1,11 +1,12 @@
 // Wiki browser check: the admin wiki for admins only, the generated index, managed pages read-only, and a
 // page republished while open reopens on the new text without duplicating it. Test stack (run.sh --keep).
-// Run from a dir with playwright (the Weft server: /tmp/pw). WEFT_REPO points at the repo (for the publish step).
+// Run from a dir with playwright (npm install playwright). WEFT_REPO points at the repo (for the publish step).
 const { chromium } = require('playwright');
 const { execSync } = require('child_process');
 const BASE = process.env.WEFT_BASE || 'http://localhost:3211/';
 const REPO = process.env.WEFT_REPO || `${process.env.HOME}/work/weft`;
-const DC = `sudo docker compose -p weft-test -f ${REPO}/stacks/weft/compose.yaml -f ${REPO}/stacks/weft-test/compose.test.yaml --env-file ${REPO}/stacks/weft-test/.env exec -T postgres psql -qAt -U weft_owner -d weft`;
+const DOCKER = process.env.WEFT_DOCKER || (() => { try { execSync('docker info', { stdio: 'ignore' }); return 'docker'; } catch { return 'sudo docker'; } })();
+const DC = `${DOCKER} compose -p weft-test -f ${REPO}/stacks/weft/compose.yaml -f ${REPO}/stacks/weft-test/compose.test.yaml --env-file ${REPO}/stacks/weft-test/.env exec -T postgres psql -qAt -U weft_owner -d weft`;
 (async () => {
   const b = await chromium.launch(); const errs = []; const out = (...a) => console.log(...a);
   const open = async (who) => {

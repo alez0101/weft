@@ -1,6 +1,6 @@
 // People browser check: create a channel, add someone live, owner-only controls, leaving, and an admin
 // disabling an account that is signed in. Targets the test stack (tests/run.sh --keep).
-// Run from a dir with playwright (the Weft server: /tmp/pw).
+// Run from a dir with playwright (npm install playwright).
 const { chromium } = require('playwright');
 const BASE = process.env.WEFT_BASE || 'http://localhost:3211/';
 (async () => {

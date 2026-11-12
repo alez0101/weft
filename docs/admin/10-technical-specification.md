@@ -7,4 +7,4 @@ Weft is a small in-browser collaboration suite: chat, documents, a wiki, whitebo
 
 <!-- pages -->
 
-The repo is `alez0101/weft` (private), checked out on the Weft server at `~/work/weft`. Each build phase also has notes in `docs/` there.
+The source is the Weft repo. Notes from each build phase are in `docs/history/` there.

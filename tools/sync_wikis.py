@@ -63,7 +63,8 @@ def index_lines(pages, root):
 
 
 out = ["begin;", "set local search_path = weft;"]
-creator = "(select id from users where is_admin and not is_assistant order by email limit 1)"
+# The first admin, or (on a brand-new database with no accounts yet) Weft's own assistant account.
+creator = "(select coalesce((select id from users where is_admin and not is_assistant order by email limit 1), (select id from users where is_assistant limit 1)))"
 for folder, key, name, audience in WIKIS:
     pages = pages_of(folder)
     if not pages:
@@ -77,6 +78,7 @@ for folder, key, name, audience in WIKIS:
     everyone, admins = ("true", "false") if audience == "everyone" else ("false", "true")
     out.append(f"insert into spaces (id, kind, name, created_by, everyone, admins_only) select {q(space)}, 'channel', {q(name)}, {creator}, "
                f"{everyone}, {admins} on conflict (id) do update set name = excluded.name, everyone = excluded.everyone, admins_only = excluded.admins_only;")
+    out.append(f"delete from members m using users u where u.id = m.user_id and u.is_assistant and m.space_id = {q(space)};")
     if audience == "everyone":
         out.append(f"insert into members (space_id, user_id, role) select {q(space)}, id, case when is_admin then 'owner' else 'viewer' end "
                    "from users where not is_assistant on conflict (space_id, user_id) do nothing;")

@@ -9,7 +9,7 @@ Admins see a **Settings** app on Home. It controls which models the assistant us
 
 Weft asks the **primary** model first and falls back to the **secondary** when the primary has no key, reaches its monthly cap, times out or errors. It never re-asks a question the primary declined. Every answer names the model that wrote it.
 
-- Current setup: Claude Opus 5.5 (Anthropic) as primary, and qwen2.5:3b on the homelab host's Ollama as the fallback.
+- A new Weft starts with Claude Opus 5.5 (Anthropic, no key yet) as primary, and an Ollama fallback that is off until you give it an address (for example `http://ollama-host:11434`) and turn it on.
 - Only the primary (an Anthropic model) can propose actions. The fallback only answers.
 
 ### Keys
