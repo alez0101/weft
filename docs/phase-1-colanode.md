@@ -1,5 +1,10 @@
 # Phase 1: Colanode baseline
 
+**Status: dropped 2026-11-12.** Alex signed in and found it a navigable portal rather than the
+launch-a-tool suite he has in mind; also a poor agent backend (opaque JSONB, CRDT-only writes,
+per-space permissions, stalled upstream). Stack stopped and volumes removed; files kept for reference.
+Succeeded by `phase-1b-affine.md`.
+
 Started 2026-11-12 on the Weft server. Stack: `stacks/colanode/` (Colanode 0.4.7, pgvector/pg17, Valkey 8.1).
 Data: synthetic set loaded by `tools/colanode-loader/run.sh`. Test logins: `stacks/colanode/test-accounts.txt`
 (git-ignored).

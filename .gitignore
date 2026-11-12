@@ -3,3 +3,5 @@
 data/*.csv
 **/volumes/
 stacks/colanode/test-accounts.txt
+stacks/affine/config/private.key
+stacks/affine/test-accounts.txt

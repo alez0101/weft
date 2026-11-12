@@ -1,0 +1,12 @@
+{
+  "$schema": "https://github.com/toeverything/affine/releases/latest/download/config.schema.json",
+  "server": {
+    "name": "Weft AFFiNE (the Weft server)",
+    "externalUrl": "https://weft.example.org",
+    "https": true,
+    "host": "weft.example.org",
+    "hosts": ["localhost", "192.0.2.10"]
+  },
+  "indexer": { "enabled": true, "provider.type": "embedded" },
+  "flags": { "allowGuestDemoWorkspace": false }
+}

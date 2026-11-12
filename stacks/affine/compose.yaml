@@ -1,0 +1,75 @@
+# Weft Phase 1b baseline: AFFiNE Community Edition 0.27.4 on the Weft server.
+# Adapted from toeverything/AFFiNE .docker/selfhost/compose.yml:
+# - image pinned (upstream uses :stable), Postgres password instead of trust auth
+# - named volumes instead of ./data bind mounts
+# - Postgres and Redis are not published; AFFiNE is on localhost (tests) and the LAN IP
+#   (the homelab host's Cloudflare tunnel -> weft.example.org, behind Cloudflare Access)
+# License note: frontend MIT; backend under AFFiNE's EE license with a carve-out for the
+# Community Edition. Self-hosting CE is fine; modified backend code in production is not.
+name: weft-affine
+
+x-affine-env: &affine-env
+  REDIS_SERVER_HOST: redis
+  DATABASE_URL: postgresql://affine:${POSTGRES_PASSWORD:?set in .env}@postgres:5432/affine
+  DEPLOYMENT_TYPE: selfhosted
+
+services:
+  affine:
+    image: ghcr.io/toeverything/affine:0.27.4
+    restart: unless-stopped
+    depends_on:
+      redis: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+      affine_migration: { condition: service_completed_successfully }
+    volumes:
+      - affine_storage:/root/.affine/storage
+      - ./config:/root/.affine/config
+    environment: *affine-env
+    ports:
+      - "127.0.0.1:3010:3010"
+      - "192.0.2.10:3010:3010"   # LAN, for the homelab host's Cloudflare tunnel (weft.example.org)
+
+  affine_migration:
+    image: ghcr.io/toeverything/affine:0.27.4
+    volumes:
+      - affine_storage:/root/.affine/storage
+      - ./config:/root/.affine/config
+    command: ["sh", "-c", "node ./scripts/self-host-predeploy.js"]
+    environment: *affine-env
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: affine
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: affine
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:55433:5432"   # host-only, for inspecting how AFFiNE stores content
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "affine", "-d", "affine"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  affine_storage:
+  redis_data:
+  postgres_data:
