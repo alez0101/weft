@@ -112,6 +112,19 @@ export default function Docs({ kind, me, members, openId, setOpenId, notice }) {
     if (!current || title.trim() === current.title || !title.trim()) return;
     try { await api(`/items?id=eq.${current.id}`, { method: 'PATCH', body: { title: title.trim() }, prefer: 'return=minimal' }); load(); } catch (e) { setError(`Could not rename: ${e.message}`); }
   }
+  async function moveTo(spaceId) {
+    const target = spaces.find((s) => s.id === spaceId);
+    if (!current || !target) return;
+    try {
+      await api(`/items?id=eq.${current.id}`, { method: 'PATCH', body: { space_id: spaceId, parent_id: null }, prefer: 'return=minimal' });
+      setNote(`Moved to ${spaceLabel(target)}. Only people in ${spaceLabel(target)} can open it now.`); load();
+    } catch (e) { setError(`Could not move: ${e.message}`); }
+  }
+  async function remove() {
+    if (!current || !window.confirm(`Delete "${current.title}"? Everyone in ${spaceLabel(currentSpace)} will lose it.${kind === 'wiki' ? ' Its sub-pages move to the top level.' : ''}`)) return;
+    try { await api(`/items?id=eq.${current.id}`, { method: 'DELETE', prefer: 'return=minimal' }); setOpenId(null); load(); }
+    catch (e) { setError(`Could not delete: ${e.message}`); }
+  }
   async function share() {
     const ch = channels.find((c) => c.id === shareTo);
     if (!ch || !current) return;
@@ -170,6 +183,14 @@ export default function Docs({ kind, me, members, openId, setOpenId, notice }) {
                   {channels.map((c) => <option key={c.id} value={c.id}>#{c.name}</option>)}
                 </select>
                 <button className="btn btn--sm" onClick={share} disabled={!shareTo}>Share</button>
+                {canEditIn(current.space_id) && (<>
+                  <label className="visually-hidden" htmlFor={`move-${kind}`}>Move to space</label>
+                  <select id={`move-${kind}`} value="" onChange={(e) => { if (e.target.value) moveTo(e.target.value); }}>
+                    <option value="">Move to…</option>
+                    {editable.filter((s) => s.id !== current.space_id).map((s) => <option key={s.id} value={s.id}>{spaceLabel(s)}</option>)}
+                  </select>
+                  <button className="btn btn--sm" onClick={remove}>Delete</button>
+                </>)}
               </div>
               {note && <p className="slot-status" role="status">{note}</p>}
             </header>

@@ -79,6 +79,14 @@ await sleep(1200);
 check('After removal, Pat is no longer notified of volunteers messages', got(sPat, (n) => n.id === volMsg2.id).length === 0, JSON.stringify(sPat.inbox));
 check('After removal, Pat cannot read volunteers messages', (await api(pat.token, `/messages?space_id=eq.${spaces.volunteers}`)).rows.length === 0);
 
+// Calendar notices follow the same rule.
+clear(sOlive, sVic, sPat);
+const [ev] = (await api(olive.token, '/events', { method: 'POST', body: { space_id: spaces.organizers, title: 'live test: organizers meeting', starts_at: '2027-04-10T17:00:00Z', ends_at: '2027-04-10T18:00:00Z' } })).rows;
+const [ev2] = (await api(olive.token, '/events', { method: 'POST', body: { space_id: spaces.festival, title: 'live test: festival walkthrough', starts_at: '2027-04-10T19:00:00Z', ends_at: '2027-04-10T20:00:00Z' } })).rows;
+await sleep(1200);
+check('An organizers event notifies Olive but not Pat or Vic', got(sOlive, (n) => n.id === ev.id).length === 1 && got(sPat, (n) => n.id === ev.id).length === 0 && got(sVic, (n) => n.id === ev.id).length === 0);
+check('A festival event notifies Pat and Vic', got(sPat, (n) => n.id === ev2.id).length === 1 && got(sVic, (n) => n.id === ev2.id).length === 1);
+
 // Bad tokens never get a socket.
 const bad = await socket('not-a-token');
 check('A garbage token cannot open a socket', !bad.ok, String(bad.status));

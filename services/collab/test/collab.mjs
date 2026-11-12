@@ -125,6 +125,23 @@ close(patVol);
 const again = await open(pat.token, items['Volunteer roles']);
 check('And she cannot reopen it', again.failed && !again.scope, `${again.failed} ${again.scope}`); close(again);
 
+// ---------------- moving or deleting a document closes its sessions
+const [mv] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'document', title: 'Move test' } })).rows;
+const patMv = await open(pat.token, mv.id);
+check('Pat opens a #festival document', patMv.scope === 'readonly', String(patMv.scope));
+await api(olive.token, `/items?id=eq.${mv.id}`, { method: 'PATCH', body: { space_id: spaces.organizers } });
+for (let i = 0; i < 60 && !patMv.closed; i++) await sleep(50);
+check('Moved into #organizers, Pat\'s open session is closed', patMv.closed); close(patMv);
+const patMv2 = await open(pat.token, mv.id);
+check('And she cannot reopen it', patMv2.failed && !patMv2.scope); close(patMv2);
+const oliveMv = await open(olive.token, mv.id);
+check('Olive (in both spaces) reopens it after the move', oliveMv.scope === 'read-write');
+await api(olive.token, `/items?id=eq.${mv.id}`, { method: 'DELETE' });
+for (let i = 0; i < 60 && !oliveMv.closed; i++) await sleep(50);
+check('Deleted, the open session is closed', oliveMv.closed); close(oliveMv);
+const gone = await open(olive.token, mv.id);
+check('A deleted document cannot be reopened', gone.failed && !gone.scope); close(gone);
+
 const w = Math.max(...results.map((x) => x.name.length));
 for (const x of results) console.log(`${x.ok ? 'PASS' : 'FAIL'}  ${x.name.padEnd(w)}  ${x.ok ? '' : x.detail}`);
 const failed = results.filter((x) => !x.ok).length;

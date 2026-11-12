@@ -104,3 +104,36 @@
   --bn-colors-border: var(--color-rule); --bn-colors-side-menu: var(--color-muted);
   --bn-font-family: var(--font-body);
 }
+
+/* Phase 5: calendar. The classic theme's palette is mapped onto Weft tokens, so it follows dark mode. */
+.cal {
+  display: grid; grid-template-columns: minmax(0, 260px) minmax(0, 1fr); height: 100%;
+  --fc-classic-background: var(--color-paper); --fc-classic-foreground: var(--color-ink);
+  --fc-classic-border: var(--color-rule); --fc-classic-strong-border: var(--color-muted); --fc-classic-strong: var(--color-paper-3);
+  --fc-classic-muted: var(--color-paper-2); --fc-classic-muted-foreground: var(--color-muted);
+  --fc-classic-faint: var(--color-paper-2); --fc-classic-faint-foreground: var(--color-muted);
+  --fc-classic-today: var(--color-accent-soft); --fc-classic-highlight: var(--color-accent-soft); --fc-classic-now: var(--color-accent-deep);
+  --fc-classic-primary: var(--color-accent); --fc-classic-primary-foreground: var(--color-accent-ink);
+  --fc-classic-button: var(--color-paper); --fc-classic-button-foreground: var(--color-ink); --fc-classic-button-border: var(--color-muted);
+  --fc-classic-button-strong: var(--color-accent-soft); --fc-classic-button-strong-border: var(--color-accent-deep); --fc-classic-button-outline: var(--color-focus);
+  --fc-classic-event: var(--color-accent-soft); --fc-classic-event-contrast: var(--color-ink);
+  --fc-classic-background-event: var(--color-accent-soft); --fc-classic-background-event-opacity: 0.5; --fc-classic-background-event-foreground-opacity: 1;
+  --fc-classic-small-dot-width: 8px; --fc-classic-large-dot-width: 10px;
+}
+.cal-bar { padding: var(--space-md); border-right: 1px solid var(--color-rule); background: var(--color-paper); overflow-y: auto; display: grid; align-content: start; gap: var(--space-sm); }
+.cal-spaces { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3xs); }
+.cal-space { display: flex; align-items: center; gap: var(--space-xs); font-size: var(--text-sm); color: var(--color-ink-2); cursor: pointer; }
+.cal-swatch { width: 12px; height: 12px; border-radius: 3px; background: var(--t); }
+.cal-hint, .cal-when { font-size: var(--text-sm); color: var(--color-muted); }
+.cal-form, .cal-detail { display: grid; gap: var(--space-2xs); padding: var(--space-sm); border-radius: var(--radius-card); background: var(--color-paper-2); box-shadow: 0 0 0 1px var(--color-rule); }
+.cal-form label { font-size: var(--text-sm); font-weight: 500; color: var(--color-ink-2); }
+.cal-form input, .cal-form select, .cal-detail select {
+  height: var(--ctl-h); padding: 0 var(--space-xs); min-width: 0;
+  border: 1px solid var(--color-muted); border-radius: var(--radius-input); background: var(--color-paper); color: var(--color-ink);
+}
+.cal-detail h3 { font-size: var(--text-title); }
+.cal-main { min-width: 0; min-height: 0; padding: var(--space-md); background: var(--color-paper); }
+.ev-t0 { --t: var(--p-thu); } .ev-t1 { --t: var(--p-fri); } .ev-t2 { --t: var(--p-wed); } .ev-t3 { --t: var(--p-tue); }
+.ev-t4 { --t: var(--p-mon); } .ev-t5 { --t: var(--p-sat); } .ev-t6 { --t: var(--p-sun); }
+.cal-main [class*="ev-t"] { --fc-classic-event: var(--t); background-color: var(--t); border-color: var(--t); color: var(--color-ink); }
+@media (max-width: 60rem) { .cal { grid-template-columns: minmax(0, 1fr); } .cal-bar { border-right: 0; border-bottom: 1px solid var(--color-rule); } }

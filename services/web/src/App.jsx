@@ -3,6 +3,7 @@ import { api, authMode, connectLive, signIn } from './api.js';
 import Chat from './Chat.jsx';
 import AdminPanel from './AdminPanel.jsx';
 import Docs from './Docs.jsx';
+import Calendar from './Calendar.jsx';
 import { applyMode, storedMode } from './mode.js';
 
 const APPS = [
@@ -10,7 +11,7 @@ const APPS = [
   { id: 'wiki', label: 'Wiki', tint: '--p-fri', real: true, glyph: <><path d="M8 9c4-2 8-2 12 1 4-3 8-3 12-1v23c-4-2-8-2-12 1-4-3-8-3-12-1z" /><path d="M20 10v23" /></> },
   { id: 'whiteboard', label: 'Whiteboard', tint: '--p-wed', phase: 'version 1.5', glyph: <><rect x="6" y="8" width="28" height="20" rx="2" /><path d="M12 22c3-6 6 2 9-4s5 1 7-2M14 34l6-6 6 6" /></> },
   { id: 'sheets', label: 'Sheets', tint: '--p-tue', phase: 'version 1.5', glyph: <><rect x="7" y="8" width="26" height="24" rx="2" /><path d="M7 16h26M7 24h26M16 8v24M25 8v24" /></> },
-  { id: 'calendar', label: 'Calendar', tint: '--p-mon', phase: 'Phase 5', glyph: <><rect x="7" y="9" width="26" height="24" rx="2" /><path d="M7 16h26M14 6v6M26 6v6M13 22h4M19 22h4M25 22h2M13 27h4" /></> },
+  { id: 'calendar', label: 'Calendar', tint: '--p-mon', real: true, glyph: <><rect x="7" y="9" width="26" height="24" rx="2" /><path d="M7 16h26M14 6v6M26 6v6M13 22h4M19 22h4M25 22h2M13 27h4" /></> },
   { id: 'files', label: 'Files', tint: '--p-sat', phase: 'a later version', glyph: <path d="M6 12h10l3 3h15v17H6z" /> },
   { id: 'settings', label: 'Settings', tint: '--p-fri', admin: true, glyph: <><circle cx="20" cy="20" r="5" /><path d="M20 7v5M20 28v5M7 20h5M28 20h5M10.8 10.8l3.5 3.5M25.7 25.7l3.5 3.5M10.8 29.2l3.5-3.5M25.7 14.3l3.5-3.5" /></> },
 ];
@@ -29,7 +30,7 @@ const readHash = () => {
   return {
     tabs, active: active === 'home' || tabs.includes(active) ? active : 'home',
     convo: h.get('convo') || 'weft', rail: RAILS.includes(h.get('chat')) ? h.get('chat') : 'normal',
-    doc: h.get('doc') || null, page: h.get('page') || null,
+    doc: h.get('doc') || null, page: h.get('page') || null, event: h.get('event') || null,
   };
 };
 
@@ -93,6 +94,7 @@ export default function App() {
     if (ui.rail !== 'normal') h.set('chat', ui.rail);
     if (ui.doc) h.set('doc', ui.doc);
     if (ui.page) h.set('page', ui.page);
+    if (ui.event) h.set('event', ui.event);
     history.replaceState(null, '', `#${h}`);
   }, [ui]);
 
@@ -124,6 +126,7 @@ export default function App() {
 
   const openTab = (id, extra = {}) => setUi((u) => ({ ...u, ...extra, tabs: u.tabs.includes(id) ? u.tabs : [...u.tabs, id], active: id }));
   // A weft://item link from chat: open it in Documents or Wiki. If we cannot see it, Documents shows "no access".
+  const openEvent = (id) => openTab('calendar', { event: id });
   const openItem = async (id) => {
     const r = await api(`/items?id=eq.${id}&select=kind`).catch(() => []);
     if (r[0]?.kind === 'wiki') openTab('wiki', { page: id }); else openTab('documents', { doc: id });
@@ -165,7 +168,7 @@ export default function App() {
 
       <Chat me={me} spaces={spaces} members={members} unread={unread} active={ui.convo}
         setActive={(convo) => setUi((u) => ({ ...u, convo }))} rail={ui.rail} setRail={(rail) => setUi((u) => ({ ...u, rail }))}
-        notice={notice} live={live} onOpenItem={openItem} />
+        notice={notice} live={live} onOpenItem={openItem} onOpenEvent={openEvent} />
 
       <main className="stage">
         <div className="tabs" role="tablist" aria-label="Open apps" onKeyDown={onTabKey}>
@@ -198,6 +201,7 @@ export default function App() {
           ) : ui.active === 'settings' ? (isAdmin ? <AdminPanel /> : null)
             : ui.active === 'documents' ? <Docs key="documents" kind="document" me={me} members={members} notice={notice} openId={ui.doc} setOpenId={(doc) => setUi((u) => ({ ...u, doc }))} />
             : ui.active === 'wiki' ? <Docs key="wiki" kind="wiki" me={me} members={members} notice={notice} openId={ui.page} setOpenId={(page) => setUi((u) => ({ ...u, page }))} />
+            : ui.active === 'calendar' ? <Calendar me={me} members={members} notice={notice} focusId={ui.event} setFocusId={(event) => setUi((u) => ({ ...u, event }))} />
             : <AppPanel id={ui.active} />}
         </section>
       </main>
