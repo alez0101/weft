@@ -39,6 +39,13 @@ async function asUser(userId, fn) {
   } finally { c.release(); }
 }
 
+// Text on a whiteboard: every live text element, in reading order (top to bottom, left to right).
+function boardText(ydoc) {
+  const els = [...ydoc.getMap('elements').values()].filter((e) => e && e.type === 'text' && !e.isDeleted && e.text);
+  els.sort((a, b) => (a.y - b.y) || (a.x - b.x));
+  return els.map((e) => e.text.trim()).filter(Boolean).join('\n');
+}
+
 async function textOf(ydoc) {
   try { return (await editor.blocksToMarkdownLossy(editor.yDocToBlocks(ydoc, FRAGMENT))).trim(); } catch (e) { log('text extract failed', e.message); return null; }
 }
@@ -55,18 +62,20 @@ const server = new Server({
     try { ({ payload: claims } = await jwtVerify(token, JWT_SECRET, { algorithms: ['HS256'] })); } catch { throw new Error('not signed in'); }
     if (claims.role !== 'weft_user' || !claims.sub) throw new Error('not a user token');
     const row = await asUser(claims.sub, async (c) => (await c.query(
-      'select space_id, weft_private.can_edit(space_id) as can_edit from weft.items where id = $1', [documentName])).rows[0]);
+      'select space_id, kind, weft_private.can_edit(space_id) as can_edit from weft.items where id = $1', [documentName])).rows[0]);
     if (!row) throw new Error('no access'); // RLS: not a member of the document's space, or no such document
     connectionConfig.readOnly = !row.can_edit;
-    return { user: claims.sub, space: row.space_id, exp: claims.exp, doc: documentName };
+    return { user: claims.sub, space: row.space_id, exp: claims.exp, doc: documentName, kind: row.kind };
   },
 
   async onLoadDocument({ document, documentName, context }) {
     const row = await asUser(context.user, async (c) => (await c.query(
-      'select ydoc, body_text from weft.items where id = $1', [documentName])).rows[0]);
+      'select ydoc, body_text, kind from weft.items where id = $1', [documentName])).rows[0]);
     if (!row) throw new Error('no access');
     if (row.ydoc) {
       Y.applyUpdate(document, new Uint8Array(row.ydoc));
+    } else if (row.kind === 'whiteboard') {
+      document.getMap('elements'); // an empty board; nothing to seed
     } else {
       // No Yjs state yet. Build the starting blocks here, never in a browser: if two browsers each
       // created an empty starting block before syncing, the document would get two root block groups
@@ -82,7 +91,7 @@ const server = new Server({
     if (process.env.COLLAB_DEBUG) log('onStore', documentName.slice(0, 8), 'lastContext', JSON.stringify(lastContext || null).slice(0, 80));
     if (!lastContext?.user) return; // nobody edited (e.g. only loaded)
     const state = Buffer.from(Y.encodeStateAsUpdate(document));
-    const text = await textOf(document);
+    const text = lastContext.kind === 'whiteboard' ? boardText(document) : await textOf(document);
     // Saved as the last person who changed it; RLS refuses the write if they cannot edit.
     const n = await asUser(lastContext.user, async (c) => (await c.query(
       'update weft.items set ydoc = $2, body_text = coalesce($3, body_text) where id = $1', [documentName, state, text])).rowCount);

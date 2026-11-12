@@ -142,6 +142,28 @@ check('Deleted, the open session is closed', oliveMv.closed); close(oliveMv);
 const gone = await open(olive.token, mv.id);
 check('A deleted document cannot be reopened', gone.failed && !gone.scope); close(gone);
 
+// ---------------- whiteboards (version 1.5)
+const el = (id, extra = {}) => ({ id, type: 'rectangle', x: 10, y: 10, width: 100, height: 60, version: 1, versionNonce: 1, isDeleted: false, index: 'a0', ...extra });
+const [wb] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'whiteboard', title: 'Board test' } })).rows;
+const wa = await open(alex.token, wb.id); const wo = await open(olive.token, wb.id);
+check('Whiteboard: two editors open a new board read-write', wa.scope === 'read-write' && wo.scope === 'read-write');
+const tw = Date.now();
+wa.doc.transact(() => { wa.doc.getMap('elements').set('r1', el('r1')); });
+for (let i = 0; i < 40 && !wo.doc.getMap('elements').get('r1'); i++) await sleep(50);
+check("Whiteboard: Alex's rectangle reaches Olive live", !!wo.doc.getMap('elements').get('r1'), `${Date.now() - tw} ms`);
+wo.doc.transact(() => { wo.doc.getMap('elements').set('t1', el('t1', { type: 'text', text: 'BOARD-MARK-7781 porch map', x: 0, y: 200, index: 'a1' })); });
+const wv = await open(vic.token, wb.id);
+check('Whiteboard: Vic (viewer) opens it read-only and sees both elements', wv.scope === 'readonly' && wv.doc.getMap('elements').size === 2);
+wv.doc.transact(() => { wv.doc.getMap('elements').set('v1', el('v1', { x: 500 })); });
+await sleep(1500);
+check("Whiteboard: Vic's drawing never reaches the editors", !wa.doc.getMap('elements').get('v1') && !wo.doc.getMap('elements').get('v1'));
+let bsaved = ''; for (let i = 0; i < 48; i++) { bsaved = (await api(pat.token, `/items?id=eq.${wb.id}&select=body_text`)).rows[0]?.body_text || ''; if (bsaved.includes('BOARD-MARK')) break; await sleep(250); }
+check('Whiteboard: text on the board is saved for search and the assistant', bsaved.includes('BOARD-MARK-7781') && (await api(pat.token, '/items?body_text=fts.board-mark-7781&select=id')).rows.length === 1, bsaved);
+close(wa); close(wo); close(wv);
+await api(olive.token, `/items?id=eq.${wb.id}`, { method: 'PATCH', body: { space_id: spaces.organizers } });
+const wp = await open(pat.token, wb.id);
+check('Whiteboard: once it is in #organizers, Pat cannot open it', wp.failed && !wp.scope); close(wp);
+
 const w = Math.max(...results.map((x) => x.name.length));
 for (const x of results) console.log(`${x.ok ? 'PASS' : 'FAIL'}  ${x.name.padEnd(w)}  ${x.ok ? '' : x.detail}`);
 const failed = results.filter((x) => !x.ok).length;

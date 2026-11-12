@@ -4,6 +4,8 @@ COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY index.html vite.config.js ./
 COPY src ./src
+# Excalidraw fonts served by Weft itself, not fetched from a public CDN.
+RUN mkdir -p public/excalidraw && cp -r node_modules/@excalidraw/excalidraw/dist/prod/fonts public/excalidraw/
 RUN npm run build
 
 FROM nginx:1.27-alpine

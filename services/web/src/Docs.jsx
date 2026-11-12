@@ -10,6 +10,7 @@ import { BlockNoteView } from '@blocknote/mantine';
 import '@blocknote/mantine/style.css';
 import { api, currentToken } from './api.js';
 import { useEffectiveMode } from './mode.js';
+import Board from './Board.jsx';
 
 // Cursor colours come from the theme tokens (deeper tints so the name tags stay readable).
 const CURSOR_TOKENS = ['--color-accent-deep', '--color-accent', '--color-ink-2', '--color-muted'];
@@ -104,7 +105,7 @@ export default function Docs({ kind, me, members, openId, setOpenId, notice }) {
   async function create() {
     try {
       const parent = kind === 'wiki' && current && current.space_id === newSpace ? current.id : null;
-      const [row] = await api('/items', { method: 'POST', body: { space_id: newSpace, kind, title: kind === 'wiki' ? 'New page' : 'Untitled document', parent_id: parent }, prefer: 'return=representation' });
+      const [row] = await api('/items', { method: 'POST', body: { space_id: newSpace, kind, title: kind === 'wiki' ? 'New page' : kind === 'whiteboard' ? 'Untitled whiteboard' : 'Untitled document', parent_id: parent }, prefer: 'return=representation' });
       await load(); setOpenId(row.id);
     } catch (e) { setError(`Could not create: ${e.message}`); }
   }
@@ -145,11 +146,11 @@ export default function Docs({ kind, me, members, openId, setOpenId, notice }) {
         {kind === 'wiki' && <ul>{renderRows(rows.filter((x) => x.parent_id === r.id), r.id, depth + 1)}</ul>}
       </li>
     ));
-  const noun = kind === 'wiki' ? 'page' : 'document';
+  const noun = kind === 'wiki' ? 'page' : kind === 'whiteboard' ? 'whiteboard' : 'document';
 
   return (
     <div className="docs">
-      <nav className="docs-list" aria-label={kind === 'wiki' ? 'Wiki pages' : 'Documents'}>
+      <nav className="docs-list" aria-label={kind === 'wiki' ? 'Wiki pages' : kind === 'whiteboard' ? 'Whiteboards' : 'Documents'}>
         <div className="docs-new">
           <label className="visually-hidden" htmlFor={`new-${kind}`}>Space for the new {noun}</label>
           <select id={`new-${kind}`} value={newSpace} onChange={(e) => setNewSpace(e.target.value)} disabled={!editable.length}>
@@ -194,12 +195,14 @@ export default function Docs({ kind, me, members, openId, setOpenId, notice }) {
               </div>
               {note && <p className="slot-status" role="status">{note}</p>}
             </header>
-            <div className="docs-editor"><Editor key={current.id} item={current} me={me} onStatus={setStatus} /></div>
+            {kind === 'whiteboard'
+              ? <div className="docs-board"><Board key={current.id} item={current} onStatus={setStatus} /></div>
+              : <div className="docs-editor"><Editor key={current.id} item={current} me={me} onStatus={setStatus} /></div>}
           </>
         ) : missing ? (
           <div className="empty"><h2>You don't have access to this {noun}</h2><p>It belongs to a space you're not in, or it was deleted. Ask someone in that space to add you.</p></div>
         ) : (
-          <div className="empty"><h2>{kind === 'wiki' ? 'Pick a page' : 'Pick a document'}</h2><p>Everything here is saved in Weft, so the assistant can use it as context in later versions.</p></div>
+          <div className="empty"><h2>{kind === 'wiki' ? 'Pick a page' : kind === 'whiteboard' ? 'Pick a whiteboard' : 'Pick a document'}</h2><p>Everything here is saved in Weft, so the assistant can use it as context in later versions.</p></div>
         )}
       </section>
     </div>

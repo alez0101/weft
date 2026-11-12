@@ -145,3 +145,8 @@
 .proposal-what { font-weight: 500; color: var(--color-ink); }
 .proposal-state { display: flex; align-items: center; gap: var(--space-xs); font-size: var(--text-xs); color: var(--color-ink-2); }
 .proposal-undo { margin-left: auto; }
+
+/* Version 1.5: whiteboard */
+.docs-board { height: calc(100dvh - 260px); min-height: 420px; margin: 0 auto var(--space-lg); max-width: 1400px; border-radius: var(--radius-card); overflow: hidden; box-shadow: 0 0 0 1px var(--color-rule); background: var(--color-paper); }
+.board { height: 100%; }
+.board .excalidraw { --color-primary: var(--color-accent-deep); font-family: var(--font-body); }
