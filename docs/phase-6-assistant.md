@@ -1,0 +1,36 @@
+# Phase 6: the full assistant
+
+Built 2026-11-12; this completes version 1. `tests/run.sh` passes 190 checks from a clean rebuild
+(95 permission, 20 live, 52 assistant, 23 collab); `tests/proposals-browser.cjs` checks the cards.
+
+## Reading
+
+- Retrieval spans **messages, documents and wiki pages, and calendar events**, all through PostgREST with
+  the assistant token minted for the asker, so RLS and the channel-scope claim bound it exactly as in 3b.
+- Documents contribute an excerpt (the paragraphs that mention the question's words). Events contribute
+  title, space, start, end and location, with times written in the asker's time zone (sent by the browser).
+- Questions about time ("when", "schedule", "move" ...) also pull upcoming events in scope.
+- Citations carry a type; in the UI a message chip jumps to the message, a document chip opens Documents
+  or Wiki, an event chip opens the Calendar on that event.
+- Full-text search only. Semantic search (pgvector + nomic-embed-text on the homelab host) is a possible follow-up.
+
+## Acting (governed)
+
+- Only the Anthropic slot is offered tools, both strict: `send_message` (channel from an enum: in a channel
+  only that channel, in your Weft conversation the channels you are in) and `change_event` (an event from
+  the sources; title, location, start, end). There is no delete tool, and the assistant role cannot delete.
+- A tool call is stored as a **proposal** (`weft_private.proposals`, not exposed) and shown as a card under
+  the answer. Nothing happens until the **asker** confirms; others see who decides. Proposals expire after
+  30 minutes; confirm is atomic, so a double confirm does nothing.
+- Confirming executes through PostgREST as the assistant acting for the asker, with the original scope, so
+  the database still decides: a viewer who confirms an event change gets "Not allowed", and the event is
+  untouched. The change is audited with `actor_role = weft_assistant` and the asker as actor.
+- **Undo** (event changes, within 24 hours) restores the values captured before the change. Sent messages
+  cannot be unsent by the assistant (that would be a delete).
+- The fallback model is called without tools, so it can only answer.
+
+## Changing the stand-in models
+
+`services/assistant/test/assistant.mjs` serves both formats from one process: OpenAI-compatible at `/primary`
+and `/secondary`, Anthropic Messages at `/anthropic` (the real SDK is exercised, tools included). It records
+every request, which is how the suite proves what never reached a model and which tools were offered.

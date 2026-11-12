@@ -13,15 +13,36 @@ const results = [];
 const check = (name, ok, detail = '') => results.push({ name, ok: !!ok, detail });
 
 // ---------------- the stand-in model
-const mock = { primary: 'ok', secondary: 'ok', prompts: [] };
+const mock = { primary: 'ok', secondary: 'ok', prompts: [], anthropic: [] };
 http.createServer((req, res) => {
   let data = '';
   req.on('data', (c) => { data += c; });
   req.on('end', () => {
-    const slot = req.url.startsWith('/primary') ? 'primary' : 'secondary';
     const body = JSON.parse(data || '{}');
+    if (req.url.startsWith('/anthropic')) {
+      // Anthropic Messages format, so the real SDK path (tools included) is exercised.
+      const user = typeof body.messages?.[0]?.content === 'string' ? body.messages[0].content : '';
+      mock.anthropic.push({ user, system: body.system, tools: body.tools });
+      const content = [];
+      const ev = /^\[(\d+)\] event "The Backyard Radio/m.exec(user) || /^\[(\d+)\] event /m.exec(user);
+      if (/MOVE-IT/.test(user) && ev) {
+        content.push({ type: 'text', text: 'I can change that event for you.' });
+        content.push({ type: 'tool_use', id: 'toolu_1', name: 'change_event', input: { source: Number(ev[1]), title: null, location: 'Moved by the Weft test', starts_at: null, ends_at: null } });
+      } else if (/TELL-THEM/.test(user)) {
+        const ch = body.tools?.find((x) => x.name === 'send_message')?.input_schema.properties.channel.enum[0];
+        content.push({ type: 'text', text: 'I can post that.' });
+        content.push({ type: 'tool_use', id: 'toolu_2', name: 'send_message', input: { channel: ch, text: 'Hello from the Weft test' } });
+      } else {
+        const first = (/CITE-DOC/.test(user) && /^\[(\d+)\] (?:document|wiki page) /m.exec(user)) || /^\[(\d+)\] /m.exec(user);
+        content.push({ type: 'text', text: first ? `Here is what I found [${first[1]}].` : 'NOT_FOUND' });
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ id: 'msg_test', type: 'message', role: 'assistant', model: 'mock-claude', content,
+        stop_reason: content.some((c) => c.type === 'tool_use') ? 'tool_use' : 'end_turn', usage: { input_tokens: 800, output_tokens: 60 } }));
+    }
+    const slot = req.url.startsWith('/primary') ? 'primary' : 'secondary';
     const user = body.messages?.find((m) => m.role === 'user')?.content || '';
-    mock.prompts.push({ slot, user });
+    mock.prompts.push({ slot, user, tools: body.tools });
     if (mock[slot] === 'fail') { res.writeHead(500); return res.end('{"error":"down"}'); }
     const hasSource = /^\[1\] /m.test(user);
     const text = /nocite/i.test(user) || !hasSource ? 'I am not sure.' : 'Here is what I found [1].';
@@ -116,6 +137,86 @@ const [orgMsg] = (await api(olive.token, '/messages', { method: 'POST', body: { 
 check('Pat cannot ask about a message she cannot see', (await assist(pat.token, '/assistant/ask', { method: 'POST', body: { message_id: orgMsg.id } })).status === 404);
 const [plain] = (await api(pat.token, '/messages', { method: 'POST', body: { space_id: spaces.festival, body: 'no mention here' } })).rows;
 check('In a channel, Weft only answers when mentioned', (await assist(pat.token, '/assistant/ask', { method: 'POST', body: { message_id: plain.id } })).status === 400);
+
+// ================================================================ Phase 6: documents, events, actions
+const anthropicSlot = { kind: 'anthropic', base_url: `${MOCK}/anthropic`, model: 'mock-claude', effort: 'low', price_in: 4, price_out: 20, monthly_cap_usd: 10, enabled: true };
+await assist(alex.token, '/assistant/admin/providers/primary', { method: 'PUT', body: anthropicSlot });
+await assist(alex.token, '/assistant/admin/providers/primary/key', { method: 'PUT', body: { key: 'sk-test-anthropic-mock-0001' } });
+await assist(alex.token, '/assistant/admin/providers/secondary', { method: 'PUT', body: slotBody('secondary') });
+const items6 = Object.fromEntries((await api(alex.token, '/items?select=id,title')).rows.map((x) => [x.title, x.id]));
+const DOCSECRET = 'HOSTDOC-SECRET-5512';
+await api(olive.token, `/items?id=eq.${items6['Host contacts']}`, { method: 'PATCH', body: { body_text: `Host contacts list. Emergency code ${DOCSECRET}.` } });
+const askA = async (who, spaceId, text) => {
+  const [m] = (await api(who.token, '/messages', { method: 'POST', body: { space_id: spaceId, body: text } })).rows;
+  const before = mock.anthropic.length;
+  const r = await assist(who.token, '/assistant/ask', { method: 'POST', body: { message_id: m.id, tz: 'America/Los_Angeles' } });
+  const reply = r.status === 200 ? (await api(who.token, `/messages?id=eq.${r.data.id}&select=body,meta,space_id`)).rows[0] : null;
+  return { status: r.status, reply, calls: mock.anthropic.slice(before), error: r.data?.error };
+};
+
+// Documents: same scoping as messages.
+let a6 = await askA(pat, spaces.festival, '@Weft what are the host contacts?');
+check('Documents: a secret in an Organizers document never reaches the model for Pat in #festival', a6.calls.length === 1 && !a6.calls[0].user.includes(DOCSECRET), a6.error);
+a6 = await askA(olive, spaces.festival, '@Weft what are the host contacts?');
+check('Documents: nor for Olive asking in #festival', a6.calls.length === 1 && !a6.calls[0].user.includes(DOCSECRET));
+a6 = await askA(olive, await mine(olive), 'CITE-DOC What are the host contacts?');
+check('Documents: Olive in her own conversation does get it (positive control)', a6.calls[0]?.user.includes(DOCSECRET));
+check('Documents: the answer cites the document as a document', a6.reply?.meta?.citations?.[0]?.type === 'item', JSON.stringify(a6.reply?.meta?.citations));
+
+// Events: retrieved, cited as events, with times in the asker's time zone.
+a6 = await askA(pat, spaces.festival, '@Weft when does The Backyard Radio play?');
+check('Events: retrieved for Pat in #festival', /\] event "The Backyard Radio at P02"/.test(a6.calls[0]?.user || ''), (a6.calls[0]?.user || '').slice(0, 300));
+check('Events: times are given in the asker\'s time zone', /PDT|PST/.test(a6.calls[0]?.user || ''));
+const ev6 = (await api(olive.token, `/events?title=eq.The%20Backyard%20Radio%20at%20P02&select=id,location`)).rows[0];
+
+// Tools: offered only on the Anthropic slot, scoped to the channel.
+check('Tools: Claude is offered exactly send_message and change_event, no delete', JSON.stringify((a6.calls[0]?.tools || []).map((x) => x.name).sort()) === '["change_event","send_message"]');
+check('Tools: in #festival, send_message can only target #festival', JSON.stringify(a6.calls[0]?.tools?.find((x) => x.name === 'send_message')?.input_schema.properties.channel.enum) === '["festival"]');
+
+// A change waits for confirmation.
+a6 = await askA(olive, spaces.festival, '@Weft MOVE-IT: change where The Backyard Radio plays');
+const prop = a6.reply?.meta?.proposals?.[0];
+check('Change: Weft proposes instead of acting', prop?.kind === 'change' && a6.reply.meta.asker === olive.user.id, JSON.stringify(a6.reply?.meta));
+check('Change: nothing changed before confirmation', (await api(olive.token, `/events?id=eq.${ev6.id}&select=location`)).rows[0].location === ev6.location);
+check('Change: Pat cannot confirm Olive\'s proposal', (await assist(pat.token, `/assistant/proposals/${prop.id}/confirm`, { method: 'POST', body: {} })).status === 403);
+check('Change: Olive confirms', (await assist(olive.token, `/assistant/proposals/${prop.id}/confirm`, { method: 'POST', body: {} })).data?.status === 'done');
+check('Change: the event is changed', (await api(olive.token, `/events?id=eq.${ev6.id}&select=location`)).rows[0].location === 'Moved by the Weft test');
+const aud = (await api(olive.token, `/audit?row_id=eq.${ev6.id}&select=actor_role,actor_id,old_row&order=id.desc&limit=1`)).rows[0];
+check('Change: audited as the assistant acting for Olive, with the old value', aud?.actor_role === 'weft_assistant' && aud.actor_id === olive.user.id && aud.old_row.location === ev6.location, JSON.stringify(aud));
+check('Change: confirming twice does nothing', (await assist(olive.token, `/assistant/proposals/${prop.id}/confirm`, { method: 'POST', body: {} })).status === 409);
+check('Change: Olive undoes it', (await assist(olive.token, `/assistant/proposals/${prop.id}/undo`, { method: 'POST', body: {} })).data?.status === 'undone');
+check('Change: the event is back as it was', (await api(olive.token, `/events?id=eq.${ev6.id}&select=location`)).rows[0].location === ev6.location);
+
+// A viewer's confirmed change is still refused by the database.
+a6 = await askA(pat, spaces.festival, '@Weft MOVE-IT: change where The Backyard Radio plays');
+const pprop = a6.reply?.meta?.proposals?.[0];
+const pc = await assist(pat.token, `/assistant/proposals/${pprop?.id}/confirm`, { method: 'POST', body: {} });
+check('Viewer: Pat confirms her own proposal, but the database refuses the change', pc.data?.status === 'failed', JSON.stringify(pc.data));
+check('Viewer: the event is unchanged', (await api(olive.token, `/events?id=eq.${ev6.id}&select=location`)).rows[0].location === ev6.location);
+
+// Sending a message, after confirmation, as Weft.
+a6 = await askA(olive, await mine(olive), 'TELL-THEM: post a hello');
+const sprop = a6.reply?.meta?.proposals?.[0];
+check('Send: Weft proposes a message', sprop?.kind === 'send', JSON.stringify(a6.reply?.meta));
+const beforeCount = (await api(olive.token, `/messages?space_id=eq.${spaces.festival}&body=eq.Hello%20from%20the%20Weft%20test`)).rows.length;
+check('Send: nothing posted before confirmation', beforeCount === 0);
+await assist(olive.token, `/assistant/proposals/${sprop.id}/confirm`, { method: 'POST', body: {} });
+const posted = (await api(olive.token, `/messages?space_id=eq.${spaces.festival}&body=eq.Hello%20from%20the%20Weft%20test&select=author_id`)).rows;
+check('Send: posted in #festival as Weft after confirmation', posted.length === 1 && posted[0].author_id === '00000000-0000-4000-8000-00000000a001');
+
+// Dismiss.
+a6 = await askA(olive, spaces.festival, '@Weft MOVE-IT: change where The Backyard Radio plays');
+const dprop = a6.reply?.meta?.proposals?.[0];
+check('Dismiss: Olive dismisses a proposal', (await assist(olive.token, `/assistant/proposals/${dprop.id}/dismiss`, { method: 'POST', body: {} })).data?.status === 'dismissed');
+check('Dismiss: a dismissed proposal cannot be confirmed', (await assist(olive.token, `/assistant/proposals/${dprop.id}/confirm`, { method: 'POST', body: {} })).status === 409);
+check('Statuses: Pat cannot read Olive\'s proposal statuses', ((await assist(pat.token, `/assistant/proposals?ids=${dprop.id}`)).data || []).length === 0);
+
+// The fallback answers read-only: no tools are sent to it.
+await assist(alex.token, '/assistant/admin/providers/primary', { method: 'PUT', body: { ...anthropicSlot, enabled: false } });
+await assist(alex.token, '/assistant/admin/providers/secondary', { method: 'PUT', body: slotBody('secondary') });
+const fb0 = mock.prompts.length;
+a6 = await askA(olive, spaces.festival, '@Weft MOVE-IT: change where The Backyard Radio plays');
+check('Fallback: answers without tools, so it cannot propose actions', mock.prompts.slice(fb0).every((x) => !x.tools) && !a6.reply?.meta?.proposals, JSON.stringify(a6.reply?.meta));
 
 const w = Math.max(...results.map((x) => x.name.length));
 for (const x of results) console.log(`${x.ok ? 'PASS' : 'FAIL'}  ${x.name.padEnd(w)}  ${x.ok ? '' : x.detail}`);

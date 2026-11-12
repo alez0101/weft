@@ -95,7 +95,7 @@ export default function Chat({ me, spaces, members, unread, active: activeRaw, s
     setSending(false);
     if (sent && (current.kind === 'assistant' || /@weft\b/i.test(body))) {
       setThinking(true);
-      try { await assistant('/ask', { method: 'POST', body: { message_id: sent.id } }); } catch (err) { setError(`Weft couldn't answer: ${err.message}`); }
+      try { await assistant('/ask', { method: 'POST', body: { message_id: sent.id, tz: Intl.DateTimeFormat().resolvedOptions().timeZone } }); } catch (err) { setError(`Weft couldn't answer: ${err.message}`); }
       setThinking(false);
     }
   }
@@ -170,12 +170,17 @@ export default function Chat({ me, spaces, members, unread, active: activeRaw, s
                   <Body text={m.body} onOpenItem={onOpenItem} onOpenEvent={onOpenEvent} />
                   {m.meta?.citations?.length > 0 && (
                     <p className="sources">{m.meta.citations.map((c, i) => (
-                      <button key={c.id} type="button" className="source" title={`Open in ${c.label}`}
-                        onClick={() => { setFocus(c.id); if (c.space_id !== active) setActive(c.space_id); }}>
+                      <button key={c.id} type="button" className="source" title={`Open ${c.label}`}
+                        onClick={() => {
+                          if (c.type === 'item') return onOpenItem(c.id);
+                          if (c.type === 'event') return onOpenEvent(c.id);
+                          setFocus(c.id); if (c.space_id !== active) setActive(c.space_id);
+                        }}>
                         [{i + 1}] {c.label}
                       </button>
                     ))}</p>
                   )}
+                  {m.meta?.proposals?.length > 0 && <Proposals list={m.meta.proposals} mine={m.meta.asker === me.id} members={members} asker={m.meta.asker} notice={notice} />}
                   {m.author?.is_assistant && m.meta && (
                     <p className="served-by">{m.meta.served_by ? `Answered by ${m.meta.served_by.model}` : 'No model answered'}{m.meta.fallback ? ` (fallback: ${m.meta.fallback})` : ''}</p>
                   )}
@@ -195,5 +200,48 @@ export default function Chat({ me, spaces, members, unread, active: activeRaw, s
         </form>
       </section>
     </aside>
+  );
+}
+
+// Actions Weft proposed. Only the person who asked can confirm; everyone else sees who decides.
+function Proposals({ list, mine, members, asker, notice }) {
+  const [status, setStatus] = useState({});
+  const [busy, setBusy] = useState('');
+  const [err, setErr] = useState('');
+  const refresh = useCallback(() => {
+    if (!mine) return;
+    assistant(`/proposals?ids=${list.map((p) => p.id).join(',')}`).then((rows) => setStatus(Object.fromEntries(rows.map((r) => [r.id, r])))).catch(() => {});
+  }, [list, mine]);
+  useEffect(() => { refresh(); }, [refresh, notice]);
+  const who = members.find((m) => m.user?.id === asker)?.user?.display_name ?? 'the person who asked';
+  const act = async (id, action) => {
+    setBusy(id); setErr('');
+    try { await assistant(`/proposals/${id}/${action}`, { method: 'POST', body: {} }); } catch (e) { setErr(e.message); }
+    setBusy(''); refresh();
+  };
+  return (
+    <div className="proposals">
+      {list.map((p) => {
+        const s = status[p.id]?.status ?? 'pending';
+        return (
+          <div key={p.id} className={`proposal is-${s}`}>
+            <p className="proposal-what">{p.summary}</p>
+            {!mine ? <p className="proposal-state">Waiting for {who} to confirm.</p>
+              : s === 'pending' ? (
+                <span className="pair">
+                  <button className="btn btn--primary btn--sm" disabled={busy === p.id} onClick={() => act(p.id, 'confirm')}>Confirm</button>
+                  <button className="btn btn--sm" disabled={busy === p.id} onClick={() => act(p.id, 'dismiss')}>Dismiss</button>
+                </span>
+              ) : (
+                <p className="proposal-state">
+                  {s === 'done' ? (status[p.id]?.result || 'Done.') : s === 'dismissed' ? 'Dismissed.' : s === 'undone' ? 'Undone.' : (status[p.id]?.result || 'Failed.')}
+                  {s === 'done' && p.kind === 'change' && <button className="btn btn--sm proposal-undo" disabled={busy === p.id} onClick={() => act(p.id, 'undo')}>Undo</button>}
+                </p>
+              )}
+          </div>
+        );
+      })}
+      {err && <p className="send-error" role="alert">{err}</p>}
+    </div>
   );
 }
