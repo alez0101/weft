@@ -29,6 +29,17 @@ Built 2026-11-12; this completes version 1. `tests/run.sh` passes 190 checks fro
   cannot be unsent by the assistant (that would be a delete).
 - The fallback model is called without tools, so it can only answer.
 
+## Added after Alex's first real try (2026-11-12)
+
+- "Can you schedule an event?" got a correct but unhelpful no (only change and send existed), and
+  "actions available?" got "couldn't find anything" (the cite-or-NOT_FOUND rule covered questions about
+  Weft itself). Fixes:
+  - A third tool, `create_event` (`011_assistant_create.sql`): offered only for spaces where the asker is
+    an owner or editor, inside the token's scope (in a channel: that channel; in the Weft conversation:
+    their editable channels and personal space). Confirmed through PostgREST under a new assistant insert
+    policy. **Undo removes the event with the asker's own token**, so the assistant still never deletes.
+  - The instructions let Weft describe what it can do without citations, and stop it saying "sources".
+
 ## Changing the stand-in models
 
 `services/assistant/test/assistant.mjs` serves both formats from one process: OpenAI-compatible at `/primary`

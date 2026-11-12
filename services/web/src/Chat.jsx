@@ -235,7 +235,7 @@ function Proposals({ list, mine, members, asker, notice }) {
               ) : (
                 <p className="proposal-state">
                   {s === 'done' ? (status[p.id]?.result || 'Done.') : s === 'dismissed' ? 'Dismissed.' : s === 'undone' ? 'Undone.' : (status[p.id]?.result || 'Failed.')}
-                  {s === 'done' && p.kind === 'change' && <button className="btn btn--sm proposal-undo" disabled={busy === p.id} onClick={() => act(p.id, 'undo')}>Undo</button>}
+                  {s === 'done' && (p.kind === 'change' || p.kind === 'create') && <button className="btn btn--sm proposal-undo" disabled={busy === p.id} onClick={() => act(p.id, 'undo')}>Undo</button>}
                 </p>
               )}
           </div>

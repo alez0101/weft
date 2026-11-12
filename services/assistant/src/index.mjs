@@ -102,11 +102,13 @@ async function retrieve(token, question, spaceId, scoped, excludeId) {
   return [...out.values()].sort((a, b) => rank[a.type] - rank[b.type] || String(a.created_at || a.starts_at).localeCompare(String(b.created_at || b.starts_at))).slice(-28);
 }
 
-const SYSTEM = `You are Weft, the assistant inside a small team's workspace. Answer the question using only the numbered sources provided: chat messages, documents and calendar events. Cite every fact with its source number in square brackets, like [2]. If the sources do not contain the answer, reply with exactly NOT_FOUND and nothing else; do not guess. Never mention, invent or speculate about sources you were not given. Address the asker as you. Keep answers short and plain: one or two full sentences.
+const SYSTEM = `You are Weft, the assistant inside a small team's workspace. Answer questions about the team's work using only the numbered items provided (chat messages, documents and calendar events) and cite every fact with its number in square brackets, like [2]. If those items do not contain the answer, reply with exactly NOT_FOUND and nothing else; do not guess. Never invent items you were not given. When you talk to the person, call the numbered items "what I can see here" or name them (a message, a document, an event); never say "sources". Address the person as you. Keep answers short and plain: one or two full sentences.
+
+If the person asks about you or what you can do, answer that directly and without citations: you answer from the messages, documents and events they can open (in a channel, only from that channel, because the whole channel reads the answer); you can propose posting a message, creating an event and changing an event; nothing happens until they confirm; and you cannot delete anything.
 
 Example. Sources: [1] message in #festival, Olive, 2026-04-01 09:00: The info booth opens at 11:00. Question: When does the info booth open? Answer: The info booth opens at 11:00 [1].`;
 
-const ACT = `\n\nIf the person asks you to do something, you may propose it with a tool: send_message to post in a channel, or change_event to change an event that appears in the sources. A proposal does nothing until the person confirms it, so say in one sentence what you are proposing. Only propose what was asked. You cannot delete anything.`;
+const ACT = `\n\nIf the person asks you to do something, you may propose it with a tool: send_message to post in a channel, create_event to add a new calendar event, or change_event to change an event among the numbered items. A proposal does nothing until the person confirms it, so say in one sentence what you are proposing. Only propose what was asked. Use the person's time zone for times they mention. You cannot delete anything.`;
 
 function fmtTime(iso, tz) {
   try { return new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(iso)); }
@@ -126,7 +128,7 @@ function prompt(question, sources, tz) {
 const label = (s) => (s.type === 'item' ? `${s.kind === 'wiki' ? 'Wiki' : 'Document'}: ${s.title}`
   : s.type === 'event' ? `Event: ${s.title}` : `${where(s.space)}, ${s.author?.display_name}`);
 
-function tools(channels) {
+function tools(channels, creatable = []) {
   const nullable = (desc) => ({ anyOf: [{ type: 'string' }, { type: 'null' }], description: desc });
   return [
     {
@@ -144,6 +146,16 @@ function tools(channels) {
         title: nullable('New title, or null.'), location: nullable('New location, or null.'),
         starts_at: nullable('New start as ISO 8601 with offset, or null.'), ends_at: nullable('New end as ISO 8601 with offset, or null.') } },
     },
+    ...(creatable.length ? [{
+      name: 'create_event', strict: true,
+      description: 'Propose adding a new calendar event. Nothing is created until the person confirms.',
+      input_schema: { type: 'object', additionalProperties: false, required: ['space', 'title', 'starts_at', 'ends_at', 'location'], properties: {
+        space: { type: 'string', enum: creatable, description: 'Where the event goes: a channel name without #, or "personal".' },
+        title: { type: 'string', description: 'Event title.' },
+        starts_at: { type: 'string', description: 'Start as ISO 8601 with offset.' },
+        ends_at: { type: 'string', description: 'End as ISO 8601 with offset.' },
+        location: nullable('Location, or null.') } },
+    }] : []),
   ];
 }
 
@@ -247,7 +259,12 @@ async function ask(user, messageId, tzIn) {
     // Channels a proposal may post to: in a channel, only that channel; in your Weft conversation,
     // the channels you are in. (Execution re-checks membership and scope in the database.)
     const chans = await rest(token, '/spaces?kind=eq.channel&select=id,name&order=name');
-    const result = await answer({ asker: user.id, space: q.space_id, question: q.id }, SYSTEM, prompt(question, sources, tz), tools(chans.map((c) => c.name)));
+    // Where a new event could go: spaces in scope where the asker is an owner or editor.
+    const mineRoles = await rest(token, `/members?user_id=eq.${user.id}&role=in.(owner,editor)&select=space_id,space:spaces(id,kind,name)`);
+    const creatable = mineRoles.map((m) => m.space).filter((s) => s && (s.kind === 'channel' || s.kind === 'personal'))
+      .map((s) => ({ id: s.id, name: s.kind === 'personal' ? 'personal' : s.name }));
+    const result = await answer({ asker: user.id, space: q.space_id, question: q.id }, SYSTEM, prompt(question, sources, tz),
+      tools(chans.map((c) => c.name), creatable.map((c) => c.name)));
 
     let body; let citations = []; const proposals = [];
     if (result.unavailable) {
@@ -256,7 +273,7 @@ async function ask(user, messageId, tzIn) {
       body = "I can't help with that one.";
     } else {
       for (const c of result.calls || []) {
-        const prop = await proposalFrom(c, sources, chans, user.id, q.space_id, scope, tz);
+        const prop = await proposalFrom(c, sources, chans, user.id, q.space_id, scope, tz, creatable);
         if (prop) proposals.push(prop);
       }
       const notFound = /^\W*NOT_FOUND\W*$/i.test(result.text) || result.text.includes('NOT_FOUND');
@@ -284,8 +301,19 @@ async function ask(user, messageId, tzIn) {
 }
 
 // Turn a model tool call into a stored proposal, or drop it if it does not hold up.
-async function proposalFrom(call, sources, chans, asker, spaceId, scope, tz) {
+async function proposalFrom(call, sources, chans, asker, spaceId, scope, tz, creatable = []) {
   const i = call.input || {};
+  if (call.name === 'create_event') {
+    const sp = creatable.find((c) => c.name === i.space);
+    const title = String(i.title || '').trim().slice(0, 200);
+    const s = new Date(i.starts_at); const e = new Date(i.ends_at);
+    if (!sp || !title || Number.isNaN(s.getTime()) || Number.isNaN(e.getTime()) || e < s) return null;
+    const location = i.location ? String(i.location).slice(0, 200) : null;
+    const summary = `Add "${title}" to ${sp.name === 'personal' ? 'your personal calendar' : `#${sp.name}`}: ${fmtTime(s.toISOString(), tz)} to ${fmtTime(e.toISOString(), tz)}${location ? `, at ${location}` : ''}`;
+    const id = (await db.query('select weft_private.proposal_create($1,$2,$3,$4,$5,$6) as id',
+      [asker, spaceId, scope, 'create', { space_id: sp.id, title, starts_at: s.toISOString(), ends_at: e.toISOString(), location }, summary])).rows[0].id;
+    return { id, kind: 'create', summary };
+  }
   if (call.name === 'send_message') {
     const ch = chans.find((c) => c.name === i.channel);
     const text = String(i.text || '').trim().slice(0, 2000);
@@ -347,6 +375,12 @@ async function proposals(user, method, parts, url) {
         await move('done', 'done', 'Sent.');
         return [200, { status: 'done' }];
       }
+      if (p.kind === 'create') {
+        const r = await rest(token, '/events', { method: 'POST', body: p.payload }).catch(() => null);
+        if (!r?.length) { await move('done', 'failed', "Not allowed: you can't add events there."); return [200, { status: 'failed' }]; }
+        await move('done', 'done', 'Added.', { event_id: r[0].id });
+        return [200, { status: 'done' }];
+      }
       const [ev] = await rest(token, `/events?id=eq.${p.payload.event_id}&select=title,location,starts_at,ends_at`);
       if (!ev) { await move('done', 'failed', 'That event is gone, or you can no longer see it.'); return [200, { status: 'failed' }]; }
       const before = Object.fromEntries(Object.keys(p.payload.set).map((k) => [k, ev[k]]));
@@ -357,7 +391,14 @@ async function proposals(user, method, parts, url) {
     } catch (e) { await move('done', 'failed', 'Something went wrong; nothing was changed.'); throw e; }
   }
   if (action === 'undo') {
-    if (p.kind !== 'change' || p.status !== 'done' || !p.before) return [409, { error: 'only a confirmed event change can be undone' }];
+    if (!['change', 'create'].includes(p.kind) || p.status !== 'done' || !p.before) return [409, { error: 'only a confirmed event change or new event can be undone' }];
+    if (p.kind === 'create') {
+      // Removing it is a delete, which the assistant can never do; it runs with the person's own token.
+      const gone = await rest(user.token, `/events?id=eq.${p.before.event_id}`, { method: 'DELETE' }).catch(() => null);
+      if (!gone?.length) return [409, { error: 'could not remove it; it may already be gone' }];
+      await move('done', 'undone', 'Removed.');
+      return [200, { status: 'undone' }];
+    }
     if (Date.now() - new Date(p.decided_at).getTime() > 24 * 3600 * 1000) return [409, { error: 'too late to undo (24 hours)' }];
     const reverted = await rest(token, `/events?id=eq.${p.payload.event_id}`, { method: 'PATCH', body: p.before }).catch(() => null);
     if (!reverted?.length) return [409, { error: 'could not undo; the event may be gone' }];

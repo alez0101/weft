@@ -28,6 +28,10 @@ http.createServer((req, res) => {
       if (/MOVE-IT/.test(user) && ev) {
         content.push({ type: 'text', text: 'I can change that event for you.' });
         content.push({ type: 'tool_use', id: 'toolu_1', name: 'change_event', input: { source: Number(ev[1]), title: null, location: 'Moved by the Weft test', starts_at: null, ends_at: null } });
+      } else if (/ADD-IT/.test(user) && body.tools?.some((x) => x.name === 'create_event')) {
+        const sp = body.tools.find((x) => x.name === 'create_event').input_schema.properties.space.enum[0];
+        content.push({ type: 'text', text: 'I can add that to the calendar.' });
+        content.push({ type: 'tool_use', id: 'toolu_3', name: 'create_event', input: { space: sp, title: 'Weft test meetup', starts_at: '2027-04-12T10:00:00-07:00', ends_at: '2027-04-12T11:00:00-07:00', location: null } });
       } else if (/TELL-THEM/.test(user)) {
         const ch = body.tools?.find((x) => x.name === 'send_message')?.input_schema.properties.channel.enum[0];
         content.push({ type: 'text', text: 'I can post that.' });
@@ -203,6 +207,25 @@ check('Send: nothing posted before confirmation', beforeCount === 0);
 await assist(olive.token, `/assistant/proposals/${sprop.id}/confirm`, { method: 'POST', body: {} });
 const posted = (await api(olive.token, `/messages?space_id=eq.${spaces.festival}&body=eq.Hello%20from%20the%20Weft%20test&select=author_id`)).rows;
 check('Send: posted in #festival as Weft after confirmation', posted.length === 1 && posted[0].author_id === '00000000-0000-4000-8000-00000000a001');
+
+// Creating an event: proposed, confirmed, and undone as the asker.
+a6 = await askA(olive, spaces.festival, '@Weft ADD-IT: schedule a meetup Monday at 10');
+const cprop = a6.reply?.meta?.proposals?.[0];
+check('Create: Weft proposes a new event in #festival', cprop?.kind === 'create' && /#festival/.test(cprop.summary), JSON.stringify(a6.reply?.meta));
+check('Create: nothing created before confirmation', (await api(olive.token, '/events?title=eq.Weft%20test%20meetup&select=id')).rows.length === 0);
+await assist(olive.token, `/assistant/proposals/${cprop.id}/confirm`, { method: 'POST', body: {} });
+const made = (await api(olive.token, '/events?title=eq.Weft%20test%20meetup&select=id,space_id,created_by,starts_at')).rows;
+check('Create: confirmed, the event exists in #festival, created by Olive, at 10:00 Pacific', made.length === 1 && made[0].space_id === spaces.festival && made[0].created_by === olive.user.id && made[0].starts_at.startsWith('2027-04-12T17:00'), JSON.stringify(made));
+check('Create: Undo removes it', (await assist(olive.token, `/assistant/proposals/${cprop.id}/undo`, { method: 'POST', body: {} })).data?.status === 'undone'
+  && (await api(olive.token, '/events?title=eq.Weft%20test%20meetup&select=id')).rows.length === 0);
+const del = (await api(olive.token, `/audit?row_id=eq.${made[0].id}&op=eq.DELETE&select=actor_role,actor_id`)).rows[0];
+check('Create: the removal was done as Olive herself, not the assistant', del?.actor_role === 'weft_user' && del.actor_id === olive.user.id, JSON.stringify(del));
+a6 = await askA(pat, spaces.festival, '@Weft ADD-IT: schedule a meetup Monday at 10');
+check('Create: Pat (viewer in #festival) is not offered create_event there', !(a6.calls[0]?.tools || []).some((x) => x.name === 'create_event') && !a6.reply?.meta?.proposals);
+a6 = await askA(pat, await mine(pat), 'ADD-IT: put a reminder on my calendar');
+const pcre = a6.reply?.meta?.proposals?.[0];
+const penum = a6.calls[0]?.tools?.find((x) => x.name === 'create_event')?.input_schema.properties.space.enum || [];
+check('Create: in her own conversation Pat can add to her personal calendar, never to #festival where she only views', penum.includes('personal') && !penum.includes('festival') && pcre?.kind === 'create', JSON.stringify({ status: a6.status, err: a6.error, tools: (a6.calls[0]?.tools || []).map((x) => [x.name, x.input_schema.properties.space?.enum]), meta: a6.reply?.meta, body: a6.reply?.body }));
 
 // Dismiss.
 a6 = await askA(olive, spaces.festival, '@Weft MOVE-IT: change where The Backyard Radio plays');
