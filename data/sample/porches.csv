@@ -1,0 +1,21 @@
+porch_id,space_id,address,neighborhood,capacity,accessible,power_available,rain_plan
+P01,festival,430 Mandolin Row,North Grove,40,yes,no,tent
+P02,festival,661 Cadenza Circle,Old Mill,60,yes,yes,move to P01
+P03,festival,985 Ocarina Loop,Riverbend,40,no,no,move to P01
+P04,festival,304 Banjo Bend,North Grove,80,yes,yes,cancel
+P05,festival,1135 Glockenspiel Ave,Old Mill,60,yes,no,tent
+P06,festival,601 Mandolin Row,Riverbend,80,no,no,garage
+P07,festival,688 Marmalade Way,North Grove,80,yes,no,garage
+P08,festival,940 Cadenza Circle,Old Mill,100,no,yes,cancel
+P09,festival,937 Ocarina Loop,Riverbend,40,yes,no,garage
+P10,festival,1606 Fiddlehead Drive,North Grove,60,yes,yes,move to P01
+P11,festival,1909 Ukulele Terrace,Old Mill,40,no,yes,garage
+P12,festival,1972 Kazoo Lane,Riverbend,80,yes,yes,cancel
+P13,festival,187 Marmalade Way,North Grove,80,no,no,move to P01
+P14,festival,1639 Cadenza Circle,Old Mill,100,yes,yes,tent
+P15,festival,1516 Kazoo Lane,Riverbend,100,yes,yes,garage
+P16,festival,1576 Banjo Bend,North Grove,150,no,yes,cancel
+P17,festival,1210 Fiddlehead Drive,Old Mill,40,yes,no,tent
+P18,festival,1414 Kazoo Lane,Riverbend,80,yes,yes,move to P01
+P19,festival,1963 Cadenza Circle,North Grove,80,yes,yes,tent
+P20,festival,1699 Marmalade Way,Old Mill,60,yes,yes,move to P01

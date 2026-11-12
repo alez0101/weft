@@ -1,0 +1,10 @@
+space_id,user_id,role
+festival,u-alex,owner
+volunteers,u-alex,owner
+organizers,u-alex,owner
+festival,u-org,editor
+volunteers,u-org,editor
+organizers,u-org,editor
+festival,u-vol,viewer
+volunteers,u-vol,editor
+festival,u-pub,viewer

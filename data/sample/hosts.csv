@@ -1,0 +1,21 @@
+host_id,space_id,porch_id,host_name,email,phone,private_notes
+H01,organizers,P01,Emery Fairbanks,emery.fairbanks01@example.com,555-0119,Prefers acoustic acts
+H02,organizers,P02,Sage Juniper,sage.juniper02@example.com,555-0126,Neighbor sensitive to noise after 5
+H03,organizers,P03,Logan Stillwater,logan.stillwater03@example.com,555-0124,Has a spare PA
+H04,organizers,P04,Morgan Ingram,morgan.ingram04@example.com,555-0187,Neighbor sensitive to noise after 5
+H05,organizers,P05,Rowan Ingram,rowan.ingram05@example.com,555-0124,
+H06,organizers,P06,Dana Hawthorne,dana.hawthorne06@example.com,555-0132,Prefers acoustic acts
+H07,organizers,P07,Casey Abernathy,casey.abernathy07@example.com,555-0159,
+H08,organizers,P08,Yael Everhart,yael.everhart08@example.com,555-0101,Prefers acoustic acts
+H09,organizers,P09,Val Stillwater,val.stillwater09@example.com,555-0127,Neighbor sensitive to noise after 5
+H10,organizers,P10,Sage Ingram,sage.ingram10@example.com,555-0168,Prefers acoustic acts
+H11,organizers,P11,Dana Castellan,dana.castellan11@example.com,555-0169,Prefers acoustic acts
+H12,organizers,P12,Indy Castellan,indy.castellan12@example.com,555-0125,Prefers acoustic acts
+H13,organizers,P13,Quinn Stillwater,quinn.stillwater13@example.com,555-0140,First-time host
+H14,organizers,P14,Gray Everhart,gray.everhart14@example.com,555-0110,Has a spare PA
+H15,organizers,P15,Frankie Kingsley,frankie.kingsley15@example.com,555-0153,Prefers acoustic acts
+H16,organizers,P16,Wren Everhart,wren.everhart16@example.com,555-0189,
+H17,organizers,P17,Frankie Abernathy,frankie.abernathy17@example.com,555-0173,Prefers acoustic acts
+H18,organizers,P18,Marlow Quillfeather,marlow.quillfeather18@example.com,555-0142,"Dog in backyard, keep gate shut"
+H19,organizers,P19,Frankie Juniper,frankie.juniper19@example.com,555-0112,"Dog in backyard, keep gate shut"
+H20,organizers,P20,Oakley Galloway,oakley.galloway20@example.com,555-0190,"Dog in backyard, keep gate shut"

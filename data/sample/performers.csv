@@ -1,0 +1,46 @@
+performer_id,space_id,name,genre,members,needs_power,contact_name,contact_email
+B01,festival,The Rusty Pines,indie rock,8,yes,Gray Dunmore,gray.dunmore1@example.com
+B02,festival,The Tin Sparrows,soul,2,no,Quinn Everhart,quinn.everhart2@example.com
+B03,festival,The Paper Comets,a cappella,9,yes,Rowan Quillfeather,rowan.quillfeather3@example.com
+B04,festival,The Sunday Typewriters,indie rock,8,no,Oakley Everhart,oakley.everhart4@example.com
+B05,festival,The Paper Engines,brass band,5,yes,Casey Galloway,casey.galloway5@example.com
+B06,festival,The Paper Radio,singer-songwriter,1,yes,Sage Oakhurst,sage.oakhurst6@example.com
+B07,festival,The Hollow Sparrows,blues,8,yes,Sage Stillwater,sage.stillwater7@example.com
+B08,festival,The Backyard Radio,a cappella,3,yes,Hollis Merriweather,hollis.merriweather8@example.com
+B09,festival,The Electric Lanterns,punk,3,no,Indy Bellweather,indy.bellweather9@example.com
+B10,festival,The Electric Mockingbirds,blues,3,yes,Uri Pemberton,uri.pemberton10@example.com
+B11,festival,The Midnight Comets,folk,1,yes,Val Abernathy,val.abernathy11@example.com
+B12,festival,The Backyard Engines,reggae,2,yes,Reese Quillfeather,reese.quillfeather12@example.com
+B13,festival,The Electric Telegraph,mariachi,4,no,Frankie Pemberton,frankie.pemberton13@example.com
+B14,festival,The Silver Sparrows,singer-songwriter,8,no,Frankie Juniper,frankie.juniper14@example.com
+B15,festival,The Velvet Lanterns,soul,8,no,Logan Ingram,logan.ingram15@example.com
+B16,festival,The Velvet Pines,punk,9,yes,Hollis Fairbanks,hollis.fairbanks16@example.com
+B17,festival,The Crooked Telegraph,mariachi,8,no,Uri Northcott,uri.northcott17@example.com
+B18,festival,The Electric Engines,funk,2,yes,Logan Kingsley,logan.kingsley18@example.com
+B19,festival,The Porchlight Lanterns,bluegrass,9,yes,Oakley Oakhurst,oakley.oakhurst19@example.com
+B20,festival,The Lucky Orchard,classical,2,yes,Parker Abernathy,parker.abernathy20@example.com
+B21,festival,The Electric Peaches,punk,5,no,Uri Ingram,uri.ingram21@example.com
+B22,festival,The Porchlight Mockingbirds,country,9,no,Casey Lockwood,casey.lockwood22@example.com
+B23,festival,The Golden Mockingbirds,brass band,5,yes,Hollis Merriweather,hollis.merriweather23@example.com
+B24,festival,The Porchlight Hounds,mariachi,2,no,Marlow Pemberton,marlow.pemberton24@example.com
+B25,festival,The Crooked Peaches,singer-songwriter,9,no,Hollis Abernathy,hollis.abernathy25@example.com
+B26,festival,The Midnight Orchard,a cappella,2,yes,Avery Dunmore,avery.dunmore26@example.com
+B27,festival,The Midnight Satellites,a cappella,2,no,Harper Pemberton,harper.pemberton27@example.com
+B28,festival,The Crooked Orchard,funk,1,no,Dana Lockwood,dana.lockwood28@example.com
+B29,festival,The Wandering Sparrows,indie rock,6,no,Avery Pemberton,avery.pemberton29@example.com
+B30,festival,The Golden Hounds,classical,9,yes,Hollis Pemberton,hollis.pemberton30@example.com
+B31,festival,The Lucky Hounds,country,7,yes,Hollis Ravensworth,hollis.ravensworth31@example.com
+B32,festival,The Velvet Telegraph,soul,9,yes,Xen Quillfeather,xen.quillfeather32@example.com
+B33,festival,The Crooked Typewriters,punk,7,no,Rowan Merriweather,rowan.merriweather33@example.com
+B34,festival,The Tin Typewriters,mariachi,1,yes,Morgan Kingsley,morgan.kingsley34@example.com
+B35,festival,The Midnight Hounds,punk,4,yes,Uri Quillfeather,uri.quillfeather35@example.com
+B36,festival,The Crooked Owls,soul,8,no,Morgan Stillwater,morgan.stillwater36@example.com
+B37,festival,The Hollow Lanterns,funk,1,no,Quinn Thistledown,quinn.thistledown37@example.com
+B38,festival,The Sunday Peaches,country,1,yes,Tatum Galloway,tatum.galloway38@example.com
+B39,festival,The Rusty Satellites,blues,9,yes,Emery Dunmore,emery.dunmore39@example.com
+B40,festival,The Tin Orchard,indie rock,4,no,Emery Ingram,emery.ingram40@example.com
+B41,festival,The Electric Satellites,reggae,6,yes,Casey Hawthorne,casey.hawthorne41@example.com
+B42,festival,The Electric Owls,punk,6,no,Hollis Northcott,hollis.northcott42@example.com
+B43,festival,The Hollow Satellites,a cappella,7,yes,Jordan Kingsley,jordan.kingsley43@example.com
+B44,festival,The Backyard Mockingbirds,country,7,no,Val Kingsley,val.kingsley44@example.com
+B45,festival,The Silver Telegraph,a cappella,3,yes,Elliot Merriweather,elliot.merriweather45@example.com
