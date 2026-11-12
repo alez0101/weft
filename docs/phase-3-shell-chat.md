@@ -40,7 +40,8 @@ expired sockets are closed and the client reconnects with a fresh token.
 - `007_services`: logins `weft_auth` (may only call `provision_user` and `test_user`) and
   `weft_notify` (may only call `memberships`).
 
-## Not yet verified
+## Verified
 
-- A real Cloudflare Access sign-in: needs Alex at `https://weft.example.org`. If it fails, `docker compose
-  logs svc` shows why (audience, issuer or signature).
+- 2026-11-12: Alex signed in through Cloudflare Access at `https://weft.example.org` and chatted. No
+  verification failures in the svc log (AUD tag confirmed); his account was created on first sign-in.
+  If a future sign-in fails, `docker compose logs svc` names the reason (audience, issuer or signature).
