@@ -65,5 +65,7 @@ Built 2026-11-12. `tests/run.sh` now runs three suites from a clean rebuild: 95 
   `a backup of the Ollama compose file`. Ollama has no login, so anything on
   the LAN can use it; remove the LAN line in that compose file to undo. Fallback model is
   `qwen2.5:3b`, because the homelab host keeps at most two models loaded (qwen2.5:3b + nomic-embed-text).
-- **The Anthropic key**: Alex creates one in the Anthropic console and enters it in Settings.
+- Done 2026-11-12: Alex entered the Anthropic key in Settings. Test connection 1.0 s; real answers about
+  1.7 s and $0.0015 to $0.0023 each (the $10 cap is roughly 5,000 questions). Claude answered correctly the
+  author question qwen2.5:3b missed.
 - Semantic (vector) search: full-text only in 3b; pgvector embeddings come with Phase 6.
