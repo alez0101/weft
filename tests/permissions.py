@@ -245,6 +245,60 @@ def assistant_era():
         owner_sql(f"update weft.users set is_admin = false where id = '{uid('user', 'u-pub')}'")
 
 
+# ---------------------------------------------------------------- tables (version 1.5)
+def tables():
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    porches, budget = uid("item", "porches"), uid("item", "budget")
+    col = lambda key, name: uid("col", key, name)
+    row = lambda key, n: uid("row", key, str(n))
+    st, rows = call("GET", f"/table_rows?table_id=eq.{porches}&select=id", pat)
+    check("Tables: Pat reads the Porches rows (festival)", st == 200 and len(rows) == 20, f"{st} {len(rows or [])}")
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = call("GET", f"/table_rows?table_id=eq.{budget}&select=id", tok)
+        check(f"Tables: {who} gets no Budget rows (organizers)", st == 200 and rows == [], str(st))
+        st, rows = call("GET", f"/table_columns?table_id=eq.{budget}&select=id", tok)
+        check(f"Tables: {who} gets no Budget columns", st == 200 and rows == [], str(st))
+    st, rows = call("GET", "/items?title=eq.Budget&select=body_text", pat)
+    check("Tables: Pat cannot read the Budget text summary", st == 200 and rows == [], str(st))
+    st, rows = call("GET", "/items?title=eq.Budget&select=body_text", olive)
+    check("Tables: Olive can, and it carries the rows", st == 200 and "ORG-BUDGET-SECRET" in (rows[0]["body_text"] if rows else ""), str(st))
+    st, r = call("POST", "/rpc/set_cell", pat, {"p_row": row("porches", 0), "p_column": col("porches", "Rain plan"), "p_value": "pwned"})
+    check("Tables: Pat (viewer) cannot change a cell", (st == 200 and r == 0) or refused(st), f"{st} {r}")
+    st, r = call("POST", "/rpc/set_cell", olive, {"p_row": row("budget", 0), "p_column": col("budget", "Amount"), "p_value": 1})
+    check("Tables: Olive (editor) changes a Budget cell", st == 200 and r == 1, f"{st} {r}")
+    st, r = call("POST", "/rpc/set_cell", pat, {"p_row": row("budget", 0), "p_column": col("budget", "Amount"), "p_value": 999})
+    check("Tables: Pat's set_cell on a Budget row changes nothing", (st == 200 and r == 0) or refused(st), f"{st} {r}")
+    st, r = call("POST", "/rpc/set_cell", olive, {"p_row": row("porches", 1), "p_column": col("budget", "Amount"), "p_value": 5})
+    check("Tables: a column from another table is refused", st == 200 and r == 0, f"{st} {r}")
+    # Two editors, two different cells of the same row: both survive.
+    call("POST", "/rpc/set_cell", olive, {"p_row": row("porches", 2), "p_column": col("porches", "Rain plan"), "p_value": "garage"})
+    call("POST", "/rpc/set_cell", alex, {"p_row": row("porches", 2), "p_column": col("porches", "Capacity"), "p_value": 77})
+    st, rows = call("GET", f"/table_rows?id=eq.{row('porches', 2)}&select=cells", pat)
+    cells = rows[0]["cells"] if rows else {}
+    check("Tables: two people editing different cells of one row both keep their change",
+          cells.get(col("porches", "Rain plan")) == "garage" and cells.get(col("porches", "Capacity")) == 77, json.dumps(cells))
+    st, rows = call("GET", "/items?title=eq.Porches&select=body_text", pat)
+    check("Tables: the text summary follows the edits", "Capacity: 77" in (rows[0]["body_text"] if rows else ""))
+    st, _ = call("POST", "/table_rows", pat, {"table_id": porches, "cells": {}})
+    check("Tables: Pat cannot add rows", refused(st), str(st))
+    st, _ = call("POST", "/table_rows", olive, {"table_id": porches, "cells": {}}, prefer="return=minimal")
+    check("Tables: Olive adds a row", st == 201, str(st))
+    st, _ = call("POST", "/table_rows", olive, {"table_id": porches, "cells": {}, "created_by": uid("user", "u-alex")})
+    check("Tables: authorship of a row cannot be forged", refused(st), str(st))
+    st, _ = call("POST", "/table_columns", vic, {"table_id": porches, "name": "x", "type": "text"})
+    check("Tables: Vic (viewer in festival) cannot add columns", refused(st), str(st))
+    st, rows = call("DELETE", f"/table_rows?table_id=eq.{budget}", pat)
+    check("Tables: Pat's delete of Budget rows touches nothing", st == 200 and rows == [], str(st))
+    st, _ = call("DELETE", f"/table_rows?id=eq.{row('porches', 3)}", mint("u-org", assistant=True))
+    check("Tables: the assistant cannot delete rows", refused(st), str(st))
+    st, _ = call("POST", "/rpc/set_cell", mint("u-org", assistant=True), {"p_row": row("porches", 3), "p_column": col("porches", "Porch"), "p_value": "x"})
+    check("Tables: the assistant cannot change cells", refused(st), str(st))
+    st, rows = call("GET", f"/audit?row_id=eq.{row('budget', 0)}&select=op", pat)
+    check("Tables: Pat cannot read Budget audit rows", st == 200 and rows == [], str(st))
+    st, rows = call("GET", f"/audit?row_id=eq.{row('budget', 0)}&select=op", olive)
+    check("Tables: Olive's Budget edit is in the audit log", st == 200 and len(rows) >= 1, str(st))
+
+
 # ---------------------------------------------------------------- teeth
 def teeth():
     """Loosen one policy on purpose and confirm the suite would catch it, then restore it."""
@@ -265,6 +319,7 @@ if __name__ == "__main__":
     assistant_and_scope()
     audit_and_tokens()
     assistant_era()
+    tables()
     if "--teeth" in sys.argv:
         teeth()
     width = max(len(n) for n, _, _ in results)

@@ -2,7 +2,7 @@
 title: Weft help
 parent:
 ---
-Weft puts chat, documents, a wiki and a calendar in one place, with an assistant that answers from what you can see.
+Weft puts chat, documents, a wiki, whiteboards, tables and a calendar in one place, with an assistant that answers from what you can see.
 
 ### Finding your way around
 

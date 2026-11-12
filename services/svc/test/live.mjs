@@ -87,6 +87,16 @@ await sleep(1200);
 check('An organizers event notifies Olive but not Pat or Vic', got(sOlive, (n) => n.id === ev.id).length === 1 && got(sPat, (n) => n.id === ev.id).length === 0 && got(sVic, (n) => n.id === ev.id).length === 0);
 check('A festival event notifies Pat and Vic', got(sPat, (n) => n.id === ev2.id).length === 1 && got(sVic, (n) => n.id === ev2.id).length === 1);
 
+// Table rows (version 1.5) follow the same rule.
+clear(sOlive, sVic, sPat);
+const budget = (await api(olive.token, '/items?title=eq.Budget&select=id')).rows[0].id;
+const porches = (await api(olive.token, '/items?title=eq.Porches&select=id')).rows[0].id;
+const [br] = (await api(olive.token, '/table_rows', { method: 'POST', body: { table_id: budget, cells: {} } })).rows;
+const [pr] = (await api(olive.token, '/table_rows', { method: 'POST', body: { table_id: porches, cells: {} } })).rows;
+await sleep(1200);
+check('A Budget row (organizers) notifies Olive but not Pat or Vic', got(sOlive, (n) => n.id === br.id).length === 1 && got(sPat, (n) => n.id === br.id).length === 0 && got(sVic, (n) => n.id === br.id).length === 0);
+check('A Porches row (festival) notifies Pat, naming its table', got(sPat, (n) => n.id === pr.id && n.table === porches).length === 1);
+
 // Bad tokens never get a socket.
 const bad = await socket('not-a-token');
 check('A garbage token cannot open a socket', !bad.ok, String(bad.status));

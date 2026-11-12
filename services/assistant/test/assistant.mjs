@@ -37,7 +37,7 @@ http.createServer((req, res) => {
         content.push({ type: 'text', text: 'I can post that.' });
         content.push({ type: 'tool_use', id: 'toolu_2', name: 'send_message', input: { channel: ch, text: 'Hello from the Weft test' } });
       } else {
-        const first = (/CITE-DOC/.test(user) && /^\[(\d+)\] (?:document|wiki page) /m.exec(user)) || /^\[(\d+)\] /m.exec(user);
+        const first = (/CITE-DOC/.test(user) && /^\[(\d+)\] (?:document|wiki page|table|whiteboard) /m.exec(user)) || /^\[(\d+)\] /m.exec(user);
         content.push({ type: 'text', text: first ? `Here is what I found [${first[1]}].` : 'NOT_FOUND' });
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -233,6 +233,14 @@ const dprop = a6.reply?.meta?.proposals?.[0];
 check('Dismiss: Olive dismisses a proposal', (await assist(olive.token, `/assistant/proposals/${dprop.id}/dismiss`, { method: 'POST', body: {} })).data?.status === 'dismissed');
 check('Dismiss: a dismissed proposal cannot be confirmed', (await assist(olive.token, `/assistant/proposals/${dprop.id}/confirm`, { method: 'POST', body: {} })).status === 409);
 check('Statuses: Pat cannot read Olive\'s proposal statuses', ((await assist(pat.token, `/assistant/proposals?ids=${dprop.id}`)).data || []).length === 0);
+
+// Tables (version 1.5): read like documents, scoped the same way.
+a6 = await askA(pat, spaces.festival, '@Weft which porches have no power?');
+check('Tables: the Porches table reaches the model for Pat in #festival, labelled as a table', /\] table "Porches" in #festival: Columns: Porch/.test(a6.calls[0]?.user || ''), (a6.calls[0]?.user || '').slice(0, 200));
+a6 = await askA(pat, await mine(pat), 'What is in the budget?');
+check('Tables: the Organizers Budget never reaches the model for Pat', a6.calls.length === 1 && !a6.calls[0].user.includes('ORG-BUDGET-SECRET'));
+a6 = await askA(olive, await mine(olive), 'CITE-DOC What is in the budget?');
+check('Tables: Olive in her own conversation gets the Budget, cited as a table', a6.calls[0]?.user.includes('ORG-BUDGET-SECRET') && /^Table: /.test(a6.reply?.meta?.citations?.[0]?.label || ''), JSON.stringify(a6.reply?.meta?.citations));
 
 // The fallback answers read-only: no tools are sent to it.
 await assist(alex.token, '/assistant/admin/providers/primary', { method: 'PUT', body: { ...anthropicSlot, enabled: false } });

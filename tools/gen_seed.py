@@ -106,5 +106,32 @@ for s in rows("slots"):
 for v in rows("volunteers"):
     out.append(f"insert into events (id, space_id, title, starts_at, ends_at, location, created_by) values ({q(uid('shift', v['volunteer_id']))}, {q(space_id['volunteers'])}, {q(v['name'] + ', ' + v['role'])}, {local(v['shift_start'])}, {local(v['shift_end'])}, {q(v['assigned_porch_id'])}, {q(olive)});")
 
+# Tables (version 1.5): Porches and Performers in Festival, a small Budget in Organizers.
+import json
+def table(key, space, title, cols, rows):
+    tid = uid("item", key)
+    out.append(f"insert into items (id, space_id, kind, title, created_by) values ({q(tid)}, {q(space_id[space])}, 'table', {q(title)}, {q(alex)});")
+    cid = {}
+    for n, (name, typ, opts) in enumerate(cols):
+        cid[name] = uid("col", key, name)
+        out.append(f"insert into table_columns (id, table_id, name, type, options, position) values ({q(cid[name])}, {q(tid)}, {q(name)}, {q(typ)}, {q(json.dumps(opts))}::jsonb, {n});")
+    for n, r in enumerate(rows):
+        cells = {cid[k]: v for k, v in r.items() if v not in (None, "")}
+        out.append(f"insert into table_rows (id, table_id, cells, position, created_by) values ({q(uid('row', key, str(n)))}, {q(tid)}, {q(json.dumps(cells))}::jsonb, {n}, {q(alex)});")
+    out.append(f"select weft_private.refresh_table_text({q(tid)});")
+hoods = sorted({p["neighborhood"] for p in porches.values()})
+table("porches", "festival", "Porches",
+      [("Porch", "text", []), ("Address", "text", []), ("Neighborhood", "select", hoods), ("Capacity", "number", []),
+       ("Accessible", "checkbox", []), ("Power", "checkbox", []), ("Rain plan", "text", [])],
+      [{"Porch": k, "Address": p["address"], "Neighborhood": p["neighborhood"], "Capacity": int(p["capacity"]),
+        "Accessible": p["accessible"] == "yes", "Power": p["power_available"] == "yes", "Rain plan": p["rain_plan"]} for k, p in porches.items()])
+genres = sorted({b["genre"] for b in rows("performers")})
+table("performers", "festival", "Performers",
+      [("Name", "text", []), ("Genre", "select", genres), ("Members", "number", []), ("Needs power", "checkbox", [])],
+      [{"Name": b["name"], "Genre": b["genre"], "Members": int(b["members"]), "Needs power": b["needs_power"] == "yes"} for b in rows("performers")])
+table("budget", "organizers", "Budget",
+      [("Item", "text", []), ("Amount", "number", []), ("Paid", "checkbox", [])],
+      [{"Item": "Porch signs", "Amount": 180, "Paid": True}, {"Item": "PA rental (ORG-BUDGET-SECRET)", "Amount": 450, "Paid": False}])
+
 out.append("commit;")
 sys.stdout.write("\n".join(out) + "\n")

@@ -74,6 +74,7 @@ const where = (s) => (s?.kind === 'channel' ? `#${s.name}` : s?.kind === 'person
 // A short excerpt of a document: the paragraphs that mention the question's words, else its start.
 function excerpt(text, terms, max = 1200) {
   const paras = String(text || '').split(/\n+/).map((x) => x.trim()).filter(Boolean);
+  if (max > 1200) return paras.join('\n').slice(0, max); // a table: as much of it as fits, rows intact
   const hits = paras.filter((x) => terms.some((w) => x.toLowerCase().includes(w)));
   return (hits.length ? hits : paras).join(' / ').slice(0, max);
 }
@@ -90,7 +91,7 @@ async function retrieve(token, question, spaceId, scoped, excludeId) {
   if (q) {
     (await rest(token, `/messages?select=${SELECT}&body=wfts(english).${encodeURIComponent(terms.join(' or '))}&order=created_at.desc&limit=12`)).forEach(msg);
     (await rest(token, `/items?select=${ISELECT}&or=(title.wfts(english).${q},body_text.wfts(english).${q})&limit=6`))
-      .forEach((r) => put(`i${r.id}`, { type: 'item', ...r, text: excerpt(r.body_text, terms) }));
+      .forEach((r) => put(`i${r.id}`, { type: 'item', ...r, text: excerpt(r.body_text, terms, r.kind === 'table' ? 3500 : 1200) }));
     (await rest(token, `/events?select=${ESELECT}&or=(title.wfts(english).${q},location.wfts(english).${q})&order=starts_at&limit=10`))
       .forEach((r) => put(`e${r.id}`, { type: 'event', ...r }));
   }
@@ -118,14 +119,14 @@ function fmtTime(iso, tz) {
 function prompt(question, sources, tz) {
   const lines = sources.map((s, i) => {
     const n = `[${i + 1}]`;
-    if (s.type === 'item') return `${n} ${s.kind === 'wiki' ? 'wiki page' : 'document'} "${s.title}" in ${where(s.space)}: ${s.text || '(empty)'}`;
+    if (s.type === 'item') return `${n} ${({ wiki: 'wiki page', whiteboard: 'whiteboard', table: 'table' })[s.kind] || 'document'} "${s.title}" in ${where(s.space)}: ${s.text || '(empty)'}`;
     if (s.type === 'event') return `${n} event "${s.title}" in ${where(s.space)}, ${fmtTime(s.starts_at, tz)} to ${fmtTime(s.ends_at, tz)}${s.location ? `, at ${s.location}` : ''}`;
     return `${n} message in ${where(s.space)}, ${s.author?.display_name}, ${s.created_at.slice(0, 16).replace('T', ' ')}: ${s.body}`;
   });
   return `Sources:\n${lines.join('\n') || '(none)'}\n\nThe person's time zone is ${tz}. Question: ${question}`;
 }
 
-const label = (s) => (s.type === 'item' ? `${s.kind === 'wiki' ? 'Wiki' : 'Document'}: ${s.title}`
+const label = (s) => (s.type === 'item' ? `${({ wiki: 'Wiki', whiteboard: 'Whiteboard', table: 'Table' })[s.kind] || 'Document'}: ${s.title}`
   : s.type === 'event' ? `Event: ${s.title}` : `${where(s.space)}, ${s.author?.display_name}`);
 
 function tools(channels, creatable = []) {

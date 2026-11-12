@@ -150,3 +150,16 @@
 .docs-board { height: calc(100dvh - 260px); min-height: 420px; margin: 0 auto var(--space-lg); max-width: 1400px; border-radius: var(--radius-card); overflow: hidden; box-shadow: 0 0 0 1px var(--color-rule); background: var(--color-paper); }
 .board { height: 100%; }
 .board .excalidraw { --color-primary: var(--color-accent-deep); font-family: var(--font-body); }
+
+/* Version 1.5: tables */
+.docs-table { max-width: 1400px; margin: 0 auto var(--space-lg); }
+.tbl { display: grid; gap: var(--space-xs); }
+.tbl-bar { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
+.tbl-grid { height: calc(100dvh - 330px); min-height: 360px; }
+.tbl-cols { display: grid; gap: var(--space-xs); padding: var(--space-sm); border-radius: var(--radius-card); background: var(--color-paper); box-shadow: 0 0 0 1px var(--color-rule); }
+.tbl-cols ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2xs); }
+.tbl-cols input, .tbl-cols select {
+  height: var(--ctl-h); padding: 0 var(--space-xs); min-width: 0;
+  border: 1px solid var(--color-muted); border-radius: var(--radius-input); background: var(--color-paper); color: var(--color-ink);
+}
+.tbl-type { align-self: center; min-width: 6rem; font-size: var(--text-sm); color: var(--color-muted); }
