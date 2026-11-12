@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, authMode, connectLive, signIn } from './api.js';
 import Chat from './Chat.jsx';
+import AdminPanel from './AdminPanel.jsx';
 
 const APPS = [
   { id: 'documents', label: 'Documents', tint: '--p-thu', phase: 'Phase 4', glyph: <><path d="M11 6h13l7 7v21H11z" /><path d="M24 6v7h7M16 20h10M16 25h10M16 30h6" /></> },
@@ -9,6 +10,7 @@ const APPS = [
   { id: 'sheets', label: 'Sheets', tint: '--p-tue', phase: 'version 1.5', glyph: <><rect x="7" y="8" width="26" height="24" rx="2" /><path d="M7 16h26M7 24h26M16 8v24M25 8v24" /></> },
   { id: 'calendar', label: 'Calendar', tint: '--p-mon', phase: 'Phase 5', glyph: <><rect x="7" y="9" width="26" height="24" rx="2" /><path d="M7 16h26M14 6v6M26 6v6M13 22h4M19 22h4M25 22h2M13 27h4" /></> },
   { id: 'files', label: 'Files', tint: '--p-sat', phase: 'a later version', glyph: <path d="M6 12h10l3 3h15v17H6z" /> },
+  { id: 'settings', label: 'Settings', tint: '--p-fri', admin: true, glyph: <><circle cx="20" cy="20" r="5" /><path d="M20 7v5M20 28v5M7 20h5M28 20h5M10.8 10.8l3.5 3.5M25.7 25.7l3.5 3.5M10.8 29.2l3.5-3.5M25.7 14.3l3.5-3.5" /></> },
 ];
 const APP = Object.fromEntries(APPS.map((a) => [a.id, a]));
 const RAILS = ['collapsed', 'normal', 'wide'];
@@ -76,6 +78,7 @@ export default function App() {
   const [unread, setUnread] = useState([]);
   const [notice, setNotice] = useState(null);
   const [live, setLive] = useState('connecting');
+  const [isAdmin, setIsAdmin] = useState(null); // null until known
 
   useEffect(() => { authMode().then(setMode).catch((e) => setFatal(e.message)); }, []);
 
@@ -89,7 +92,7 @@ export default function App() {
 
   const refreshSpaces = useCallback(async () => {
     const [s, m] = await Promise.all([
-      api('/spaces?kind=in.(channel,dm)&select=id,kind,name&order=name'),
+      api('/spaces?kind=in.(channel,dm,assistant)&select=id,kind,name&order=name'),
       api('/members?select=space_id,role,user:users(id,display_name)'),
     ]);
     setSpaces(s); setMembers(m);
@@ -99,6 +102,7 @@ export default function App() {
   useEffect(() => {
     if (!session) return undefined;
     refreshSpaces().then(refreshUnread).catch((e) => setFatal(e.message));
+    api(`/users?id=eq.${session.user.id}&select=is_admin`).then((r) => setIsAdmin(!!r[0]?.is_admin)).catch(() => {});
     return connectLive((n) => {
       setNotice(n);
       if (n.t === 'members') refreshSpaces().then(refreshUnread).catch(() => {});
@@ -109,7 +113,8 @@ export default function App() {
   // A conversation that is no longer visible (left the space) falls back to the assistant.
   useEffect(() => {
     if (session && spaces.length && ui.convo !== 'weft' && !spaces.some((s) => s.id === ui.convo)) setUi((u) => ({ ...u, convo: 'weft' }));
-  }, [spaces, session, ui.convo]);
+    if (session && isAdmin === false && ui.tabs.includes('settings')) setUi((u) => ({ ...u, tabs: u.tabs.filter((t) => t !== 'settings'), active: u.active === 'settings' ? 'home' : u.active }));
+  }, [spaces, session, ui.convo, ui.tabs, isAdmin]);
 
   const openTab = (id) => setUi((u) => ({ ...u, tabs: u.tabs.includes(id) ? u.tabs : [...u.tabs, id], active: id }));
   const closeTab = (id) => setUi((u) => {
@@ -167,7 +172,7 @@ export default function App() {
             <div className="home">
               <h1 className="home-title">Open an app</h1>
               <ul className="apps">
-                {APPS.map((a) => (
+                {APPS.filter((a) => !a.admin || isAdmin).map((a) => (
                   <li key={a.id}><a className="app" href={`#active=${a.id}`} onClick={(e) => { e.preventDefault(); openTab(a.id); }}>
                     <span className="tile" style={{ '--t': `var(${a.tint})` }}><svg viewBox="0 0 40 40" aria-hidden="true">{a.glyph}</svg></span>
                     <span className="app-name">{a.label}</span>
@@ -175,7 +180,7 @@ export default function App() {
                 ))}
               </ul>
             </div>
-          ) : <AppPanel id={ui.active} />}
+          ) : ui.active === 'settings' ? (isAdmin ? <AdminPanel /> : null) : <AppPanel id={ui.active} />}
         </section>
       </main>
     </div>

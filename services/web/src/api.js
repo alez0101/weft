@@ -76,3 +76,16 @@ export function connectLive(onNotice, onState) {
   open();
   return () => { stopped = true; ws?.close(); };
 }
+
+// The assistant service (asks and admin settings). Same token, same renewal.
+export async function assistant(path, { method = 'GET', body } = {}) {
+  const r = await fetch(`/assistant${path}`, {
+    method, body: body === undefined ? undefined : JSON.stringify(body),
+    headers: { Authorization: `Bearer ${token}`, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+  });
+  if (r.status === 401 && reauth) { schedule(await reauth()); return assistant(path, { method, body }); }
+  let data = null;
+  try { data = await r.json(); } catch { /* empty */ }
+  if (!r.ok) throw new Error(data?.error || `${r.status}`);
+  return data;
+}

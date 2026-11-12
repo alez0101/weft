@@ -53,10 +53,21 @@ services:
       ACCESS_AUD: ${ACCESS_AUD:?}
       BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
 
+  assistant:
+    build: ../../services/assistant
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DATABASE_URL_ASSIST: postgres://weft_assist:${ASSIST_SVC_PASSWORD:?}@postgres:5432/weft
+      JWT_SECRET: ${JWT_SECRET}
+      ASSIST_MASTER_KEY: ${ASSIST_MASTER_KEY:?}
+      POSTGREST_URL: http://postgrest:3000
+
   web:
     build: ../../services/web
     restart: unless-stopped
-    depends_on: [postgrest, svc]
+    depends_on: [postgrest, svc, assistant]
     ports:
       - "127.0.0.1:3010:80"
       - "192.0.2.10:3010:80"

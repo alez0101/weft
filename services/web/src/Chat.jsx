@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api } from './api.js';
+import { api, assistant } from './api.js';
 
-const ASSISTANT = 'weft';
+const ASSISTANT = 'weft'; // URL alias for the person's own assistant space
+const SEL = 'id,body,created_at,author_id,meta,author:users(display_name,is_assistant)';
 const time = (iso) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 // "@Name" segments rendered as mentions.
@@ -10,7 +11,11 @@ function Body({ text }) {
   return <p>{parts.map((p, i) => (p.startsWith('@') ? <span key={i} className="mention">{p}</span> : p))}</p>;
 }
 
-export default function Chat({ me, spaces, members, unread, active, setActive, rail, setRail, notice, live }) {
+export default function Chat({ me, spaces, members, unread, active: activeRaw, setActive, rail, setRail, notice, live }) {
+  const assistantSpace = spaces.find((s) => s.kind === 'assistant');
+  const active = activeRaw === ASSISTANT ? (assistantSpace?.id ?? ASSISTANT) : activeRaw;
+  const [thinking, setThinking] = useState(false);
+  const [focus, setFocus] = useState(null);
   const [messages, setMessages] = useState([]);
   const [state, setState] = useState('loading'); // loading | ready | error
   const [error, setError] = useState('');
@@ -33,7 +38,7 @@ export default function Chat({ me, spaces, members, unread, active, setActive, r
     setState('loading');
     setError('');
     try {
-      const rows = await api(`/messages?space_id=eq.${spaceId}&select=id,body,created_at,author_id,author:users(display_name,is_assistant)&order=created_at.asc&limit=200`);
+      const rows = await api(`/messages?space_id=eq.${spaceId}&select=${SEL}&order=created_at.asc&limit=200`);
       setMessages(rows);
       setState('ready');
       await api('/reads?on_conflict=space_id,user_id', {
@@ -44,12 +49,18 @@ export default function Chat({ me, spaces, members, unread, active, setActive, r
   }, []);
 
   useEffect(() => { if (active && active !== ASSISTANT) load(active); }, [active, load]);
+  useEffect(() => {
+    if (!focus || state !== 'ready') return;
+    const el = document.getElementById(`msg-${focus}`);
+    if (el) { el.scrollIntoView({ block: 'center' }); el.classList.add('is-focus'); setTimeout(() => el.classList.remove('is-focus'), 2400); }
+    setFocus(null);
+  }, [focus, state, messages]);
 
   // A live notice for the open conversation: fetch just that row (RLS decides) and append.
   useEffect(() => {
     if (!notice || notice.t !== 'messages' || notice.space !== active) return;
     if (notice.op === 'DELETE') { setMessages((m) => m.filter((x) => x.id !== notice.id)); return; }
-    api(`/messages?id=eq.${notice.id}&select=id,body,created_at,author_id,author:users(display_name,is_assistant)`)
+    api(`/messages?id=eq.${notice.id}&select=${SEL}`)
       .then((rows) => {
         if (!rows.length) return;
         setMessages((m) => (m.some((x) => x.id === rows[0].id) ? m.map((x) => (x.id === rows[0].id ? rows[0] : x)) : [...m, rows[0]]));
@@ -60,18 +71,24 @@ export default function Chat({ me, spaces, members, unread, active, setActive, r
       }).catch(() => {});
   }, [notice, active]);
 
-  useEffect(() => { const el = listRef.current; if (el) el.scrollTop = el.scrollHeight; }, [messages]);
+  useEffect(() => { const el = listRef.current; if (el && !focus) el.scrollTop = el.scrollHeight; }, [messages, focus]);
 
   async function send(e) {
     e.preventDefault();
     const body = draft.trim();
     if (!body || !current) return;
-    setSending(true);
+    setSending(true); setError('');
+    let sent;
     try {
-      await api('/messages', { method: 'POST', body: { space_id: current.id, body }, prefer: 'return=minimal' });
+      [sent] = await api('/messages', { method: 'POST', body: { space_id: current.id, body }, prefer: 'return=representation' });
       setDraft(''); // the live notice brings the message back into the list
     } catch (err) { setError(`Not sent: ${err.message}`); }
     setSending(false);
+    if (sent && (current.kind === 'assistant' || /@weft\b/i.test(body))) {
+      setThinking(true);
+      try { await assistant('/ask', { method: 'POST', body: { message_id: sent.id } }); } catch (err) { setError(`Weft couldn't answer: ${err.message}`); }
+      setThinking(false);
+    }
   }
 
   const ConvoButton = ({ id, icon, label, meta }) => {
@@ -92,8 +109,8 @@ export default function Chat({ me, spaces, members, unread, active, setActive, r
     );
   };
 
-  const title = active === ASSISTANT ? 'Weft' : current ? (current.kind === 'channel' ? `# ${current.name}` : nameOf(current)) : '';
-  const sub = active === ASSISTANT ? 'The assistant arrives in Phase 3b.'
+  const title = current?.kind === 'assistant' || active === ASSISTANT ? 'Weft' : current ? (current.kind === 'channel' ? `# ${current.name}` : nameOf(current)) : '';
+  const sub = current?.kind === 'assistant' ? 'Answers from everything you can open, with sources. In a channel, @Weft answers only from that channel.'
     : current?.kind === 'channel' ? `${members.filter((m) => m.space_id === current.id).length} members` : 'Direct message';
 
   return (
@@ -108,7 +125,7 @@ export default function Chat({ me, spaces, members, unread, active, setActive, r
           </div>
         </div>
         <ul className="convo-list">
-          <li><ConvoButton id={ASSISTANT} icon={<span className="who who--agent" aria-hidden="true">W</span>} label="Weft" meta="assistant" /></li>
+          <li><ConvoButton id={assistantSpace?.id ?? ASSISTANT} icon={<span className="who who--agent" aria-hidden="true">W</span>} label="Weft" meta="assistant" /></li>
         </ul>
         <p className="convo-group">Channels</p>
         <ul className="convo-list">
@@ -128,32 +145,44 @@ export default function Chat({ me, spaces, members, unread, active, setActive, r
           <p className="thread-sub">{sub}{live !== 'live' && active !== ASSISTANT ? ' · reconnecting' : ''}</p>
         </header>
         {active === ASSISTANT ? (
-          <div className="thread-empty"><p>The assistant answers here once Phase 3b is built: from what you can open, with sources you can click.</p></div>
+          <div className="thread-empty"><p>Setting up your conversation with Weft…</p></div>
         ) : state === 'loading' ? (
           <div className="skeleton skeleton--chat" aria-label="Loading messages"><span /><span /><span /></div>
         ) : state === 'error' ? (
           <div className="thread-empty" role="alert"><p>Messages could not load: {error}</p><button className="btn btn--sm" onClick={() => load(active)}>Try again</button></div>
         ) : (
           <ol className="messages" ref={listRef}>
-            {messages.length === 0 && <li className="thread-empty"><p>No messages yet. Say hello.</p></li>}
+            {messages.length === 0 && <li className="thread-empty"><p>{current?.kind === 'assistant' ? 'Ask Weft about anything in your channels and messages.' : 'No messages yet. Say hello.'}</p></li>}
             {messages.map((m) => {
               const mine = m.author_id === me.id;
               return (
-                <li key={m.id} className={`msg${mine ? ' msg--me' : ''}${m.author?.is_assistant ? ' msg--agent' : ''}`}>
+                <li key={m.id} id={`msg-${m.id}`} className={`msg${mine ? ' msg--me' : ''}${m.author?.is_assistant ? ' msg--agent' : ''}`}>
                   <p className="msg-who">{mine ? 'You' : m.author?.display_name} <time dateTime={m.created_at}>{time(m.created_at)}</time></p>
                   <Body text={m.body} />
+                  {m.meta?.citations?.length > 0 && (
+                    <p className="sources">{m.meta.citations.map((c, i) => (
+                      <button key={c.id} type="button" className="source" title={`Open in ${c.label}`}
+                        onClick={() => { setFocus(c.id); if (c.space_id !== active) setActive(c.space_id); }}>
+                        [{i + 1}] {c.label}
+                      </button>
+                    ))}</p>
+                  )}
+                  {m.author?.is_assistant && m.meta && (
+                    <p className="served-by">{m.meta.served_by ? `Answered by ${m.meta.served_by.model}` : 'No model answered'}{m.meta.fallback ? ` (fallback: ${m.meta.fallback})` : ''}</p>
+                  )}
                 </li>
               );
             })}
           </ol>
         )}
+        {thinking && <p className="thinking" role="status">Weft is looking through what you can see…</p>}
         {error && state === 'ready' && <p className="send-error" role="alert">{error}</p>}
         <form className="composer" onSubmit={send}>
           <label className="visually-hidden" htmlFor="compose">Message</label>
           <input id="compose" autoComplete="off" value={draft} onChange={(e) => setDraft(e.target.value)}
-            disabled={active === ASSISTANT || sending}
-            placeholder={active === ASSISTANT ? 'The assistant arrives in Phase 3b' : `Message ${title}`} />
-          <button className="btn btn--primary btn--sm" type="submit" disabled={active === ASSISTANT || sending || !draft.trim()}>Send</button>
+            disabled={active === ASSISTANT || sending || thinking}
+            placeholder={current?.kind === 'assistant' ? 'Ask Weft' : `Message ${title}${current?.kind === 'channel' ? ' (@Weft to ask)' : ''}`} />
+          <button className="btn btn--primary btn--sm" type="submit" disabled={active === ASSISTANT || sending || thinking || !draft.trim()}>Send</button>
         </form>
       </section>
     </aside>

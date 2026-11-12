@@ -56,6 +56,11 @@ for key, (a, b) in dms.items():
     space_id[key] = uid("space", key)
     out.append(f"insert into spaces (id, kind, name, created_by) values ({q(space_id[key])}, 'dm', {q(key)}, {q(a)});")
     out.append(f"insert into members (space_id, user_id, role) values ({q(space_id[key])}, {q(a)}, 'editor'), ({q(space_id[key])}, {q(b)}, 'editor') on conflict (space_id, user_id) do update set role = excluded.role;")
+out.append(f"update users set is_admin = true where id = {q(alex)};")
+for u in users:
+    key = f"assistant-{u['user_id']}"
+    space_id[key] = uid("space", key)
+    out.append(f"insert into spaces (id, kind, name, created_by) values ({q(space_id[key])}, 'assistant', 'Weft', {q(user_id[u['user_id']])});")
 for u in users:
     key = f"personal-{u['user_id']}"
     space_id[key] = uid("space", key)

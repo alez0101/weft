@@ -1,0 +1,17 @@
+{
+  "name": "weft-assistant",
+  "private": true,
+  "type": "module",
+  "description": "Weft assistant: answers @Weft questions from what the asker can see, with citations; admin provider settings",
+  "scripts": {
+    "start": "node src/index.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
+    "jose": "^6.2.17",
+    "pg": "^8.23.1"
+  }
+}

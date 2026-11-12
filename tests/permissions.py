@@ -25,10 +25,10 @@ NAME = {"u-alex": "Alex", "u-org": "Olive", "u-vol": "Vic", "u-pub": "Pat"}
 
 # Expected membership, from data/sample/members.csv plus the seeded DMs and personal spaces.
 SPACES = {
-    "u-alex": {"festival": "owner", "volunteers": "owner", "organizers": "owner", "dm-alex-olive": "editor", "personal-u-alex": "owner"},
-    "u-org": {"festival": "editor", "volunteers": "editor", "organizers": "editor", "dm-alex-olive": "editor", "dm-olive-vic": "editor", "personal-u-org": "owner"},
-    "u-vol": {"festival": "viewer", "volunteers": "editor", "dm-olive-vic": "editor", "personal-u-vol": "owner"},
-    "u-pub": {"festival": "viewer", "personal-u-pub": "owner"},
+    "u-alex": {"festival": "owner", "volunteers": "owner", "organizers": "owner", "dm-alex-olive": "editor", "personal-u-alex": "owner", "assistant-u-alex": "owner"},
+    "u-org": {"festival": "editor", "volunteers": "editor", "organizers": "editor", "dm-alex-olive": "editor", "dm-olive-vic": "editor", "personal-u-org": "owner", "assistant-u-org": "owner"},
+    "u-vol": {"festival": "viewer", "volunteers": "editor", "dm-olive-vic": "editor", "personal-u-vol": "owner", "assistant-u-vol": "owner"},
+    "u-pub": {"festival": "viewer", "personal-u-pub": "owner", "assistant-u-pub": "owner"},
 }
 SID = {k: uid("space", k) for s in SPACES.values() for k in s}
 KEY_OF = {v: k for k, v in SID.items()}
@@ -218,6 +218,31 @@ def audit_and_tokens():
     check("Expired token: refused", st == 401, str(st))
 
 
+# ---------------------------------------------------------------- Phase 3b additions
+def assistant_era():
+    pat, olive = mint("u-pub"), mint("u-org")
+    st, _ = call("POST", "/messages", pat, {"space_id": SID["festival"], "body": "forged answer", "meta": {"citations": []}})
+    check("People cannot write answer metadata (meta)", refused(st), str(st))
+    st, _ = call("POST", "/spaces", pat, {"kind": "assistant", "name": "second Weft"}, prefer="return=minimal")
+    check("People cannot create assistant conversations", refused(st), str(st))
+    st, _ = call("DELETE", f"/spaces?id=eq.{SID['assistant-u-pub']}", pat)
+    left = owner_sql(f"select count(*) from weft.spaces where id = '{SID['assistant-u-pub']}'")
+    check("Pat cannot delete her assistant conversation", left == "1", str(st))
+    st, rows = call("GET", f"/messages?space_id=eq.{SID['assistant-u-org']}", pat)
+    check("Pat cannot read Olive's assistant conversation", st == 200 and rows == [], str(st))
+    st, _ = call("PATCH", f"/users?id=eq.{uid('user', 'u-pub')}", pat, {"is_admin": True})
+    check("Pat cannot make herself admin", refused(st), str(st))
+    st, rows = call("GET", "/providers", olive)
+    check("Provider settings are not exposed through the API", st in (401, 403, 404), str(st))
+    owner_sql(f"update weft.users set is_admin = true where id = '{uid('user', 'u-pub')}'")
+    try:
+        st, rows = call("GET", f"/items?id=eq.{HOST_CONTACTS}", pat)
+        st2, rows2 = call("GET", f"/messages?space_id=eq.{SID['organizers']}", pat)
+        check("Admin flag widens nothing: admin Pat still cannot see Organizers", st == 200 and rows == [] and st2 == 200 and rows2 == [], f"{st} {st2}")
+    finally:
+        owner_sql(f"update weft.users set is_admin = false where id = '{uid('user', 'u-pub')}'")
+
+
 # ---------------------------------------------------------------- teeth
 def teeth():
     """Loosen one policy on purpose and confirm the suite would catch it, then restore it."""
@@ -237,6 +262,7 @@ if __name__ == "__main__":
     writes()
     assistant_and_scope()
     audit_and_tokens()
+    assistant_era()
     if "--teeth" in sys.argv:
         teeth()
     width = max(len(n) for n, _, _ in results)
