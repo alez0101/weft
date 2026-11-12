@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Weft (mockup)</title>
+  <meta name="description" content="Clickable mockup of Weft: apps open as tabs beside a chat rail with an assistant that cites its sources.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@700&family=Instrument+Sans:wght@400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="app.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+<div class="shell">
+
+  <header class="topbar">
+    <a class="wordmark" href="#home" data-open="home">Weft</a>
+    <label class="search">
+      <span class="visually-hidden">Search</span>
+      <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="m13.2 13.2 3.8 3.8"/></svg>
+      <input type="search" placeholder="Search docs, chats and files" id="search">
+    </label>
+    <span class="mock-note">Mockup with sample data</span>
+    <button class="avatar" type="button" aria-label="Signed in as Alex">A</button>
+  </header>
+
+  <!-- Chat rail: always visible, like Teams -->
+  <aside class="rail" aria-label="Chat">
+    <nav class="convos" aria-label="Conversations">
+      <h2 class="rail-title">Chat</h2>
+      <ul class="convo-list">
+        <li><button class="convo is-active" data-convo="weft" aria-current="true"><span class="who who--agent" aria-hidden="true">W</span><span class="convo-name">Weft</span><span class="convo-meta">assistant</span></button></li>
+      </ul>
+      <p class="convo-group">Channels</p>
+      <ul class="convo-list">
+        <li><button class="convo" data-convo="festival"><span class="hash" aria-hidden="true">#</span><span class="convo-name">festival</span><span class="convo-count">3</span></button></li>
+        <li><button class="convo" data-convo="volunteers"><span class="hash" aria-hidden="true">#</span><span class="convo-name">volunteers</span></button></li>
+        <li><button class="convo" data-convo="organizers"><span class="hash" aria-hidden="true">#</span><span class="convo-name">organizers</span></button></li>
+      </ul>
+      <p class="convo-group">Direct messages</p>
+      <ul class="convo-list">
+        <li><button class="convo" data-convo="olive"><span class="who" style="--t: var(--p-tue)" aria-hidden="true">O</span><span class="convo-name">Olive Organizer</span><span class="convo-count">1</span></button></li>
+        <li><button class="convo" data-convo="vic"><span class="who" style="--t: var(--p-fri)" aria-hidden="true">V</span><span class="convo-name">Vic Volunteer</span></button></li>
+      </ul>
+    </nav>
+
+    <section class="thread" aria-live="polite">
+      <header class="thread-head">
+        <h3 id="thread-title">Weft</h3>
+        <p class="thread-sub" id="thread-sub">Answers from the docs, sheets and chats you can open.</p>
+      </header>
+      <ol class="messages" id="messages">
+        <li class="msg msg--me"><p class="msg-who">You <time>09:12</time></p><p>Who plays P02 at 14:00, and what is the rain plan there?</p></li>
+        <li class="msg msg--agent"><p class="msg-who">Weft <time>09:12</time></p><p>The Lucky Orchard, a classical act, is confirmed for P02 at 14:00. If it rains, P02 moves to P01.</p>
+          <p class="sources"><a class="source" href="#sheets?row=18" data-open="sheets" data-row="18">Schedule sheet, row 18</a><a class="source" href="#wiki" data-open="wiki">Wiki: Rain plan</a></p></li>
+      </ol>
+      <form class="composer" id="composer">
+        <label class="visually-hidden" for="compose">Message</label>
+        <input id="compose" autocomplete="off" placeholder="Message Weft, or @Weft in any channel">
+        <button class="btn btn--primary btn--sm" type="submit">Send</button>
+      </form>
+    </section>
+  </aside>
+
+  <main class="stage">
+    <div class="tabs" role="tablist" aria-label="Open apps" id="tabs">
+      <button class="tab is-active" role="tab" aria-selected="true" data-tab="home" id="tab-home">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 9 10 3.5 16.5 9v7.5h-4.5v-4.5h-4v4.5H3.5z"/></svg>Home
+      </button>
+    </div>
+
+    <section class="panel" id="panel-home" role="tabpanel" aria-labelledby="tab-home">
+      <div class="home">
+        <h1 class="home-title">Open an app</h1>
+        <ul class="apps">
+          <li><a class="app" href="#documents" data-open="documents"><span class="tile" style="--t: var(--p-thu)"><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M11 6h13l7 7v21H11z"/><path d="M24 6v7h7M16 20h10M16 25h10M16 30h6"/></svg></span><span class="app-name">Documents</span></a></li>
+          <li><a class="app" href="#wiki" data-open="wiki"><span class="tile" style="--t: var(--p-fri)"><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M8 9c4-2 8-2 12 1 4-3 8-3 12-1v23c-4-2-8-2-12 1-4-3-8-3-12-1z"/><path d="M20 10v23"/></svg></span><span class="app-name">Wiki</span></a></li>
+          <li><a class="app" href="#whiteboard" data-open="whiteboard"><span class="tile" style="--t: var(--p-wed)"><svg viewBox="0 0 40 40" aria-hidden="true"><rect x="6" y="8" width="28" height="20" rx="2"/><path d="M12 22c3-6 6 2 9-4s5 1 7-2M14 34l6-6 6 6"/></svg></span><span class="app-name">Whiteboard</span></a></li>
+          <li><a class="app" href="#sheets" data-open="sheets"><span class="tile" style="--t: var(--p-tue)"><svg viewBox="0 0 40 40" aria-hidden="true"><rect x="7" y="8" width="26" height="24" rx="2"/><path d="M7 16h26M7 24h26M16 8v24M25 8v24"/></svg></span><span class="app-name">Sheets</span></a></li>
+          <li><a class="app" href="#calendar" data-open="calendar"><span class="tile" style="--t: var(--p-mon)"><svg viewBox="0 0 40 40" aria-hidden="true"><rect x="7" y="9" width="26" height="24" rx="2"/><path d="M7 16h26M14 6v6M26 6v6M13 22h4M19 22h4M25 22h2M13 27h4"/></svg></span><span class="app-name">Calendar</span></a></li>
+          <li><a class="app" href="#files" data-open="files"><span class="tile" style="--t: var(--p-sat)"><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M6 12h10l3 3h15v17H6z"/></svg></span><span class="app-name">Files</span></a></li>
+        </ul>
+
+        <h2 class="recent-title">Recent</h2>
+        <ul class="recent">
+          <li><a href="#documents" data-open="documents"><span class="recent-name">Run of show</span><span class="recent-app">Documents</span><span class="recent-when">Today 09:04, Olive</span></a></li>
+          <li><a href="#sheets" data-open="sheets"><span class="recent-name">Schedule</span><span class="recent-app">Sheets</span><span class="recent-when">Today 08:41, you</span></a></li>
+          <li><a href="#whiteboard" data-open="whiteboard"><span class="recent-name">Porch map</span><span class="recent-app">Whiteboard</span><span class="recent-when">Yesterday, Vic</span></a></li>
+          <li><a href="#wiki" data-open="wiki"><span class="recent-name">Rain plan</span><span class="recent-app">Wiki</span><span class="recent-when">Monday, Olive</span></a></li>
+        </ul>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- App screens, cloned into tabs by app.js -->
+<template id="app-documents">
+  <div class="doc-app">
+    <div class="toolbar" role="toolbar" aria-label="Formatting">
+      <button class="tool" type="button" aria-pressed="false"><b>B</b><span class="visually-hidden">Bold</span></button>
+      <button class="tool" type="button" aria-pressed="false"><i>I</i><span class="visually-hidden">Italic</span></button>
+      <button class="tool" type="button">Heading</button>
+      <button class="tool" type="button">List</button>
+      <button class="tool" type="button">Link</button>
+      <span class="presence"><span class="who" style="--t: var(--p-tue)" aria-hidden="true">O</span>Olive is editing</span>
+    </div>
+    <article class="page" contenteditable="true" spellcheck="false">
+      <h2>Run of show</h2>
+      <p class="page-meta">Porchfest, Saturday 2027-04-17</p>
+      <h3>Morning</h3>
+      <p>Volunteers check in at the info booth from 11:00. Porch captains collect their signs and the printed schedule for their block.</p>
+      <h3>Sets</h3>
+      <p>Sets run on the hour from 12:00 to 17:00, 45 minutes each. The schedule sheet is the source of truth; if a set is cancelled, post it in #festival.</p>
+      <h3>Rain</h3>
+      <p>Each porch has its own rain plan in the wiki. Captains decide by 10:30.</p>
+    </article>
+  </div>
+</template>
+
+<template id="app-wiki">
+  <div class="wiki-app">
+    <nav class="wiki-tree" aria-label="Wiki pages">
+      <p class="tree-group">Festival handbook</p>
+      <ul>
+        <li><a href="#wiki">Hosting a porch</a></li>
+        <li><a href="#wiki" aria-current="page">Rain plan</a></li>
+        <li><a href="#wiki">Volunteer roles</a></li>
+        <li><a href="#wiki">Power and sound</a></li>
+      </ul>
+    </nav>
+    <article class="page">
+      <h2>Rain plan</h2>
+      <p class="page-meta">Edited Monday by Olive</p>
+      <p>Porch captains make the call by 10:30 and post it in #festival. Each porch’s plan is set by its host.</p>
+      <table class="table">
+        <thead><tr><th scope="col">Porch</th><th scope="col">Neighborhood</th><th scope="col">If it rains</th></tr></thead>
+        <tbody>
+          <tr><td>P01, 430 Mandolin Row</td><td>North Grove</td><td>Tent</td></tr>
+          <tr class="is-highlight"><td>P02, 661 Cadenza Circle</td><td>Old Mill</td><td>Move to P01</td></tr>
+          <tr><td>P03, 985 Ocarina Loop</td><td>Riverbend</td><td>Move to P01</td></tr>
+        </tbody>
+      </table>
+    </article>
+  </div>
+</template>
+
+<template id="app-whiteboard">
+  <div class="board-app">
+    <div class="toolbar" role="toolbar" aria-label="Whiteboard tools">
+      <button class="tool" type="button" aria-pressed="true">Select</button>
+      <button class="tool" type="button" aria-pressed="false">Sticky</button>
+      <button class="tool" type="button" aria-pressed="false">Shape</button>
+      <button class="tool" type="button" aria-pressed="false">Pen</button>
+      <span class="presence"><span class="who" style="--t: var(--p-fri)" aria-hidden="true">V</span>Vic is here</span>
+    </div>
+    <div class="canvas" aria-label="Porch map board">
+      <p class="board-zone" style="--x: 6%; --y: 10%">North Grove</p>
+      <p class="board-zone" style="--x: 40%; --y: 10%">Old Mill</p>
+      <p class="board-zone" style="--x: 72%; --y: 10%">Riverbend</p>
+      <div class="sticky" style="--t: var(--p-wed); --x: 6%; --y: 20%; --r: -2deg">P01, tent if rain</div>
+      <div class="sticky" style="--t: var(--p-thu); --x: 40%; --y: 20%; --r: 1.5deg">P02, 14:00 The Lucky Orchard</div>
+      <div class="sticky" style="--t: var(--p-fri); --x: 72%; --y: 22%; --r: -1deg">P03, moves to P01 if rain</div>
+      <div class="sticky" style="--t: var(--p-tue); --x: 18%; --y: 56%; --r: 2deg">Info booth at P07</div>
+      <div class="sticky" style="--t: var(--p-mon); --x: 56%; --y: 58%; --r: -1.5deg">No power at P05, P06, P09</div>
+    </div>
+  </div>
+</template>
+
+<template id="app-sheets">
+  <div class="sheet-app">
+    <div class="toolbar" role="toolbar" aria-label="Sheet">
+      <span class="sheet-name">Schedule</span>
+      <button class="tool" type="button">Filter</button>
+      <button class="tool" type="button">Sort</button>
+    </div>
+    <div class="grid-wrap">
+      <table class="table sheet">
+        <thead><tr><th scope="col" class="rownum"></th><th scope="col">Time</th><th scope="col">Porch</th><th scope="col">Performer</th><th scope="col">Genre</th><th scope="col">Status</th></tr></thead>
+        <tbody>
+          <tr data-row="1"><td class="rownum">1</td><td class="mono">12:00</td><td>P02</td><td>The Backyard Radio</td><td>a cappella</td><td>confirmed</td></tr>
+          <tr data-row="2"><td class="rownum">2</td><td class="mono">12:00</td><td>P05</td><td>The Golden Hounds</td><td>classical</td><td>confirmed</td></tr>
+          <tr data-row="3"><td class="rownum">3</td><td class="mono">12:00</td><td>P06</td><td>The Electric Telegraph</td><td>mariachi</td><td>confirmed</td></tr>
+          <tr data-row="4"><td class="rownum">4</td><td class="mono">12:00</td><td>P12</td><td>The Silver Telegraph</td><td>a cappella</td><td>confirmed</td></tr>
+          <tr data-row="5"><td class="rownum">5</td><td class="mono">12:00</td><td>P13</td><td>The Tin Orchard</td><td>indie rock</td><td>confirmed</td></tr>
+          <tr data-row="11"><td class="rownum">11</td><td class="mono">13:00</td><td>P03</td><td>The Velvet Pines</td><td>punk</td><td>confirmed</td></tr>
+          <tr data-row="12"><td class="rownum">12</td><td class="mono">13:00</td><td>P04</td><td>The Crooked Telegraph</td><td>mariachi</td><td>cancelled</td></tr>
+          <tr data-row="13"><td class="rownum">13</td><td class="mono">13:00</td><td>P08</td><td>The Electric Satellites</td><td>reggae</td><td>confirmed</td></tr>
+          <tr data-row="14"><td class="rownum">14</td><td class="mono">13:00</td><td>P09</td><td>The Velvet Lanterns</td><td>soul</td><td>confirmed</td></tr>
+          <tr data-row="18"><td class="rownum">18</td><td class="mono">14:00</td><td>P02</td><td>The Lucky Orchard</td><td>classical</td><td>confirmed</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</template>
+
+<template id="app-calendar">
+  <div class="cal-app">
+    <div class="toolbar" role="toolbar" aria-label="Calendar">
+      <span class="sheet-name">Saturday 2027-04-17</span>
+      <button class="tool" type="button">Day</button>
+      <button class="tool" type="button">Week</button>
+    </div>
+    <ol class="day">
+      <li><span class="mono">11:00</span><span class="event" style="--t: var(--p-tue)">Volunteer check-in, info booth</span></li>
+      <li><span class="mono">12:00</span><span class="event" style="--t: var(--p-thu)">First sets, ten porches</span></li>
+      <li><span class="mono">13:00</span><span class="event" style="--t: var(--p-thu)">Second sets</span></li>
+      <li><span class="mono">14:00</span><span class="event" style="--t: var(--p-thu)">Third sets, The Lucky Orchard at P02</span></li>
+      <li><span class="mono">15:00</span><span class="event" style="--t: var(--p-thu)">Fourth sets</span></li>
+      <li><span class="mono">16:00</span><span class="event" style="--t: var(--p-thu)">Fifth sets</span></li>
+      <li><span class="mono">17:00</span><span class="event" style="--t: var(--p-mon)">Last sets, cleanup crews start</span></li>
+    </ol>
+  </div>
+</template>
+
+<template id="app-files">
+  <div class="empty">
+    <h2>No files yet</h2>
+    <p>Files you drop into a chat or a document land here, so Weft can use them as context.</p>
+    <button class="btn btn--primary" type="button">Upload a file</button>
+  </div>
+</template>
+
+<template id="app-loading">
+  <div class="skeleton" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+</template>
+</body>
+</html>

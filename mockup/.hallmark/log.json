@@ -1,0 +1,27 @@
+[
+ {
+  "scope": "app",
+  "shape": "app screen",
+  "theme": "dose",
+  "axes": "light/grotesk-sans/chromatic-green",
+  "nav": "top bar + chat rail + tab strip",
+  "signature": "assistant answer whose sources open as tabs",
+  "sections": [
+   "home launcher",
+   "tabs",
+   "chat rail",
+   "documents",
+   "wiki",
+   "whiteboard",
+   "sheets",
+   "calendar",
+   "files (empty)"
+  ],
+  "imagery": "none",
+  "photos": [],
+  "waived": [],
+  "prompt": "Weft shell mockup",
+  "date": "2026-11-12",
+  "mode": "build"
+ }
+]
