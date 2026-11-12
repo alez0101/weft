@@ -1,0 +1,67 @@
+# Weft Phase 1 baseline: Colanode 0.4.7 on the Weft server.
+# Adapted from colanode/colanode hosting/docker/docker-compose.yaml:
+# - versions pinned, secrets moved to .env (git-ignored), default passwords removed
+# - every port bound to 127.0.0.1 only. Docker-published ports bypass ufw, so a
+#   0.0.0.0 binding would expose Postgres to the LAN regardless of firewall rules.
+# - local filesystem storage instead of S3/MinIO
+name: weft-colanode
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: colanode
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: colanode
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:55432:5432"   # host-only, for inspecting Colanode's tables (Phase 1 question 4)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U colanode -d colanode"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  valkey:
+    image: valkey/valkey:8.1
+    restart: unless-stopped
+    command: ["valkey-server", "--requirepass", "${VALKEY_PASSWORD:?set in .env}"]
+    volumes:
+      - valkey_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli -a \"$$VALKEY_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    environment:
+      VALKEY_PASSWORD: ${VALKEY_PASSWORD}
+
+  server:
+    image: ghcr.io/colanode/server:0.4.7
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      valkey: { condition: service_healthy }
+    environment:
+      NODE_ENV: production
+      CONFIG: /config.json
+      POSTGRES_URL: postgres://colanode:${POSTGRES_PASSWORD}@postgres:5432/colanode
+      REDIS_URL: redis://:${VALKEY_PASSWORD}@valkey:6379/0
+    volumes:
+      - ./config.json:/config.json:ro
+      - server_storage:/var/lib/colanode/storage
+    ports:
+      - "127.0.0.1:3000:3000"
+
+  web:
+    image: ghcr.io/colanode/web:0.4.7
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4000:80"
+
+volumes:
+  postgres_data:
+  valkey_data:
+  server_storage:
