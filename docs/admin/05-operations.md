@@ -37,4 +37,17 @@ Never run `db/reset.sh --live --yes-wipe-live` unless you mean to destroy every 
 
 ### Backups
 
-⚠️ Weft does not back itself up. Everything people write lives in the `weft-core_pg_data` Docker volume; the repo holds the code, the migrations and the wiki sources, but no content. Back the database up with `pg_dump` (for example `docker compose -p weft-core ... exec -T postgres pg_dump -U weft_owner -Fc weft > weft.dump`) on a schedule, and keep `stacks/weft/.env` safe too: without its `ASSIST_MASTER_KEY` the saved model keys cannot be read.
+Weft does not back itself up on its own: schedule `tools/backup.sh` (cron or a systemd timer, nightly). Each run saves a compressed dump of the database and a copy of `stacks/weft/.env` (its `ASSIST_MASTER_KEY` decrypts the saved model keys), checks that the dump can be read and holds the core tables, keeps 14 days, and exits non-zero on any failure so the scheduler can alert you. Settings: `BACKUP_DIR` (default `~/weft-backups`), `BACKUP_KEEP_DAYS`, and `BACKUP_COPY_TO` (`host:directory`) for a second copy on another machine, which is what protects you if the server's disk dies.
+
+The backups hold everything people wrote, so keep them as private as the server.
+
+### Restoring
+
+    tools/restore.sh <file.dump> --test               a drill: restore into the test stack and look around
+    tools/restore.sh <file.dump> --yes-replace-live   replace the real Weft with the backup
+
+On a new machine, first put the `.env` saved with that backup at `stacks/weft/.env`. Restoring rebuilds the database (which creates the database roles a dump does not carry), loads the dump and restarts the services. Run the drill now and then: a backup only counts once it has been restored.
+
+### Removing the sample data
+
+If Weft was created with `--sample` and real people now use it, `python3 -I tools/remove_sample.py | docker compose -p weft-core ... exec -T postgres psql -U weft_owner -d weft` removes the four sample accounts and their channels, direct messages and everything in them, and hands anything they made elsewhere to the first real admin. It refuses unless a real admin exists. Back up first.

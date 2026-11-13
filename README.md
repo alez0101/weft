@@ -57,6 +57,13 @@ your network, and put HTTPS in front of it (a reverse proxy or a tunnel) before 
 internet. `stacks/weft/.env.example` lists every setting: the port, sign-in methods, Cloudflare Access,
 session length, and an Ollama server for meaning search.
 
+### Backups
+
+Schedule `tools/backup.sh` nightly (it can also copy each backup to another machine), and practise
+`tools/restore.sh <dump> --test` now and then. If you created Weft with `--sample`,
+`tools/remove_sample.py` removes the sample data once real people use it. The admin wiki's
+Operations page has the details.
+
 ## Tests
 
 ```sh
