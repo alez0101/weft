@@ -350,6 +350,16 @@ a6 = await askA(olive, spaces.festival, '@Weft any electricity trouble?');
 check('Semantic: Olive asking in #festival gets no Organizers content either', !(a6.calls[0]?.user || '').includes('ORG-SEM-SECRET'));
 a6 = await askA(olive, await mine(olive), 'Any electricity trouble?');
 check('Semantic: Olive in her own conversation does find the Organizers note (positive control)', (a6.calls[0]?.user || '').includes('ORG-SEM-SECRET'));
+const rel = (who, q) => assist(who.token, `/assistant/search/related?q=${encodeURIComponent(q)}`);
+let rr = await rel(pat, 'electricity trouble');
+check('Search by meaning: Pat finds the outlet message from "electricity trouble"', rr.status === 200 && rr.data.results.some((x) => x.id === semMsg.id), JSON.stringify(rr.data).slice(0, 300));
+check('Search by meaning: never an Organizers note for Pat', !rr.data.results.some((x) => x.id === orgSem.id || /ORG-SEM/.test(x.snippet || '')));
+rr = await rel(pat, 'generator rental booking');
+check('Search by meaning: not even when Pat searches its exact words', !rr.data.results.some((x) => x.id === orgSem.id || /ORG-SEM/.test(x.snippet || '')), JSON.stringify(rr.data.results.map((x) => x.snippet)));
+rr = await rel(olive, 'generator rental booking');   // her own earlier questions would crowd a query about electricity
+check('Search by meaning: Olive does find the Organizers note (positive control)', rr.data.results.some((x) => x.id === orgSem.id), JSON.stringify(rr.data.results.map((x) => x.id)));
+check('Search by meaning: no token, no results', (await assist(null, '/assistant/search/related?q=electricity')).status === 401);
+check('Search by meaning: very short searches return nothing', (await rel(pat, 'el')).data.results.length === 0);
 await api(olive.token, `/messages?id=eq.${semMsg.id}`, { method: 'DELETE' });
 check('Semantic: deleting a message deletes its embedding', (await api(olive.token, `/embeddings?source_id=eq.${semMsg.id}`)).rows.length === 0);
 const prog = await assist(alex.token, '/assistant/admin/providers/embeddings');

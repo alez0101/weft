@@ -32,9 +32,10 @@ Two kinds of channel are kept by Weft itself: the help channel (`everyone`: ever
 - Moving an item needs edit rights in both spaces. Thread replies and wiki parents must be in the same space.
 - Audit triggers keep the old row of every change and delete, with who did it, readable only by members of that space.
 - A table's rows also become a text summary on the table, so search and the assistant can read them.
+- Search is one function, `weft.search`, run as the caller: prefix matching on every word, titles ranked above text, snippets with the matches marked, over messages, items, events and channel names, with text indexes behind it. Only letters and digits from the search reach the query.
 - Published wiki pages are `managed` and read-only in the app.
 - A file is an item whose `body_text` is its extracted text; its bytes are in `file_blobs`, readable only through the item (same rule) and never changed in place. The assistant role reads the text, never the bytes. The collab server refuses to open files and tables as documents.
 
 ### Migrations
 
-`db/migrations/001` to `020` rebuild the database from nothing, in order: roles, schema, access rules, triggers, chat reads, notices, service logins, assistant, collab, proposals, assistant events, everyone spaces, whiteboards, tables, semantic search, people, wikis, accounts, files and widgets, personal keys.
+`db/migrations/001` to `021` rebuild the database from nothing, in order: roles, schema, access rules, triggers, chat reads, notices, service logins, assistant, collab, proposals, assistant events, everyone spaces, whiteboards, tables, semantic search, people, wikis, accounts, files and widgets, personal keys, search.

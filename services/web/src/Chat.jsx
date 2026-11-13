@@ -21,13 +21,14 @@ function Body({ text, onOpenItem, onOpenEvent }) {
   })}</p>;
 }
 
-export default function Chat({ me, spaces, members, unread, active: activeRaw, setActive, rail, setRail, notice, live, onOpenItem, onOpenEvent, onSpacesChanged }) {
+export default function Chat({ me, spaces, members, unread, active: activeRaw, setActive, rail, setRail, notice, live, onOpenItem, onOpenEvent, onSpacesChanged, jump }) {
   const [peopleOpen, setPeopleOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const assistantSpace = spaces.find((s) => s.kind === 'assistant');
   const active = activeRaw === ASSISTANT ? (assistantSpace?.id ?? ASSISTANT) : activeRaw;
   const [thinking, setThinking] = useState(false);
   const [focus, setFocus] = useState(null);
+  useEffect(() => { if (jump?.id) setFocus(jump.id); }, [jump]); // a message chosen in search
   const [messages, setMessages] = useState([]);
   const [state, setState] = useState('loading'); // loading | ready | error
   const [error, setError] = useState('');

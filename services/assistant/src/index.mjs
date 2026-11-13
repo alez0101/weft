@@ -439,6 +439,35 @@ async function proposals(user, method, parts, url) {
   return [404, { error: 'not found' }];
 }
 
+// ---------------------------------------------------------------- search: related by meaning
+// Nearest neighbours of the search words, read with the person's own token (role weft_user), so only
+// what they can open comes back. The search box shows these after the word matches.
+async function related(user, q) {
+  q = String(q || '').trim().slice(0, 200);
+  if (!EMBED_URL) return [200, { enabled: false, results: [] }];
+  if (q.length < 3) return [200, { enabled: true, results: [] }];
+  let qv;
+  try { [qv] = await embed([`search_query: ${q}`]); } catch (e) { return [200, { enabled: true, results: [], error: 'meaning search is unavailable' }]; }
+  const hits = (await rest(user.token, '/rpc/semantic_search', { method: 'POST', body: { p_query: `[${qv.join(',')}]`, p_limit: 12 } }))
+    .filter((h) => h.distance <= 0.6);
+  const best = new Map();
+  for (const h of hits) if (!best.has(h.source_id)) best.set(h.source_id, h);   // one result per source, its closest chunk
+  const ids = (type) => [...best.values()].filter((h) => h.source_type === type).map((h) => h.source_id);
+  const [ms, is, es] = await Promise.all([
+    ids('message').length ? rest(user.token, `/messages?id=in.(${ids('message').join(',')})&select=id,space_id,body,created_at,space:spaces(name,kind)`) : [],
+    ids('item').length ? rest(user.token, `/items?id=in.(${ids('item').join(',')})&select=id,space_id,kind,title,updated_at,space:spaces(name,kind)`) : [],
+    ids('event').length ? rest(user.token, `/events?id=in.(${ids('event').join(',')})&select=id,space_id,title,location,starts_at,space:spaces(name,kind)`) : [],
+  ]);
+  const snip = (s) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, 140);
+  const out = [
+    ...ms.map((m) => ({ kind: 'message', id: m.id, space_id: m.space_id, space_name: m.space?.name, space_kind: m.space?.kind, title: null, snippet: snip(m.body), at: m.created_at })),
+    ...is.map((i) => ({ kind: i.kind, id: i.id, space_id: i.space_id, space_name: i.space?.name, space_kind: i.space?.kind, title: i.title,
+      snippet: snip(best.get(i.id)?.content.replace(/^[^\n]*\n/, '')), at: i.updated_at })),
+    ...es.map((e) => ({ kind: 'event', id: e.id, space_id: e.space_id, space_name: e.space?.name, space_kind: e.space?.kind, title: e.title, snippet: e.location, at: e.starts_at })),
+  ].sort((a, b) => best.get(a.id).distance - best.get(b.id).distance).slice(0, 6);
+  return [200, { enabled: true, results: out }];
+}
+
 // ---------------------------------------------------------------- your own key
 const MODEL_RE = /^[A-Za-z0-9._:-]{1,80}$/;
 async function mine(user, method, parts, body) {
@@ -609,6 +638,7 @@ http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/assistant/ask') return send(res, ...(await ask(user, body.message_id, body.tz)));
     const pm = /^\/assistant\/proposals(?:\/(.*))?$/.exec(url.pathname);
     if (pm) return send(res, ...(await proposals(user, req.method, (pm[1] || '').split('/').filter(Boolean), url)));
+    if (req.method === 'GET' && url.pathname === '/assistant/search/related') return send(res, ...(await related(user, url.searchParams.get('q'))));
     const me = /^\/assistant\/me\/provider(?:\/(.*))?$/.exec(url.pathname);
     if (me) return send(res, ...(await mine(user, req.method, (me[1] || '').split('/').filter(Boolean), body)));
     if (url.pathname === '/assistant/admin/settings' && ['GET', 'PUT'].includes(req.method)) return send(res, ...(await adminSettings(user, req.method, body)));

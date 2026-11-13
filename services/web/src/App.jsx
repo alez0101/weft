@@ -6,6 +6,7 @@ import Docs from './Docs.jsx';
 import Calendar from './Calendar.jsx';
 import Widgets from './Home.jsx';
 import ModelKey from './ModelKey.jsx';
+import SearchBox from './Search.jsx';
 import { applyMode, storedMode } from './mode.js';
 
 const APPS = [
@@ -192,6 +193,7 @@ export default function App() {
   const [live, setLive] = useState('connecting');
   const [isAdmin, setIsAdmin] = useState(null); // null until known
   const [theme, setModeState] = useState(storedMode);
+  const [jump, setJump] = useState(null); // a message to scroll to, chosen in search
 
   useEffect(() => { authMode().then(setMode).catch((e) => setFatal(e.message)); }, []);
 
@@ -265,11 +267,9 @@ export default function App() {
     <div className="shell" data-rail={ui.rail === 'normal' ? undefined : ui.rail}>
       <header className="topbar">
         <a className="wordmark" href="#active=home" onClick={(e) => { e.preventDefault(); setUi((u) => ({ ...u, active: 'home' })); }}>Weft</a>
-        <label className="search">
-          <span className="visually-hidden">Search</span>
-          <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5" /><path d="m13.2 13.2 3.8 3.8" /></svg>
-          <input type="search" placeholder="Search arrives with the assistant" disabled />
-        </label>
+        <SearchBox onOpenItem={openItem} onOpenEvent={openEvent}
+          onOpenChannel={(convo) => setUi((u) => ({ ...u, convo, rail: u.rail === 'collapsed' ? 'normal' : u.rail }))}
+          onOpenMessage={(convo, id) => { setUi((u) => ({ ...u, convo, rail: u.rail === 'collapsed' ? 'normal' : u.rail })); setJump({ id, n: Date.now() }); }} />
         {mode.mode === 'test' && <span className="mock-note">Test sign-in</span>}
         <label className="visually-hidden" htmlFor="mode-switch">Appearance</label>
         <select id="mode-switch" className="mode-switch" value={theme} onChange={(e) => { applyMode(e.target.value); setModeState(e.target.value); }}>
@@ -280,7 +280,7 @@ export default function App() {
 
       <Chat me={me} spaces={spaces} members={members} unread={unread} active={ui.convo} onSpacesChanged={refreshSpaces}
         setActive={(convo) => setUi((u) => ({ ...u, convo }))} rail={ui.rail} setRail={(rail) => setUi((u) => ({ ...u, rail }))}
-        notice={notice} live={live} onOpenItem={openItem} onOpenEvent={openEvent} />
+        notice={notice} live={live} onOpenItem={openItem} onOpenEvent={openEvent} jump={jump} />
 
       <main className="stage">
         <div className="tabs" role="tablist" aria-label="Open apps" onKeyDown={onTabKey}>

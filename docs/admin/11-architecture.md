@@ -22,7 +22,8 @@ summary: The services, how a request flows, and the two front doors.
 3. The browser keeps one websocket at `/live`. svc listens to Postgres notices and forwards each one only to members of its space. A notice carries the table, operation, id and space, never content; the browser fetches the row through the API, so the database still decides.
 4. Documents open a second websocket at `/collab`. The collab server checks and loads each document as the person, through row-level security.
 5. Files go to `/files` (upload, at most `FILE_MAX_MB`, default 25) and come back from `/files/<id>`; the files service does every database step as the person, so row-level security decides. The type is read from the bytes, not trusted from the name, and anything that could run scripts (HTML, SVG, unknown types) always downloads rather than opening.
-6. Questions go to `/assistant/ask`. The assistant reads and searches with a short-lived token minted for the asker, so it can never see more than they can.
+6. The search box calls `weft.search` through the API (word matches, as the person) and `/assistant/search/related` (matches by meaning, with the person's own token).
+7. Questions go to `/assistant/ask`. The assistant reads and searches with a short-lived token minted for the asker, so it can never see more than they can.
 
 ### Front doors
 

@@ -462,6 +462,37 @@ def prefs_and_files():
     check("Files: deleting the item deletes its bytes", owner_sql(f"select count(*) from weft.file_blobs where item_id = '{fid}'") == "0")
 
 
+# ---------------------------------------------------------------- search
+def search():
+    pat, olive = mint("u-pub"), mint("u-org")
+    s = lambda tok, q, n=6: call("POST", "/rpc/search", tok, {"p_q": q, "p_limit": n})
+    st, rows = s(olive, "host contacts")
+    check("Search: Olive finds Host contacts (Organizers)", st == 200 and any(r["id"] == HOST_CONTACTS for r in rows), str(rows)[:200])
+    check("Search: results carry a highlighted snippet", any("\u00abHost\u00bb" in (r["snippet"] or "") for r in rows), str([r["snippet"] for r in rows])[:200])
+    st, rows = s(pat, "host contacts")
+    check("Search: Pat never finds Host contacts or anything in Organizers", st == 200 and all(r["space_id"] not in (SID["organizers"], SID["volunteers"]) for r in rows), str(rows)[:200])
+    st, rows = s(mint("u-org", scope="festival"), "host contacts")
+    check("Search: a festival-scoped token finds nothing outside #festival", st == 200 and all(r["space_id"] == SID["festival"] for r in rows), str(rows)[:200])
+    st, rows = s(olive, "contac")
+    check("Search: words match as you type (prefix)", st == 200 and any(r["id"] == HOST_CONTACTS for r in rows), str(rows)[:200])
+    st, rows = s(olive, "organ")
+    st2, rows2 = s(pat, "organ")
+    check("Search: channel names match for members only", any(r["kind"] == "channel" and r["id"] == SID["organizers"] for r in rows)
+          and not any(r["kind"] == "channel" and r["id"] == SID["organizers"] for r in rows2), f"{rows} {rows2}"[:200])
+    bad = []
+    for q in ["'; drop table weft.users; --", "a & | ! : * ( ) <-> \\", "%_%", "«»", "", "   ", "x" * 500]:
+        st, rows = s(olive, q)
+        if st != 200 or not isinstance(rows, list):
+            bad.append((q[:20], st))
+    check("Search: odd input never errors or changes the query", not bad and owner_sql("select count(*) > 0 from weft.users") == "t", str(bad))
+    st, rows = s(olive, "")
+    check("Search: empty search returns nothing", st == 200 and rows == [], str(rows))
+    st, rows = s(olive, "%")
+    check("Search: % and _ are not wildcards in channel names", st == 200 and not any(r["kind"] == "channel" for r in rows), str(rows))
+    st, _ = call("POST", "/rpc/search", None, {"p_q": "host"})
+    check("Search: no token, no search", refused(st), str(st))
+
+
 # ---------------------------------------------------------------- wikis kept in the repo
 def wikis():
     import shutil, tempfile
@@ -560,6 +591,7 @@ if __name__ == "__main__":
     people()
     trees()
     prefs_and_files()
+    search()
     wikis()
     if "--teeth" in sys.argv:
         teeth()
