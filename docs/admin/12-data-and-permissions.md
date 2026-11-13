@@ -5,7 +5,7 @@ summary: Schemas, roles, the one rule, the channel-scope claim, audit and migrat
 ---
 ### Schemas
 
-- `weft`: what the API exposes. Users, spaces, members, messages, items (documents, wiki pages, whiteboards, tables, task lists, files), events, table columns and rows, tasks, file bytes (`file_blobs`), embeddings, audit, read markers and each person's Home layout (`user_prefs`, readable only by them).
+- `weft`: what the API exposes. Users, spaces, members, messages, items (documents, wiki pages, whiteboards, tables, task lists, polls, files), events, table columns and rows, tasks, poll choices, votes and open/closed state, file bytes (`file_blobs`), embeddings, audit, read markers and each person's Home layout (`user_prefs`, readable only by them).
 - `weft_private`: helpers, provider settings and keys, personal keys (`personal_providers`, encrypted, readable only by the assistant service), run logs, assistant proposals, embedding state, the admin log, and sign-in (password hashes, link and session hashes). Not exposed.
 
 ### Spaces: the permission unit
@@ -33,10 +33,11 @@ Two kinds of channel are kept by Weft itself: the help channel (`everyone`: ever
 - Audit triggers keep the old row of every change and delete, with who did it, readable only by members of that space.
 - A table's rows also become a text summary on the table, so search and the assistant can read them.
 - A task list is an item (kind `tasklist`); its tasks (`weft.tasks`) reach the space through the list, like table rows: members read, editors and owners write, the assistant role only reads. `created_by` and `done_at` are set by the database; `list_id` cannot be changed, so a task never jumps lists. A task can be assigned only to a member of the list's space, and moving a list to another space unassigns anyone not in it. The list's `body_text` is a summary of its tasks (who, when, done), for search and the assistant.
+- A poll is an item (kind `poll`) whose title is the question; its choices (`weft.poll_choices`), votes (`weft.poll_votes`) and open/closed row (`weft.polls`, made with the item) reach the space through it. Members read all of it, including who voted for what. **Every member votes, viewers included** (like chat, voting is taking part, not editing); a vote is one per person per poll (primary key), its `voter_id` is set by the database, its choice must belong to the same poll, and only the voter changes or withdraws it. Editors and owners change choices and close or reopen; who closed it and when are set by the database. A choice with votes cannot be renamed or removed, and a closed poll's choices and votes do not change. Moving a poll keeps its votes. The poll's `body_text` is the vote count per choice (no names), for search and the assistant. The assistant role only reads.
 - Search is one function, `weft.search`, run as the caller: prefix matching on every word, titles ranked above text, snippets with the matches marked, over messages, items, events and channel names, with text indexes behind it. Only letters and digits from the search reach the query.
 - Published wiki pages are `managed` and read-only in the app.
-- A file is an item whose `body_text` is its extracted text; its bytes are in `file_blobs`, readable only through the item (same rule) and never changed in place. The assistant role reads the text, never the bytes. The collab server refuses to open files, tables and task lists as documents.
+- A file is an item whose `body_text` is its extracted text; its bytes are in `file_blobs`, readable only through the item (same rule) and never changed in place. The assistant role reads the text, never the bytes. The collab server refuses to open files, tables, task lists and polls as documents.
 
 ### Migrations
 
-`db/migrations/001` to `022` rebuild the database from nothing, in order: roles, schema, access rules, triggers, chat reads, notices, service logins, assistant, collab, proposals, assistant events, everyone spaces, whiteboards, tables, semantic search, people, wikis, accounts, files and widgets, personal keys, search, tasks.
+`db/migrations/001` to `023` rebuild the database from nothing, in order: roles, schema, access rules, triggers, chat reads, notices, service logins, assistant, collab, proposals, assistant events, everyone spaces, whiteboards, tables, semantic search, people, wikis, accounts, files and widgets, personal keys, search, tasks, polls.
