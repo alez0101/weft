@@ -24,4 +24,4 @@ Open **Tasks** on Home. Choose the space at the top, press **New task list**, an
 
 ### Who can see what
 
-Everyone in the list's space can see the list and its tasks; nobody else can, not in search and not in Weft's answers. Editors and owners of the space can add, change, tick off and delete tasks; viewers can read them but not change them, even a task assigned to them. Weft can read your lists and answer questions such as "what is due this week in #festival?", but it cannot change or delete tasks.
+Everyone in the list's space can see the list and its tasks; nobody else can, not in search and not in Weft's answers. Editors and owners of the space can add, change, tick off and delete tasks. Viewers can read them, and can tick off (or reopen) a task assigned to them, but change nothing else. Weft can read your lists and answer questions such as "what is due this week in #festival?", but it cannot change or delete tasks.

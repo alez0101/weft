@@ -3,11 +3,11 @@ title: Testing
 parent: Technical specification
 summary: The four suites, what they prove, and the browser checks.
 ---
-`tests/run.sh` rebuilds the separate test stack from nothing, runs six suites and removes it. On 2026-11-13 it passed 475 checks.
+`tests/run.sh` rebuilds the separate test stack from nothing, runs six suites and removes it. On 2026-11-13 it passed 479 checks.
 
 | Suite | Checks | What it proves |
 | --- | --- | --- |
-| Permissions (`tests/permissions.py`) | 235 | every person against every table and action, the tricky cases, accounts and channels, sub-pages and replies, the wikis and publishing, widget layouts and file bytes, search, tasks (viewers read only, assignees in the space, moves and deletes follow the list), and a teeth check that a loosened policy is caught |
+| Permissions (`tests/permissions.py`) | 239 | every person against every table and action, the tricky cases, accounts and channels, sub-pages and replies, the wikis and publishing, widget layouts and file bytes, search, tasks (viewers read only, assignees in the space, moves and deletes follow the list), and a teeth check that a loosened policy is caught |
 | Live (`services/svc/test/live.mjs`) | 25 | notices reach members only, carry no content, follow membership changes; bad, expired and disabled tokens get nothing |
 | Accounts (`services/svc/test/accounts.mjs`) | 43 | links are admin-only, single-use and expire; passwords, lockouts, session rotation and replay, sign-out, password changes, disabled accounts |
 | Assistant (`services/assistant/test/assistant.mjs`) | 109 | with a stand-in model that records every prompt: restricted content never reaches the model for someone who cannot see it, failover, proposals, meaning search, files, personal keys (which key each call used), search by meaning |

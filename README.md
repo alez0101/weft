@@ -68,7 +68,7 @@ Operations page has the details.
 ## Tests
 
 ```sh
-tests/run.sh          # builds a separate test stack, runs six suites (475 checks), removes it
+tests/run.sh          # builds a separate test stack, runs six suites (479 checks), removes it
 tests/run.sh --keep   # leaves the test stack up for the browser checks in tests/*.cjs
 ```
 

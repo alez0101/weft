@@ -68,7 +68,7 @@ export default function TaskList({ item, me, members, editable, notice }) {
 
   const row = (t) => (
     <li key={t.id} className={`task${t.done ? ' is-done' : ''}`}>
-      <input type="checkbox" className="task-check" checked={t.done} disabled={!editable} aria-label={`Done: ${t.title}`}
+      <input type="checkbox" className="task-check" checked={t.done} disabled={!editable && t.assignee_id !== me.id} aria-label={`Done: ${t.title}`}
         onChange={(e) => patch(t, { done: e.target.checked })} />
       {editable ? (
         <>
@@ -112,7 +112,7 @@ export default function TaskList({ item, me, members, editable, notice }) {
           <input id="task-new-due" type="date" value={form.due_on} onChange={(e) => setForm({ ...form, due_on: e.target.value })} />
           <button className="btn btn--primary btn--sm" type="submit" disabled={!form.title.trim()}>Add task</button>
         </form>
-      ) : <p className="docs-hint">You can read this list. Ask an owner of the space to make you an editor to change it.</p>}
+      ) : <p className="docs-hint">You can read this list and tick off tasks assigned to you. Ask an owner of the space to make you an editor to change anything else.</p>}
       {error && <p className="send-error" role="alert">{error}</p>}
       <div className="task-filters">
         <span className="task-count" role="status">{open.length} open, {done.length} done</span>

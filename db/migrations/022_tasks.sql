@@ -4,7 +4,8 @@
 -- the list's text summary in body_text). Tasks reach the space through their list, like table rows: you
 -- see them only if you can see the list, and change them only if you can edit its space. Viewers read.
 -- A task can be assigned only to a member of the list's space. Who made a task, and when it was done,
--- are set here, never by the client.
+-- are set here, never by the client. The person a task is assigned to may tick it off (or reopen it)
+-- even as a viewer, and change nothing else about it (Alex, 2026-11-13).
 set client_min_messages = warning;
 
 alter table weft.items drop constraint if exists items_kind_check;
@@ -48,6 +49,10 @@ create policy tasks_insert on weft.tasks for insert to weft_user
 create policy tasks_change on weft.tasks for update to weft_user
   using (weft_private.can_edit(weft_private.tasklist_space(list_id)))
   with check (weft_private.can_edit(weft_private.tasklist_space(list_id)));
+-- The assignee, editor or not, may update their own task; task_guard below lets a non-editor change only done.
+create policy tasks_assignee_done on weft.tasks for update to weft_user
+  using (assignee_id = weft_private.uid() and weft_private.is_member(weft_private.tasklist_space(list_id)))
+  with check (assignee_id = weft_private.uid() and weft_private.is_member(weft_private.tasklist_space(list_id)));
 create policy tasks_delete on weft.tasks for delete to weft_user
   using (weft_private.can_edit(weft_private.tasklist_space(list_id)));
 
@@ -64,6 +69,12 @@ begin
   if new.assignee_id is not null and (tg_op = 'INSERT' or new.assignee_id is distinct from old.assignee_id)
      and not exists (select 1 from weft.members m where m.space_id = weft_private.tasklist_space(new.list_id) and m.user_id = new.assignee_id) then
     raise exception 'a task can only be assigned to someone in its space' using errcode = '22023';
+  end if;
+  -- Someone who cannot edit the space got here only as the task's assignee: they may change done, nothing else.
+  if tg_op = 'UPDATE' and not weft_private.can_edit(weft_private.tasklist_space(old.list_id))
+     and (new.title, new.assignee_id, new.due_on, new.position, new.list_id)
+         is distinct from (old.title, old.assignee_id, old.due_on, old.position, old.list_id) then
+    raise exception 'you can only tick off a task assigned to you' using errcode = '42501';
   end if;
   new.title := btrim(new.title);
   if tg_op = 'INSERT' then
