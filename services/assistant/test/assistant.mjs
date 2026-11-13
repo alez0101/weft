@@ -46,7 +46,7 @@ http.createServer((req, res) => {
         content.push({ type: 'text', text: 'I can post that.' });
         content.push({ type: 'tool_use', id: 'toolu_2', name: 'send_message', input: { channel: ch, text: 'Hello from the Weft test' } });
       } else {
-        const first = (/CITE-DOC/.test(user) && /^\[(\d+)\] (?:document|wiki page|table|whiteboard) /m.exec(user)) || /^\[(\d+)\] /m.exec(user);
+        const first = (/CITE-DOC/.test(user) && /^\[(\d+)\] (?:document|wiki page|table|whiteboard|file) /m.exec(user)) || /^\[(\d+)\] /m.exec(user);
         content.push({ type: 'text', text: first ? `Here is what I found [${first[1]}].` : 'NOT_FOUND' });
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -259,6 +259,14 @@ a6 = await askA(pat, await mine(pat), 'What is in the budget?');
 check('Tables: the Organizers Budget never reaches the model for Pat', a6.calls.length === 1 && !a6.calls[0].user.includes('ORG-BUDGET-SECRET'));
 a6 = await askA(olive, await mine(olive), 'CITE-DOC What is in the budget?');
 check('Tables: Olive in her own conversation gets the Budget, cited as a table', a6.calls[0]?.user.includes('ORG-BUDGET-SECRET') && /^Table: /.test(a6.reply?.meta?.citations?.[0]?.label || ''), JSON.stringify(a6.reply?.meta?.citations));
+
+// ================================================================ files
+const [fileIt] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.organizers, kind: 'file', title: 'Insurance.pdf', body_text: 'Insurance certificate number INS-FILE-8812 covers the stage.' } })).rows;
+a6 = await askA(olive, await mine(olive), 'CITE-DOC What does the insurance certificate cover?');
+check('Files: the assistant reads a file\'s text, labelled as a file', /\] file "Insurance\.pdf"/.test(a6.calls[0]?.user || '') && (a6.calls[0]?.user || '').includes('INS-FILE-8812'), (a6.calls[0]?.user || '').slice(0, 300));
+check('Files: and cites it as a file', (a6.reply?.meta?.citations || []).some((c) => /^File: Insurance\.pdf/.test(c.label || '')), JSON.stringify(a6.reply?.meta?.citations));
+a6 = await askA(pat, await mine(pat), 'What does the insurance certificate cover?');
+check('Files: Pat never gets an Organizers file\'s text', !(a6.calls[0]?.user || '').includes('INS-FILE-8812'));
 
 // ================================================================ semantic search
 const POWERMSG = 'Porch P11 lost its outlet, the band cannot plug in';

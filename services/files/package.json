@@ -1,0 +1,14 @@
+{
+  "name": "weft-files",
+  "private": true,
+  "type": "module",
+  "description": "Weft files: upload, text extraction and download, all through row-level security as the person",
+  "scripts": { "start": "node src/index.mjs" },
+  "engines": { "node": ">=22" },
+  "dependencies": {
+    "jose": "^6.2.17",
+    "mammoth": "^1.11.0",
+    "pdfjs-dist": "^5.4.0",
+    "pg": "^8.23.1"
+  }
+}

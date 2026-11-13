@@ -8,7 +8,8 @@ import { useCreateBlockNote } from '@blocknote/react';
 import { withCollaboration } from '@blocknote/core/yjs'; // Yjs 13 binding, matching Hocuspocus
 import { BlockNoteView } from '@blocknote/mantine';
 import '@blocknote/mantine/style.css';
-import { api, currentToken } from './api.js';
+import { api, currentToken, uploadFile } from './api.js';
+import FileView from './Files.jsx';
 import { useEffectiveMode } from './mode.js';
 import Board from './Board.jsx';
 import Table from './Table.jsx';
@@ -72,6 +73,8 @@ export default function Docs({ kind, me, members, openId, setOpenId, notice }) {
   const [shareTo, setShareTo] = useState('');
   const [note, setNote] = useState('');
   const [missing, setMissing] = useState(false);
+  const [uploading, setUploading] = useState('');
+  const [dragging, setDragging] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -114,6 +117,16 @@ export default function Docs({ kind, me, members, openId, setOpenId, notice }) {
       await load(); setOpenId(row.id);
     } catch (e) { setError(`Could not create: ${e.message}`); }
   }
+  async function upload(fileList) {
+    const files = [...(fileList || [])];
+    if (!files.length || !newSpace) return;
+    setError(''); let last = null;
+    for (const [n, f] of files.entries()) {
+      setUploading(`Uploading ${f.name}${files.length > 1 ? ` (${n + 1} of ${files.length})` : ''}…`);
+      try { last = await uploadFile(newSpace, f); } catch (e) { setError(`${f.name}: ${e.message}`); }
+    }
+    setUploading(''); await load(); if (last) setOpenId(last.id);
+  }
   async function saveTitle() {
     if (!current || title.trim() === current.title || !title.trim()) return;
     try { await api(`/items?id=eq.${current.id}`, { method: 'PATCH', body: { title: title.trim() }, prefer: 'return=minimal' }); load(); } catch (e) { setError(`Could not rename: ${e.message}`); }
@@ -151,21 +164,30 @@ export default function Docs({ kind, me, members, openId, setOpenId, notice }) {
         {kind === 'wiki' && <ul>{renderRows(rows.filter((x) => x.parent_id === r.id), r.id, depth + 1)}</ul>}
       </li>
     ));
-  const noun = kind === 'wiki' ? 'page' : kind === 'whiteboard' ? 'whiteboard' : kind === 'table' ? 'table' : 'document';
+  const noun = kind === 'wiki' ? 'page' : kind === 'whiteboard' ? 'whiteboard' : kind === 'table' ? 'table' : kind === 'file' ? 'file' : 'document';
 
   return (
     <div className="docs">
-      <nav className="docs-list" aria-label={kind === 'wiki' ? 'Wiki pages' : kind === 'whiteboard' ? 'Whiteboards' : kind === 'table' ? 'Tables' : 'Documents'}>
+      <nav className={`docs-list${dragging ? ' is-dropping' : ''}`} aria-label={kind === 'wiki' ? 'Wiki pages' : kind === 'whiteboard' ? 'Whiteboards' : kind === 'table' ? 'Tables' : kind === 'file' ? 'Files' : 'Documents'}
+        onDragOver={kind === 'file' ? (e) => { e.preventDefault(); setDragging(true); } : undefined}
+        onDragLeave={kind === 'file' ? () => setDragging(false) : undefined}
+        onDrop={kind === 'file' ? (e) => { e.preventDefault(); setDragging(false); upload(e.dataTransfer.files); } : undefined}>
         <div className="docs-new">
           <label className="visually-hidden" htmlFor={`new-${kind}`}>Space for the new {noun}</label>
           <select id={`new-${kind}`} value={newSpace} onChange={(e) => setNewSpace(e.target.value)} disabled={!editable.length}>
             {editable.map((s) => <option key={s.id} value={s.id}>{spaceLabel(s)}</option>)}
           </select>
-          <button className="btn btn--primary btn--sm" onClick={create} disabled={!newSpace}>New {noun}</button>
+          {kind === 'file' ? (
+            <label className={`btn btn--primary btn--sm file-pick${!newSpace || uploading ? ' is-disabled' : ''}`}>
+              Upload files
+              <input className="visually-hidden" type="file" multiple disabled={!newSpace || !!uploading} onChange={(e) => { upload(e.target.files); e.target.value = ''; }} />
+            </label>
+          ) : <button className="btn btn--primary btn--sm" onClick={create} disabled={!newSpace}>New {noun}</button>}
         </div>
+        {kind === 'file' && <p className="docs-hint">{uploading || 'Or drop files here. PDFs, Word documents and text files become searchable, and Weft can answer from them.'}</p>}
         {error && <p className="send-error" role="alert">{error}</p>}
         {!items ? <div className="skeleton" aria-label="Loading"><span /><span /><span /></div>
-          : !groups.length ? <p className="convo-empty">No {noun}s yet. Make the first one above.</p>
+          : !groups.length ? <p className="convo-empty">No {noun}s yet. {kind === 'file' ? 'Upload the first one above.' : 'Make the first one above.'}</p>
           : groups.map(({ s, rows }) => (
             <div key={s.id} className="docs-group">
               <p className="tree-group">{spaceLabel(s)}</p>
@@ -201,7 +223,8 @@ export default function Docs({ kind, me, members, openId, setOpenId, notice }) {
               {note && <p className="slot-status" role="status">{note}</p>}
               {current.managed && <p className="docs-managed">This page is kept in the Weft repo and updates when it is published, so it cannot be edited here. You can add your own pages under it.</p>}
             </header>
-            {kind === 'table'
+            {kind === 'file' ? <div className="docs-file"><FileView key={current.id} item={current} /></div>
+              : kind === 'table'
               ? <div className="docs-table"><Table key={current.id} item={current} editable={canEditIn(current.space_id)} notice={notice} /></div>
               : kind === 'whiteboard'
               ? <div className="docs-board"><Board key={current.id} item={current} onStatus={setStatus} /></div>
@@ -210,7 +233,7 @@ export default function Docs({ kind, me, members, openId, setOpenId, notice }) {
         ) : missing ? (
           <div className="empty"><h2>You don't have access to this {noun}</h2><p>It belongs to a space you're not in, or it was deleted. Ask someone in that space to add you.</p></div>
         ) : (
-          <div className="empty"><h2>{kind === 'wiki' ? 'Pick a page' : kind === 'whiteboard' ? 'Pick a whiteboard' : kind === 'table' ? 'Pick a table' : 'Pick a document'}</h2><p>Everything here is saved in Weft, so the assistant can use it as context in later versions.</p></div>
+          <div className="empty"><h2>{kind === 'wiki' ? 'Pick a page' : kind === 'whiteboard' ? 'Pick a whiteboard' : kind === 'table' ? 'Pick a table' : kind === 'file' ? 'Pick a file' : 'Pick a document'}</h2><p>Everything here is saved in Weft, and the assistant can answer from it for anyone who can open it.</p></div>
         )}
       </section>
     </div>

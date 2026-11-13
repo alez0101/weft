@@ -134,6 +134,11 @@ const vicAgain = await open(vic.token, items['Run of show']);
 check('And his unexpired token cannot reopen it', vicAgain.failed && !vicAgain.scope, `${vicAgain.failed} ${vicAgain.scope}`); close(vicAgain);
 await api(alex.token, '/rpc/admin_set_user', { method: 'POST', body: { p_user: vic.user.id, p_disabled: false } });
 
+// ---------------- files and tables are not documents
+const [fileItem] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'file', title: 'notes.txt', body_text: 'FILE-TEXT-ONLY' } })).rows;
+const fo = await open(olive.token, fileItem.id);
+check('The collab server refuses to open a file as a document (its text changes only by upload)', fo.failed && !fo.scope, `${fo.failed} ${fo.scope}`); close(fo);
+
 // ---------------- moving or deleting a document closes its sessions
 const [mv] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'document', title: 'Move test' } })).rows;
 const patMv = await open(pat.token, mv.id);

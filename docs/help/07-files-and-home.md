@@ -1,0 +1,20 @@
+---
+title: Files and your Home
+parent: Weft help
+summary: Uploading files, what Weft reads from them, and choosing your Home widgets.
+---
+### Files
+
+Open **Files** on Home. Choose the space at the top (your personal space, or a channel you can edit), then press **Upload files** or drop files onto the list.
+
+- Everyone in that space can open and download the file; nobody else can see it, not even in search or in Weft's answers.
+- **PDFs, Word documents (.docx) and text files** (.txt, .md, .csv, .json and similar) have their text read, so you can search for them and ask Weft about them. Weft answers from a file the same way it answers from a document, with a link back to it.
+- Pictures and other kinds of files are stored and can be downloaded, but Weft does not read them. Scanned PDFs (pictures of pages) have no text to read.
+- PDFs and pictures show a preview; press **Download** to save any file.
+- Files can be up to 25 MB. Rename, move, share or delete a file the same way as a document.
+
+### Your Home widgets
+
+Below the apps, Home shows widgets: **Coming up** (the next two weeks of your calendars), **Unread** (conversations with new messages), **Recently changed**, **Recent files** and **Ask Weft** (a quick question for your Weft conversation). Every widget shows only what you can open.
+
+Press **Customize** to choose which widgets you see and to put them in your order. Your choice follows you to any browser you sign in on.

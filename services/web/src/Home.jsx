@@ -1,0 +1,151 @@
+// Home: the app grid, then the person's widgets. Every widget reads through the API as the person, so it
+// shows only what they can open. Which widgets, and their order, are saved per person (weft.user_prefs).
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { api, assistant } from './api.js';
+
+const WIDGETS = {
+  upcoming: 'Coming up',
+  unread: 'Unread',
+  recent: 'Recently changed',
+  files: 'Recent files',
+  ask: 'Ask Weft',
+};
+const DEFAULT = ['upcoming', 'unread', 'recent', 'ask'];
+const KIND = { document: 'Document', wiki: 'Wiki page', whiteboard: 'Whiteboard', table: 'Table', file: 'File' };
+const where = (s) => (s?.kind === 'channel' ? `#${s.name}` : s?.kind === 'personal' ? 'Personal' : s?.name || '');
+const when = (iso) => new Date(iso).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+const ago = (iso) => {
+  const m = Math.round((Date.now() - new Date(iso)) / 60000);
+  return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' });
+};
+
+function Upcoming({ data, onOpenEvent }) {
+  if (!data.length) return <p className="widget-empty">Nothing on the calendar in the next two weeks.</p>;
+  return <ul className="widget-list">{data.map((e) => (
+    <li key={e.id}><button type="button" className="widget-row" onClick={() => onOpenEvent(e.id)}>
+      <span className="widget-main">{e.title}</span><span className="widget-sub">{when(e.starts_at)}{e.location ? `, ${e.location}` : ''}, {where(e.space)}</span>
+    </button></li>))}</ul>;
+}
+function Unread({ unread, spaces, onOpenConvo }) {
+  const rows = unread.filter((u) => u.unread > 0).map((u) => ({ ...u, space: spaces.find((s) => s.id === u.space_id) })).filter((u) => u.space);
+  if (!rows.length) return <p className="widget-empty">You're all caught up.</p>;
+  return <ul className="widget-list">{rows.map((u) => (
+    <li key={u.space_id}><button type="button" className="widget-row" onClick={() => onOpenConvo(u.space_id)}>
+      <span className="widget-main">{u.space.kind === 'channel' ? `#${u.space.name}` : u.space.kind === 'assistant' ? 'Weft' : 'Direct message'}</span>
+      <span className="widget-sub">{u.unread} unread{u.mentions ? `, ${u.mentions} mention${u.mentions > 1 ? 's' : ''} of you` : ''}</span>
+    </button></li>))}</ul>;
+}
+function Items({ data, onOpenItem, empty }) {
+  if (!data.length) return <p className="widget-empty">{empty}</p>;
+  return <ul className="widget-list">{data.map((i) => (
+    <li key={i.id}><button type="button" className="widget-row" onClick={() => onOpenItem(i.id)}>
+      <span className="widget-main">{i.title}</span><span className="widget-sub">{KIND[i.kind] || 'Item'}, {where(i.space)}, {ago(i.updated_at)}</span>
+    </button></li>))}</ul>;
+}
+function Ask({ assistantSpace, onAsked }) {
+  const [q, setQ] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  if (!assistantSpace) return <p className="widget-empty">Your Weft conversation is being set up.</p>;
+  return (
+    <form className="widget-ask" onSubmit={async (e) => {
+      e.preventDefault(); const body = q.trim(); if (!body) return;
+      setBusy(true); setError('');
+      try {
+        const [m] = await api('/messages', { method: 'POST', body: { space_id: assistantSpace.id, body }, prefer: 'return=representation' });
+        setQ(''); onAsked();
+        await assistant('/ask', { method: 'POST', body: { message_id: m.id, tz: Intl.DateTimeFormat().resolvedOptions().timeZone } });
+      } catch (err) { setError(err.message); }
+      setBusy(false);
+    }}>
+      <label className="visually-hidden" htmlFor="home-ask">Ask Weft</label>
+      <input id="home-ask" placeholder="Ask about anything you can open" value={q} onChange={(e) => setQ(e.target.value)} />
+      <button className="btn btn--primary btn--sm" type="submit" disabled={busy || !q.trim()}>{busy ? 'Asking…' : 'Ask'}</button>
+      {error && <p className="send-error" role="alert">{error}</p>}
+      <p className="widget-sub">The answer appears in your Weft conversation, with links to where it came from.</p>
+    </form>
+  );
+}
+
+export default function Widgets({ spaces, unread, notice, onOpenItem, onOpenEvent, onOpenConvo }) {
+  const [order, setOrder] = useState(null);
+  const [editing, setEditing] = useState(false);
+  const [data, setData] = useState({ upcoming: [], recent: [], files: [] });
+  const [error, setError] = useState('');
+  const timer = useRef(null);
+
+  useEffect(() => {
+    api('/user_prefs?select=home').then(([p]) => {
+      const w = p?.home?.widgets;
+      setOrder(Array.isArray(w) ? w.filter((k) => WIDGETS[k]) : DEFAULT);
+    }).catch(() => setOrder(DEFAULT));
+  }, []);
+  const save = async (next) => {
+    setOrder(next);
+    try { await api('/user_prefs?on_conflict=user_id', { method: 'POST', body: { home: { widgets: next } }, prefer: 'resolution=merge-duplicates,return=minimal' }); }
+    catch (e) { setError(`Your layout was not saved: ${e.message}`); }
+  };
+
+  const load = useCallback(async () => {
+    const now = new Date(); const soon = new Date(now.getTime() + 14 * 86400000);
+    try {
+      const [upcoming, recent, files] = await Promise.all([
+        api(`/events?ends_at=gte.${now.toISOString()}&starts_at=lte.${soon.toISOString()}&select=id,title,starts_at,location,space:spaces(name,kind)&order=starts_at&limit=5`),
+        api('/items?select=id,title,kind,updated_at,space:spaces(name,kind)&order=updated_at.desc&limit=6'),
+        api('/items?kind=eq.file&select=id,title,kind,updated_at,space:spaces(name,kind)&order=updated_at.desc&limit=5'),
+      ]);
+      setData({ upcoming, recent, files }); setError('');
+    } catch (e) { setError(`Widgets could not load: ${e.message}`); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  // Live: refresh shortly after anything they show changes (several notices in a row refresh once).
+  useEffect(() => {
+    if (!notice || !['events', 'items', 'members'].includes(notice.t)) return;
+    clearTimeout(timer.current); timer.current = setTimeout(load, 400);
+  }, [notice, load]);
+
+  if (!order) return null;
+  const assistantSpace = spaces.find((s) => s.kind === 'assistant');
+  const body = (k) => (k === 'upcoming' ? <Upcoming data={data.upcoming} onOpenEvent={onOpenEvent} />
+    : k === 'unread' ? <Unread unread={unread} spaces={spaces} onOpenConvo={onOpenConvo} />
+    : k === 'recent' ? <Items data={data.recent} onOpenItem={onOpenItem} empty="Nothing has been written yet." />
+    : k === 'files' ? <Items data={data.files} onOpenItem={onOpenItem} empty="No files yet. Upload them in Files." />
+    : <Ask assistantSpace={assistantSpace} onAsked={() => onOpenConvo('weft')} />);
+  const move = (k, d) => { const i = order.indexOf(k); const j = i + d; if (j < 0 || j >= order.length) return; const n = [...order]; [n[i], n[j]] = [n[j], n[i]]; save(n); };
+
+  return (
+    <section className="widgets-area" aria-labelledby="widgets-title">
+      <div className="widgets-head">
+        <h2 id="widgets-title" className="home-title">Your widgets</h2>
+        <button className="btn btn--sm" type="button" aria-expanded={editing} onClick={() => setEditing((e) => !e)}>{editing ? 'Done' : 'Customize'}</button>
+      </div>
+      {error && <p className="send-error" role="alert">{error}</p>}
+      {editing && (
+        <ul className="widget-picker" aria-label="Choose widgets">
+          {Object.entries(WIDGETS).map(([k, label]) => {
+            const on = order.includes(k);
+            return (
+              <li key={k} className="pair">
+                <label className="toggle"><input type="checkbox" checked={on} onChange={() => save(on ? order.filter((x) => x !== k) : [...order, k])} /> {label}</label>
+                {on && <span className="pair">
+                  <button className="btn btn--sm" type="button" onClick={() => move(k, -1)} disabled={order.indexOf(k) === 0}>Earlier<span className="visually-hidden"> {label}</span></button>
+                  <button className="btn btn--sm" type="button" onClick={() => move(k, 1)} disabled={order.indexOf(k) === order.length - 1}>Later<span className="visually-hidden"> {label}</span></button>
+                </span>}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {!order.length ? <p className="widget-empty">No widgets. Press Customize to add some.</p> : (
+        <div className="widgets">
+          {order.map((k) => (
+            <article key={k} className="widget" aria-labelledby={`widget-${k}`}>
+              <h3 id={`widget-${k}`}>{WIDGETS[k]}</h3>
+              {body(k)}
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}

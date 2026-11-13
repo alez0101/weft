@@ -429,6 +429,39 @@ def trees():
     check("Trees: a reply in another channel to that thread is refused", refused(st), str(st))
 
 
+# ---------------------------------------------------------------- widget layouts and file blobs
+def prefs_and_files():
+    pat, olive = mint("u-pub"), mint("u-org")
+    P, O = uid("user", "u-pub"), uid("user", "u-org")
+    st, _ = call("POST", "/user_prefs?on_conflict=user_id", pat, {"home": {"widgets": ["recent"]}}, prefer="resolution=merge-duplicates,return=minimal")
+    st2, rows = call("GET", "/user_prefs?select=user_id,home", pat)
+    check("Widgets: Pat saves her layout and reads it back", st in (200, 201) and rows == [{"user_id": P, "home": {"widgets": ["recent"]}}], f"{st} {rows}")
+    st, rows = call("GET", "/user_prefs?select=user_id", olive)
+    check("Widgets: Olive cannot read Pat's layout", st == 200 and all(r["user_id"] != P for r in rows), str(rows))
+    st, _ = call("POST", "/user_prefs", pat, {"user_id": O, "home": {"widgets": []}}, prefer="return=minimal")
+    check("Widgets: Pat cannot write a layout for Olive", refused(st) and owner_sql(f"select count(*) from weft.user_prefs where user_id = '{O}'") == "0", str(st))
+    st, rows = call("GET", "/user_prefs?select=user_id", mint("u-pub", scope="festival"))
+    check("Widgets: a channel-scoped token reads no layouts", st == 200 and rows == [], str(rows))
+    # A file item in Organizers with its bytes, made by the owner (as the files service would for Olive).
+    fid = owner_sql(f"insert into weft.items (space_id, kind, title, body_text, created_by) values ('{SID['organizers']}', 'file', 'Org file.txt', 'ORG-FILE-TEXT', '{O}') returning id").splitlines()[0]
+    owner_sql(f"insert into weft.file_blobs (item_id, bytes, mime, size, sha256) values ('{fid}', 'ORG-FILE-TEXT', 'text/plain', 13, 'x')")
+    st, rows = call("GET", f"/file_blobs?item_id=eq.{fid}&select=size", pat)
+    check("Files: Pat cannot read the bytes of an Organizers file", st == 200 and rows == [], str(rows))
+    st, rows = call("GET", f"/file_blobs?item_id=eq.{fid}&select=size", olive)
+    check("Files: Olive can (positive control)", st == 200 and len(rows) == 1, str(rows))
+    st, rows = call("GET", f"/file_blobs?item_id=eq.{fid}&select=size", mint("u-org", scope="festival"))
+    check("Files: a festival-scoped token cannot read Organizers bytes", st == 200 and rows == [], str(rows))
+    st, rows = call("POST", "/items", pat, {"space_id": SID["festival"], "kind": "file", "title": "fake"})
+    st2, _ = call("POST", "/file_blobs", pat, {"item_id": fid, "bytes": "\\x00", "mime": "text/plain", "size": 1, "sha256": "x"}, prefer="return=minimal")
+    check("Files: Pat (viewer) cannot add a file, nor bytes to someone else's", refused(st) and refused(st2), f"{st} {st2}")
+    st, _ = call("PATCH", f"/file_blobs?item_id=eq.{fid}", olive, {"mime": "text/html"})
+    check("Files: nobody can change stored bytes or their type", refused(st) and owner_sql(f"select mime from weft.file_blobs where item_id = '{fid}'") == "text/plain", str(st))
+    st, rows = call("GET", f"/file_blobs?item_id=eq.{fid}&select=size", mint("u-org", assistant=True))
+    check("Files: the assistant role cannot read file bytes (only the extracted text, through items)", refused(st) or rows == [], f"{st} {rows}")
+    owner_sql(f"delete from weft.items where id = '{fid}'")
+    check("Files: deleting the item deletes its bytes", owner_sql(f"select count(*) from weft.file_blobs where item_id = '{fid}'") == "0")
+
+
 # ---------------------------------------------------------------- wikis kept in the repo
 def wikis():
     import shutil, tempfile
@@ -526,6 +559,7 @@ if __name__ == "__main__":
     tables()
     people()
     trees()
+    prefs_and_files()
     wikis()
     if "--teeth" in sys.argv:
         teeth()

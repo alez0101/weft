@@ -12,6 +12,7 @@ summary: The services, how a request flows, and the two front doors.
 | svc | `services/svc` (Node) | sign-in (Weft accounts, optionally Cloudflare Access) and live notices over websockets |
 | assistant | `services/assistant` (Node, Anthropic SDK) | answers, proposals, provider settings, the embedding worker |
 | collab | `services/collab` (Hocuspocus 4.8, Yjs 13) | live co-editing of documents, wiki pages and whiteboards |
+| files | `services/files` (Node, pdf.js, mammoth) | uploads, text extraction from PDF, Word and text files, downloads, all as the person |
 | web | `services/web` (nginx, React 19, Vite) | the app, and the one entry point for everything above |
 
 ### A request
@@ -20,7 +21,8 @@ summary: The services, how a request flows, and the two front doors.
 2. Every API call sends that token to PostgREST at `/api/`. PostgREST switches to the database role in the token (`weft_user`), and row-level security decides every row.
 3. The browser keeps one websocket at `/live`. svc listens to Postgres notices and forwards each one only to members of its space. A notice carries the table, operation, id and space, never content; the browser fetches the row through the API, so the database still decides.
 4. Documents open a second websocket at `/collab`. The collab server checks and loads each document as the person, through row-level security.
-5. Questions go to `/assistant/ask`. The assistant reads and searches with a short-lived token minted for the asker, so it can never see more than they can.
+5. Files go to `/files` (upload, at most `FILE_MAX_MB`, default 25) and come back from `/files/<id>`; the files service does every database step as the person, so row-level security decides. The type is read from the bytes, not trusted from the name, and anything that could run scripts (HTML, SVG, unknown types) always downloads rather than opening.
+6. Questions go to `/assistant/ask`. The assistant reads and searches with a short-lived token minted for the asker, so it can never see more than they can.
 
 ### Front doors
 

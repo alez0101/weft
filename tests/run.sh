@@ -14,4 +14,5 @@ python3 -I "$repo/tests/permissions.py" --teeth
 "${DC[@]}" run --rm --no-deps -T -v "$repo/services/svc/test:/app/test:ro" svc node test/accounts.mjs
 "${DC[@]}" run --rm --no-deps -T --name weft-assist-test -v "$repo/services/assistant/test:/app/test:ro" assistant node test/assistant.mjs
 "${DC[@]}" run --rm --no-deps -T -v "$repo/services/collab/test:/app/test:ro" collab node test/collab.mjs
+"${DC[@]}" run --rm --no-deps -T --name weft-files-test -v "$repo/services/files/test:/app/test:ro" files node test/files.mjs
 if [ "${1:-}" != "--keep" ]; then "${DC[@]}" down -v >/dev/null 2>&1; echo "test stack removed"; fi

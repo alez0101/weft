@@ -79,10 +79,20 @@ services:
       COLLAB_DEBUG: ${COLLAB_DEBUG:-}
       JWT_SECRET: ${JWT_SECRET}
 
+  files:
+    build: ../../services/files
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DATABASE_URL_FILES: postgres://weft_files:${FILES_SVC_PASSWORD:?set in .env}@postgres:5432/weft
+      JWT_SECRET: ${JWT_SECRET}
+      FILE_MAX_MB: ${FILE_MAX_MB:-25}
+
   web:
     build: ../../services/web
     restart: unless-stopped
-    depends_on: [postgrest, svc, assistant, collab]
+    depends_on: [postgrest, svc, assistant, collab, files]
     ports:
       - "${WEFT_BIND:-127.0.0.1}:${WEFT_PORT:-3010}:80"     # the app; WEFT_BIND=0.0.0.0 to reach it from the network
       - "127.0.0.1:${WEFT_TEST_PORT:-3011}:8081"          # test sign-in: this machine only, always

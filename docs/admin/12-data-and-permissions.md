@@ -5,7 +5,7 @@ summary: Schemas, roles, the one rule, the channel-scope claim, audit and migrat
 ---
 ### Schemas
 
-- `weft`: what the API exposes. Users, spaces, members, messages, items (documents, wiki pages, whiteboards, tables), events, table columns and rows, embeddings, audit and read markers.
+- `weft`: what the API exposes. Users, spaces, members, messages, items (documents, wiki pages, whiteboards, tables, files), events, table columns and rows, file bytes (`file_blobs`), embeddings, audit, read markers and each person's Home layout (`user_prefs`, readable only by them).
 - `weft_private`: helpers, provider settings and keys, run logs, assistant proposals, embedding state, the admin log, and sign-in (password hashes, link and session hashes). Not exposed.
 
 ### Spaces: the permission unit
@@ -33,7 +33,8 @@ Two kinds of channel are kept by Weft itself: the help channel (`everyone`: ever
 - Audit triggers keep the old row of every change and delete, with who did it, readable only by members of that space.
 - A table's rows also become a text summary on the table, so search and the assistant can read them.
 - Published wiki pages are `managed` and read-only in the app.
+- A file is an item whose `body_text` is its extracted text; its bytes are in `file_blobs`, readable only through the item (same rule) and never changed in place. The assistant role reads the text, never the bytes. The collab server refuses to open files and tables as documents.
 
 ### Migrations
 
-`db/migrations/001` to `018` rebuild the database from nothing, in order: roles, schema, access rules, triggers, chat reads, notices, service logins, assistant, collab, proposals, assistant events, everyone spaces, whiteboards, tables, semantic search, people, wikis, accounts.
+`db/migrations/001` to `019` rebuild the database from nothing, in order: roles, schema, access rules, triggers, chat reads, notices, service logins, assistant, collab, proposals, assistant events, everyone spaces, whiteboards, tables, semantic search, people, wikis, accounts, files and widgets.

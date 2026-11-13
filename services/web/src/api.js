@@ -137,3 +137,20 @@ export async function assistant(path, { method = 'GET', body } = {}) {
   if (!r.ok) throw new Error(data?.error || `${r.status}`);
   return data;
 }
+
+// Files: uploads and downloads go to the files service with the same token (it acts as you, so the
+// database decides). Downloads come back as a Blob, shown or saved from a blob: address in the page.
+export async function uploadFile(spaceId, file) {
+  const r = await fetch(`/files?space=${encodeURIComponent(spaceId)}&name=${encodeURIComponent(file.name)}`, {
+    method: 'POST', body: file, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/octet-stream' },
+  });
+  let data = null;
+  try { data = await r.json(); } catch { /* empty */ }
+  if (!r.ok) throw new Error(data?.error || (r.status === 413 ? 'That file is too large.' : `${r.status}`));
+  return data;
+}
+export async function fetchFile(id, download = false) {
+  const r = await fetch(`/files/${id}${download ? '?download=1' : ''}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!r.ok) throw new Error(r.status === 404 ? 'No such file, or you cannot see it.' : `${r.status}`);
+  return r.blob();
+}

@@ -8,7 +8,7 @@ Weft puts chat, documents, a wiki, whiteboards, tables and a calendar in one pla
 ### Finding your way around
 
 - **Chat** is on the left: your conversation with Weft at the top, then channels, then direct messages. Use the arrows at the top of the chat rail to collapse it to icons or widen it.
-- **Home** is always the first tab. Click an app to open it in its own tab; click it again later and Weft switches to the tab you already have open.
+- **Home** is always the first tab. Click an app to open it in its own tab; click it again later and Weft switches to the tab you already have open. Below the apps are your widgets; **Customize** chooses them.
 - **Appearance**: the menu next to your initial switches between System, Light and Dark.
 
 ### Pages in this wiki

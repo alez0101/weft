@@ -37,7 +37,7 @@ Never run `db/reset.sh --live --yes-wipe-live` unless you mean to destroy every 
 
 ### Backups
 
-Weft does not back itself up on its own: schedule `tools/backup.sh` (cron or a systemd timer, nightly). Each run saves a compressed dump of the database and a copy of `stacks/weft/.env` (its `ASSIST_MASTER_KEY` decrypts the saved model keys), checks that the dump can be read and holds the core tables, keeps 14 days, and exits non-zero on any failure so the scheduler can alert you. Settings: `BACKUP_DIR` (default `~/weft-backups`), `BACKUP_KEEP_DAYS`, and `BACKUP_COPY_TO` (`host:directory`) for a second copy on another machine, which is what protects you if the server's disk dies.
+Files are stored in the database, so backups include them and grow with them. Weft does not back itself up on its own: schedule `tools/backup.sh` (cron or a systemd timer, nightly). Each run saves a compressed dump of the database and a copy of `stacks/weft/.env` (its `ASSIST_MASTER_KEY` decrypts the saved model keys), checks that the dump can be read and holds the core tables, keeps 14 days, and exits non-zero on any failure so the scheduler can alert you. Settings: `BACKUP_DIR` (default `~/weft-backups`), `BACKUP_KEEP_DAYS`, and `BACKUP_COPY_TO` (`host:directory`) for a second copy on another machine, which is what protects you if the server's disk dies.
 
 The backups hold everything people wrote, so keep them as private as the server.
 

@@ -64,6 +64,7 @@ const server = new Server({
     const row = await asUser(claims.sub, async (c) => (await c.query(
       'select space_id, kind, managed, weft_private.can_edit(space_id) as can_edit from weft.items where id = $1', [documentName])).rows[0]);
     if (!row) throw new Error('no access'); // RLS: not a member of the document's space, or no such document
+    if (!['document', 'wiki', 'whiteboard'].includes(row.kind)) throw new Error('not an editable document'); // files and tables have their own paths
     connectionConfig.readOnly = !row.can_edit || row.managed; // managed pages change only by publishing from the repo
     return { user: claims.sub, space: row.space_id, exp: claims.exp, doc: documentName, kind: row.kind };
   },
