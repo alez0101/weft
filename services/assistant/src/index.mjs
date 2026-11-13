@@ -101,7 +101,7 @@ async function retrieve(token, question, spaceId, scoped, excludeId) {
   if (q) {
     (await rest(token, `/messages?select=${SELECT}&body=wfts(english).${encodeURIComponent(terms.join(' or '))}&order=created_at.desc&limit=12`)).forEach(msg);
     (await rest(token, `/items?select=${ISELECT}&or=(title.wfts(english).${q},body_text.wfts(english).${q})&limit=6`))
-      .forEach((r) => put(`i${r.id}`, { type: 'item', ...r, text: excerpt(r.body_text, terms, r.kind === 'table' ? 3500 : 1200) }));
+      .forEach((r) => put(`i${r.id}`, { type: 'item', ...r, text: excerpt(r.body_text, terms, r.kind === 'table' || r.kind === 'tasklist' ? 3500 : 1200) }));
     (await rest(token, `/events?select=${ESELECT}&or=(title.wfts(english).${q},location.wfts(english).${q})&order=starts_at&limit=10`))
       .forEach((r) => put(`e${r.id}`, { type: 'event', ...r }));
   }
@@ -143,7 +143,7 @@ function fmtTime(iso, tz) {
 function prompt(question, sources, tz) {
   const lines = sources.map((s, i) => {
     const n = `[${i + 1}]`;
-    if (s.type === 'item') return `${n} ${({ wiki: 'wiki page', whiteboard: 'whiteboard', table: 'table', file: 'file' })[s.kind] || 'document'} "${s.title}" in ${where(s.space)}: ${s.text || '(empty)'}`;
+    if (s.type === 'item') return `${n} ${({ wiki: 'wiki page', whiteboard: 'whiteboard', table: 'table', tasklist: 'task list', file: 'file' })[s.kind] || 'document'} "${s.title}" in ${where(s.space)}: ${s.text || '(empty)'}`;
     if (s.type === 'event') return `${n} event "${s.title}" in ${where(s.space)}, ${fmtTime(s.starts_at, tz)} to ${fmtTime(s.ends_at, tz)}${s.location ? `, at ${s.location}` : ''}`;
     return `${n} message in ${where(s.space)}, ${s.author?.display_name}, ${s.created_at.slice(0, 16).replace('T', ' ')}: ${s.body}`;
   });

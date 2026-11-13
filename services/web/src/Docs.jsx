@@ -13,6 +13,7 @@ import FileView from './Files.jsx';
 import { useEffectiveMode } from './mode.js';
 import Board from './Board.jsx';
 import Table from './Table.jsx';
+import TaskList from './TaskList.jsx';
 
 // Cursor colours come from the theme tokens (deeper tints so the name tags stay readable).
 const CURSOR_TOKENS = ['--color-accent-deep', '--color-accent', '--color-ink-2', '--color-muted'];
@@ -112,7 +113,7 @@ export default function Docs({ kind, me, members, openId, setOpenId, notice }) {
   async function create() {
     try {
       const parent = kind === 'wiki' && current && current.space_id === newSpace ? current.id : null;
-      const [row] = await api('/items', { method: 'POST', body: { space_id: newSpace, kind, title: kind === 'wiki' ? 'New page' : kind === 'whiteboard' ? 'Untitled whiteboard' : kind === 'table' ? 'Untitled table' : 'Untitled document', parent_id: parent }, prefer: 'return=representation' });
+      const [row] = await api('/items', { method: 'POST', body: { space_id: newSpace, kind, title: kind === 'wiki' ? 'New page' : kind === 'whiteboard' ? 'Untitled whiteboard' : kind === 'table' ? 'Untitled table' : kind === 'tasklist' ? 'New task list' : 'Untitled document', parent_id: parent }, prefer: 'return=representation' });
       if (kind === 'table') await api('/table_columns', { method: 'POST', body: { table_id: row.id, name: 'Name', type: 'text', position: 0 }, prefer: 'return=minimal' });
       await load(); setOpenId(row.id);
     } catch (e) { setError(`Could not create: ${e.message}`); }
@@ -164,11 +165,11 @@ export default function Docs({ kind, me, members, openId, setOpenId, notice }) {
         {kind === 'wiki' && <ul>{renderRows(rows.filter((x) => x.parent_id === r.id), r.id, depth + 1)}</ul>}
       </li>
     ));
-  const noun = kind === 'wiki' ? 'page' : kind === 'whiteboard' ? 'whiteboard' : kind === 'table' ? 'table' : kind === 'file' ? 'file' : 'document';
+  const noun = kind === 'wiki' ? 'page' : kind === 'whiteboard' ? 'whiteboard' : kind === 'table' ? 'table' : kind === 'tasklist' ? 'task list' : kind === 'file' ? 'file' : 'document';
 
   return (
     <div className="docs">
-      <nav className={`docs-list${dragging ? ' is-dropping' : ''}`} aria-label={kind === 'wiki' ? 'Wiki pages' : kind === 'whiteboard' ? 'Whiteboards' : kind === 'table' ? 'Tables' : kind === 'file' ? 'Files' : 'Documents'}
+      <nav className={`docs-list${dragging ? ' is-dropping' : ''}`} aria-label={kind === 'wiki' ? 'Wiki pages' : kind === 'whiteboard' ? 'Whiteboards' : kind === 'table' ? 'Tables' : kind === 'tasklist' ? 'Task lists' : kind === 'file' ? 'Files' : 'Documents'}
         onDragOver={kind === 'file' ? (e) => { e.preventDefault(); setDragging(true); } : undefined}
         onDragLeave={kind === 'file' ? () => setDragging(false) : undefined}
         onDrop={kind === 'file' ? (e) => { e.preventDefault(); setDragging(false); upload(e.dataTransfer.files); } : undefined}>
@@ -224,6 +225,8 @@ export default function Docs({ kind, me, members, openId, setOpenId, notice }) {
               {current.managed && <p className="docs-managed">This page is kept in the Weft repo and updates when it is published, so it cannot be edited here. You can add your own pages under it.</p>}
             </header>
             {kind === 'file' ? <div className="docs-file"><FileView key={current.id} item={current} /></div>
+              : kind === 'tasklist'
+              ? <div className="docs-tasks"><TaskList key={current.id} item={current} me={me} members={members} editable={canEditIn(current.space_id)} notice={notice} /></div>
               : kind === 'table'
               ? <div className="docs-table"><Table key={current.id} item={current} editable={canEditIn(current.space_id)} notice={notice} /></div>
               : kind === 'whiteboard'
@@ -233,7 +236,7 @@ export default function Docs({ kind, me, members, openId, setOpenId, notice }) {
         ) : missing ? (
           <div className="empty"><h2>You don't have access to this {noun}</h2><p>It belongs to a space you're not in, or it was deleted. Ask someone in that space to add you.</p></div>
         ) : (
-          <div className="empty"><h2>{kind === 'wiki' ? 'Pick a page' : kind === 'whiteboard' ? 'Pick a whiteboard' : kind === 'table' ? 'Pick a table' : kind === 'file' ? 'Pick a file' : 'Pick a document'}</h2><p>Everything here is saved in Weft, and the assistant can answer from it for anyone who can open it.</p></div>
+          <div className="empty"><h2>{kind === 'wiki' ? 'Pick a page' : kind === 'whiteboard' ? 'Pick a whiteboard' : kind === 'table' ? 'Pick a table' : kind === 'tasklist' ? 'Pick a task list' : kind === 'file' ? 'Pick a file' : 'Pick a document'}</h2><p>Everything here is saved in Weft, and the assistant can answer from it for anyone who can open it.</p></div>
         )}
       </section>
     </div>

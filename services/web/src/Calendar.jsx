@@ -1,5 +1,6 @@
 // Calendar: events from every space you can see (row-level security decides), coloured per space.
 // Editors drag to create, move and resize; viewers only read. Live: an events notice refetches.
+// Open tasks with a due date show as all-day entries (read-only here; clicking one opens its list).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import FullCalendar from '@fullcalendar/react';
 import classicThemePlugin from '@fullcalendar/react/themes/classic';
@@ -19,10 +20,12 @@ const when = (a, b) => {
   return `${day}, ${t(s)} to ${t(e)}`;
 };
 
-export default function Calendar({ me, members, notice, focusId, setFocusId }) {
+export default function Calendar({ me, members, notice, focusId, setFocusId, onOpenItem }) {
   const cal = useRef(null);
   const [spaces, setSpaces] = useState([]);
   const [events, setEvents] = useState([]);
+  const [tasks, setTasks] = useState([]);
+  const [showTasks, setShowTasks] = useState(true);
   const [range, setRange] = useState(null);
   const [hidden, setHidden] = useState(() => new Set());
   const [error, setError] = useState('');
@@ -34,9 +37,15 @@ export default function Calendar({ me, members, notice, focusId, setFocusId }) {
 
   useEffect(() => {
     api('/spaces?kind=in.(channel,personal)&select=id,kind,name&order=kind.desc,name').then(setSpaces).catch((e) => setError(e.message));
-    // Open on the month of the next upcoming event, so a far-off schedule is not hidden.
-    api(`/events?ends_at=gte.${new Date().toISOString()}&select=starts_at&order=starts_at&limit=1`)
-      .then((r) => setInitial(r[0]?.starts_at ?? new Date().toISOString())).catch(() => setInitial(new Date().toISOString()));
+    // Open on the next upcoming event or open task due, whichever is sooner, so a far-off schedule is not hidden.
+    const now = new Date(); const d = new Date(now); d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    Promise.all([
+      api(`/events?ends_at=gte.${now.toISOString()}&select=starts_at&order=starts_at&limit=1`).catch(() => []),
+      api(`/tasks?done=is.false&due_on=gte.${d.toISOString().slice(0, 10)}&select=due_on&order=due_on&limit=1`).catch(() => []),
+    ]).then(([ev, tk]) => {
+      const next = [ev[0] && new Date(ev[0].starts_at), tk[0] && new Date(`${tk[0].due_on}T12:00:00`)].filter(Boolean).sort((x, y) => x - y)[0];
+      setInitial((next ?? now).toISOString());
+    });
   }, []);
 
   const role = useCallback((spaceId) => members.find((m) => m.space_id === spaceId && m.user?.id === me.id)?.role
@@ -53,6 +62,14 @@ export default function Calendar({ me, members, notice, focusId, setFocusId }) {
   }, [range]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (notice?.t === 'events') load(); }, [notice, load]);
+  const loadTasks = useCallback(async () => {
+    if (!range) return;
+    try {
+      setTasks(await api(`/tasks?done=is.false&and=(due_on.gte.${range.day0},due_on.lt.${range.day1})&select=id,title,due_on,list_id,list:items(title,space_id)&order=due_on&limit=1000`));
+    } catch (e) { setError(`Tasks could not load: ${e.message}`); }
+  }, [range]);
+  useEffect(() => { loadTasks(); }, [loadTasks]);
+  useEffect(() => { if (notice?.t === 'tasks' || notice?.t === 'items') loadTasks(); }, [notice, loadTasks]);
 
   // A link from chat: jump to the event and open it (or say we cannot see it).
   useEffect(() => {
@@ -66,7 +83,10 @@ export default function Calendar({ me, members, notice, focusId, setFocusId }) {
   const fcEvents = useMemo(() => events.filter((e) => !hidden.has(e.space_id)).map((e) => ({
     id: e.id, title: e.title, start: e.starts_at, end: e.ends_at, editable: canEdit(e.space_id),
     className: `ev-t${tint(e.space_id)}`, extendedProps: e, // FullCalendar 7: className (string), not v6 classNames
-  })), [events, hidden, canEdit, tint]);
+  })).concat(showTasks ? tasks.filter((t) => t.list && !hidden.has(t.list.space_id)).map((t) => ({
+    id: `task-${t.id}`, title: `Task: ${t.title}`, start: t.due_on, allDay: true, editable: false,
+    className: `cal-task ev-t${tint(t.list.space_id)}`, extendedProps: { task: true, ...t },
+  })) : []), [events, tasks, showTasks, hidden, canEdit, tint]);
 
   const editableSpaces = spaces.filter((s) => canEdit(s.id));
 
@@ -108,6 +128,7 @@ export default function Calendar({ me, members, notice, focusId, setFocusId }) {
             </li>
           ))}
         </ul>
+        <label className="toggle cal-tasks"><input type="checkbox" checked={showTasks} onChange={(e) => setShowTasks(e.target.checked)} /> Tasks due</label>
         <p className="cal-hint">{editableSpaces.length ? 'Drag across the calendar to add an event.' : 'You can view events here. Ask an owner to make you an editor to add them.'}</p>
         {error && <p className="send-error" role="alert">{error}</p>}
         {note && <p className="slot-status" role="status">{note}</p>}
@@ -164,9 +185,9 @@ export default function Calendar({ me, members, notice, focusId, setFocusId }) {
             selectable={editableSpaces.length > 0}
             selectMirror
             events={fcEvents}
-            datesSet={(info) => setRange({ start: info.start.toISOString(), end: info.end.toISOString() })}
+            datesSet={(info) => setRange({ start: info.start.toISOString(), end: info.end.toISOString(), day0: info.startStr.slice(0, 10), day1: info.endStr.slice(0, 10) })}
             select={(info) => { setOpen(null); setDraft({ start: info.start.toISOString(), end: info.end.toISOString() }); setForm((f) => ({ ...f, space: f.space || editableSpaces[0]?.id || '' })); }}
-            eventClick={(info) => { setDraft(null); setNote(''); setOpen(info.event.extendedProps); }}
+            eventClick={(info) => { if (info.event.extendedProps.task) { onOpenItem(info.event.extendedProps.list_id); return; } setDraft(null); setNote(''); setOpen(info.event.extendedProps); }}
             eventDrop={move}
             eventResize={move}
           />
