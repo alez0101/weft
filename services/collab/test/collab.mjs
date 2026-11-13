@@ -138,6 +138,9 @@ await api(alex.token, '/rpc/admin_set_user', { method: 'POST', body: { p_user: v
 const [fileItem] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'file', title: 'notes.txt', body_text: 'FILE-TEXT-ONLY' } })).rows;
 const fo = await open(olive.token, fileItem.id);
 check('The collab server refuses to open a file as a document (its text changes only by upload)', fo.failed && !fo.scope, `${fo.failed} ${fo.scope}`); close(fo);
+const [listItem] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'tasklist', title: 'Collab task list' } })).rows;
+const lo = await open(olive.token, listItem.id);
+check('Nor a task list (its text is its tasks)', lo.failed && !lo.scope, `${lo.failed} ${lo.scope}`); close(lo);
 
 // ---------------- moving or deleting a document closes its sessions
 const [mv] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'document', title: 'Move test' } })).rows;

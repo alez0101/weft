@@ -41,6 +41,7 @@ begin
   update weft.items  set created_by = keeper where created_by = any({U}) and space_id <> all({S});
   update weft.events set created_by = keeper where created_by = any({U}) and space_id <> all({S});
   update weft.table_rows set created_by = keeper where created_by = any({U});
+  update weft.tasks set created_by = keeper where created_by = any({U});
   delete from weft.messages where author_id = any({U}) and space_id <> all({S});
   -- The sample spaces and everything in them (messages, items, events, members cascade).
   delete from weft_private.proposals where space_id = any({S}) or asker = any({U});

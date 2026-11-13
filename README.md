@@ -1,13 +1,13 @@
 # Weft
 
 A small, self-hosted collaboration suite in one browser tab: chat, documents, a wiki, whiteboards,
-tables, files and a calendar, opened as tabs from an iPad-like home screen, with a Teams-like chat rail and an
+tables, task lists, files and a calendar, opened as tabs from an iPad-like home screen, with a Teams-like chat rail and an
 AI assistant that answers only from what the person asking is allowed to see, with links to where
 each answer came from.
 
 One rule decides who sees what (you see something only if you are a member of its space), and
 Postgres enforces it with row-level security on every path: the API, live updates, co-editing,
-search and the assistant. Nearly 400 automated checks prove it, including that restricted content
+search and the assistant. Over 450 automated checks prove it, including that restricted content
 never reaches the model for someone who cannot see it.
 
 Status: a working prototype for small teams. Not hardened for large or hostile multi-tenant use.

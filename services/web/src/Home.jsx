@@ -2,16 +2,18 @@
 // shows only what they can open. Which widgets, and their order, are saved per person (weft.user_prefs).
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, assistant } from './api.js';
+import { dueLabel, today } from './TaskList.jsx';
 
 const WIDGETS = {
   upcoming: 'Coming up',
+  tasks: 'Tasks due soon',
   unread: 'Unread',
   recent: 'Recently changed',
   files: 'Recent files',
   ask: 'Ask Weft',
 };
-const DEFAULT = ['upcoming', 'unread', 'recent', 'ask'];
-const KIND = { document: 'Document', wiki: 'Wiki page', whiteboard: 'Whiteboard', table: 'Table', file: 'File' };
+const DEFAULT = ['upcoming', 'tasks', 'unread', 'recent', 'ask'];
+const KIND = { document: 'Document', wiki: 'Wiki page', whiteboard: 'Whiteboard', table: 'Table', tasklist: 'Task list', file: 'File' };
 const where = (s) => (s?.kind === 'channel' ? `#${s.name}` : s?.kind === 'personal' ? 'Personal' : s?.name || '');
 const when = (iso) => new Date(iso).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 const ago = (iso) => {
@@ -24,6 +26,15 @@ function Upcoming({ data, onOpenEvent }) {
   return <ul className="widget-list">{data.map((e) => (
     <li key={e.id}><button type="button" className="widget-row" onClick={() => onOpenEvent(e.id)}>
       <span className="widget-main">{e.title}</span><span className="widget-sub">{when(e.starts_at)}{e.location ? `, ${e.location}` : ''}, {where(e.space)}</span>
+    </button></li>))}</ul>;
+}
+// Open tasks due in the next seven days or overdue, yours first. A row opens its list.
+function TasksDue({ data, me, onOpenItem }) {
+  if (!data.length) return <p className="widget-empty">No open tasks due in the next week.</p>;
+  return <ul className="widget-list">{data.map((t) => (
+    <li key={t.id}><button type="button" className="widget-row" onClick={() => onOpenItem(t.list_id)}>
+      <span className="widget-main">{t.title}</span>
+      <span className={`widget-sub${t.due_on < today() ? ' is-late' : ''}`}>{dueLabel(t.due_on)}, {t.assignee_id === me.id ? 'you' : t.assignee?.display_name || 'no one'}, {t.list?.title} in {where(t.list?.space)}</span>
     </button></li>))}</ul>;
 }
 function Unread({ unread, spaces, onOpenConvo }) {
@@ -67,10 +78,10 @@ function Ask({ assistantSpace, onAsked }) {
   );
 }
 
-export default function Widgets({ spaces, unread, notice, onOpenItem, onOpenEvent, onOpenConvo }) {
+export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpenEvent, onOpenConvo }) {
   const [order, setOrder] = useState(null);
   const [editing, setEditing] = useState(false);
-  const [data, setData] = useState({ upcoming: [], recent: [], files: [] });
+  const [data, setData] = useState({ upcoming: [], tasks: [], recent: [], files: [] });
   const [error, setError] = useState('');
   const timer = useRef(null);
 
@@ -89,24 +100,28 @@ export default function Widgets({ spaces, unread, notice, onOpenItem, onOpenEven
   const load = useCallback(async () => {
     const now = new Date(); const soon = new Date(now.getTime() + 14 * 86400000);
     try {
-      const [upcoming, recent, files] = await Promise.all([
+      const week = new Date(Date.now() + 7 * 86400000); week.setMinutes(week.getMinutes() - week.getTimezoneOffset());
+      const [upcoming, recent, files, due] = await Promise.all([
         api(`/events?ends_at=gte.${now.toISOString()}&starts_at=lte.${soon.toISOString()}&select=id,title,starts_at,location,space:spaces(name,kind)&order=starts_at&limit=5`),
         api('/items?select=id,title,kind,updated_at,space:spaces(name,kind)&order=updated_at.desc&limit=6'),
         api('/items?kind=eq.file&select=id,title,kind,updated_at,space:spaces(name,kind)&order=updated_at.desc&limit=5'),
+        api(`/tasks?done=is.false&due_on=lte.${week.toISOString().slice(0, 10)}&select=id,title,due_on,assignee_id,list_id,assignee:users!tasks_assignee_id_fkey(display_name),list:items(title,space:spaces(name,kind))&order=due_on,position&limit=40`),
       ]);
-      setData({ upcoming, recent, files }); setError('');
+      const tasks = [...due.filter((t) => t.assignee_id === me.id), ...due.filter((t) => t.assignee_id !== me.id)].slice(0, 6);
+      setData({ upcoming, tasks, recent, files }); setError('');
     } catch (e) { setError(`Widgets could not load: ${e.message}`); }
-  }, []);
+  }, [me.id]);
   useEffect(() => { load(); }, [load]);
   // Live: refresh shortly after anything they show changes (several notices in a row refresh once).
   useEffect(() => {
-    if (!notice || !['events', 'items', 'members'].includes(notice.t)) return;
+    if (!notice || !['events', 'items', 'members', 'tasks'].includes(notice.t)) return;
     clearTimeout(timer.current); timer.current = setTimeout(load, 400);
   }, [notice, load]);
 
   if (!order) return null;
   const assistantSpace = spaces.find((s) => s.kind === 'assistant');
   const body = (k) => (k === 'upcoming' ? <Upcoming data={data.upcoming} onOpenEvent={onOpenEvent} />
+    : k === 'tasks' ? <TasksDue data={data.tasks} me={me} onOpenItem={onOpenItem} />
     : k === 'unread' ? <Unread unread={unread} spaces={spaces} onOpenConvo={onOpenConvo} />
     : k === 'recent' ? <Items data={data.recent} onOpenItem={onOpenItem} empty="Nothing has been written yet." />
     : k === 'files' ? <Items data={data.files} onOpenItem={onOpenItem} empty="No files yet. Upload them in Files." />
