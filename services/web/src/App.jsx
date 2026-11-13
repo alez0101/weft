@@ -40,6 +40,11 @@ const readHash = () => {
 
 // The secret of an invite or reset link travels in the URL fragment (#link=...), which browsers never
 // send to a server or in a Referer.
+// After a password is set or used, offer it to the browser's password manager (Chrome, Edge; others skip).
+const remember = (email, password) => {
+  try { if (window.PasswordCredential) navigator.credentials.store(new window.PasswordCredential({ id: email, password })).catch(() => {}); } catch { /* not supported */ }
+};
+
 // Read once, before anything rewrites the fragment.
 const LINK = new URLSearchParams(location.hash.slice(1)).get('link');
 const linkToken = () => LINK;
@@ -51,12 +56,12 @@ function PasswordForm({ onSignedIn }) {
   return (
     <form className="signin-form" onSubmit={async (e) => {
       e.preventDefault(); setBusy(true); setError('');
-      try { onSignedIn(await signIn('password', f)); } catch (err) { setError(err.message); setBusy(false); }
+      try { const s = await signIn('password', f); remember(f.email.trim(), f.password); onSignedIn(s); } catch (err) { setError(err.message); setBusy(false); }
     }}>
       <label htmlFor="signin-email">Email</label>
-      <input id="signin-email" type="email" autoComplete="username" required value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
+      <input id="signin-email" type="email" name="username" autoComplete="username" required value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
       <label htmlFor="signin-password">Password</label>
-      <input id="signin-password" type="password" autoComplete="current-password" required value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
+      <input id="signin-password" type="password" name="password" autoComplete="current-password" required value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
       <button className="btn btn--primary" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
       {error && <p role="alert" className="signin-error">{error}</p>}
       <p className="signin-hint">No account, or forgot your password? Ask a Weft admin for a link.</p>
@@ -78,13 +83,16 @@ function LinkPage({ token, onSignedIn }) {
   return (
     <form className="signin-form" onSubmit={async (e) => {
       e.preventDefault(); if (mismatch) return; setBusy(true); setError('');
-      try { const s = await signIn('link', { token, password: f.password, name: f.name }); leave(); onSignedIn(s); } catch (err) { setError(err.message); setBusy(false); }
+      try { const s = await signIn('link', { token, password: f.password, name: f.name }); remember(info.email, f.password); leave(); onSignedIn(s); } catch (err) { setError(err.message); setBusy(false); }
     }}>
       <p>{invite ? 'Welcome to Weft. Choose a password for' : 'Choose a new password for'} <strong>{info.email}</strong>.</p>
+      {/* The email as a username field, so browsers and password managers save the password under it. */}
+      <label htmlFor="link-email">Email</label>
+      <input id="link-email" type="email" name="username" autoComplete="username" value={info.email} readOnly />
       {invite && (<><label htmlFor="link-name">Your name, as others will see it</label>
         <input id="link-name" autoComplete="name" maxLength={80} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></>)}
       <label htmlFor="link-password">Password (at least 12 characters)</label>
-      <input id="link-password" type="password" autoComplete="new-password" minLength={12} required value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
+      <input id="link-password" type="password" name="new-password" autoComplete="new-password" minLength={12} required value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
       <label htmlFor="link-again">The same password again</label>
       <input id="link-again" type="password" autoComplete="new-password" required value={f.again} onChange={(e) => setF({ ...f, again: e.target.value })} aria-invalid={mismatch || undefined} />
       {mismatch && <p className="signin-hint" role="status">The two passwords are different.</p>}
