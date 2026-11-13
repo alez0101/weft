@@ -81,6 +81,7 @@ assistant suite uses stand-ins for the model and the embedder, so tests make no 
 - `services/` - `svc` (sign-in, live), `assistant`, `collab`, `web`
 - `db/migrations` - the whole database, rebuilt in order from nothing
 - `docs/help`, `docs/admin` - the wikis published into Weft (`tools/publish_wikis.sh`)
+- `docs/adding-an-app.md` - how a new app is built so it keeps the permission promise
 - `docs/history` - notes from each build phase
 - `data/sample`, `tools/gen_seed.py` - the invented sample data
 - `tests/` - the suites and browser checks
