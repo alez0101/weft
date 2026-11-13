@@ -244,3 +244,6 @@
 .file-preview--pdf { width: 100%; height: min(75vh, 900px); border: 0; }
 .file-text summary { cursor: pointer; font-weight: 500; }
 .file-text pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 50vh; overflow: auto; padding: var(--space-sm); border-radius: var(--radius-input); background: var(--color-paper-2); font-size: var(--text-sm); }
+/* Model key dialog: two-up inputs shrink to fit. */
+.people .fields .pair { display: flex; gap: var(--space-xs); min-width: 0; }
+.people .fields .pair input { flex: 1 1 0; min-width: 0; }

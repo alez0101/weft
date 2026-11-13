@@ -18,7 +18,7 @@ When `EMBED_URL` points at an Ollama server, the assistant's embedding worker tu
 
 ### Models
 
-Two slots in Settings, primary and secondary, each Anthropic, OpenAI-compatible or Ollama. A new Weft starts with Claude Opus 5.5 at low effort as primary and an Ollama fallback that is off until configured. The secondary answers when the primary has no key, is off, has reached its monthly cap, is rate-limited, times out or errors; never when the primary declined a question. Keys are encrypted with AES-256-GCM by the assistant before they are stored and never shown again.
+Two slots in Settings, primary and secondary, each Anthropic, OpenAI-compatible or Ollama. A new Weft starts with Claude Opus 5.5 at low effort as primary and an Ollama fallback that is off until configured. If personal keys are allowed and the asker has one, it is tried first, for their own questions only, at the official Anthropic or OpenAI address. The secondary answers when the primary has no key, is off, has reached its monthly cap, is rate-limited, times out or errors; never when the primary declined a question. Keys are encrypted with AES-256-GCM by the assistant before they are stored and never shown again.
 
 ### Proposals
 

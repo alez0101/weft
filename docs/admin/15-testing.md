@@ -3,14 +3,14 @@ title: Testing
 parent: Technical specification
 summary: The four suites, what they prove, and the browser checks.
 ---
-`tests/run.sh` rebuilds the separate test stack from nothing, runs six suites and removes it. On 2026-11-13 it passed 398 checks.
+`tests/run.sh` rebuilds the separate test stack from nothing, runs six suites and removes it. On 2026-11-13 it passed 423 checks.
 
 | Suite | Checks | What it proves |
 | --- | --- | --- |
 | Permissions (`tests/permissions.py`) | 191 | every person against every table and action, the tricky cases, accounts and channels, sub-pages and replies, the wikis and publishing, widget layouts and file bytes, and a teeth check that a loosened policy is caught |
 | Live (`services/svc/test/live.mjs`) | 25 | notices reach members only, carry no content, follow membership changes; bad, expired and disabled tokens get nothing |
 | Accounts (`services/svc/test/accounts.mjs`) | 43 | links are admin-only, single-use and expire; passwords, lockouts, session rotation and replay, sign-out, password changes, disabled accounts |
-| Assistant (`services/assistant/test/assistant.mjs`) | 77 | with a stand-in model that records every prompt: restricted content never reaches the model for someone who cannot see it, failover, proposals, meaning search, files |
+| Assistant (`services/assistant/test/assistant.mjs`) | 102 | with a stand-in model that records every prompt: restricted content never reaches the model for someone who cannot see it, failover, proposals, meaning search, files, personal keys (which key each call used) |
 | Collab (`services/collab/test/collab.mjs`) | 32 | refusals, read-only viewers, live co-editing, sessions closed on losing access |
 | Files (`services/files/test/files.mjs`) | 30 | who may upload and download, text from PDF / Word / text, types read from the bytes, risky types never open in place, size limits, deleting |
 

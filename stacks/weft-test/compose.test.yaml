@@ -16,3 +16,6 @@ services:
     environment:
       # The test stack embeds with the stand-in inside the assistant suite, never a real model server.
       EMBED_URL: http://weft-assist-test:9009
+      # Personal keys go to the stand-in model too (in production: the official Anthropic and OpenAI addresses).
+      PERSONAL_ANTHROPIC_URL: http://weft-assist-test:9009/anthropic
+      PERSONAL_OPENAI_URL: http://weft-assist-test:9009/personal-openai

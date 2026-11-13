@@ -6,7 +6,7 @@ summary: Schemas, roles, the one rule, the channel-scope claim, audit and migrat
 ### Schemas
 
 - `weft`: what the API exposes. Users, spaces, members, messages, items (documents, wiki pages, whiteboards, tables, files), events, table columns and rows, file bytes (`file_blobs`), embeddings, audit, read markers and each person's Home layout (`user_prefs`, readable only by them).
-- `weft_private`: helpers, provider settings and keys, run logs, assistant proposals, embedding state, the admin log, and sign-in (password hashes, link and session hashes). Not exposed.
+- `weft_private`: helpers, provider settings and keys, personal keys (`personal_providers`, encrypted, readable only by the assistant service), run logs, assistant proposals, embedding state, the admin log, and sign-in (password hashes, link and session hashes). Not exposed.
 
 ### Spaces: the permission unit
 
@@ -37,4 +37,4 @@ Two kinds of channel are kept by Weft itself: the help channel (`everyone`: ever
 
 ### Migrations
 
-`db/migrations/001` to `019` rebuild the database from nothing, in order: roles, schema, access rules, triggers, chat reads, notices, service logins, assistant, collab, proposals, assistant events, everyone spaces, whiteboards, tables, semantic search, people, wikis, accounts, files and widgets.
+`db/migrations/001` to `020` rebuild the database from nothing, in order: roles, schema, access rules, triggers, chat reads, notices, service logins, assistant, collab, proposals, assistant events, everyone spaces, whiteboards, tables, semantic search, people, wikis, accounts, files and widgets, personal keys.

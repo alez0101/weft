@@ -23,6 +23,10 @@ if (MASTER.length !== 32) throw new Error('ASSIST_MASTER_KEY must be 32 bytes of
 const API = env('POSTGREST_URL', 'http://postgrest:3000');
 const ASSISTANT_ID = '00000000-0000-4000-8000-00000000a001';
 const CALL_TIMEOUT_MS = Number(env('CALL_TIMEOUT_MS', '60000'));
+// Where personal keys are used. Set by the server, never by the person, so a personal setting cannot
+// point the assistant anywhere else (empty for Anthropic = the SDK's official endpoint).
+const PERSONAL_ANTHROPIC_URL = env('PERSONAL_ANTHROPIC_URL', '');
+const PERSONAL_OPENAI_URL = env('PERSONAL_OPENAI_URL', 'https://api.openai.com/v1');
 // Meaning search: an Ollama server with nomic-embed-text (EMBED_URL, e.g. http://ollama-host:11434).
 // Empty: meaning search is off and the assistant uses keyword search only.
 const EMBED_URL = env('EMBED_URL', '');
@@ -228,16 +232,22 @@ async function callProvider(p, system, user, toolDefs = null) {
 
 const cost = (p, r) => (r.inTok * Number(p.price_in) + r.outTok * Number(p.price_out)) / 1e6;
 
-// Primary, then secondary. Failover on unavailability (no key, cap reached, timeouts, rate limits,
-// server errors), never on a refusal: a declined question is not re-asked elsewhere.
+// The asker's own key (if allowed and set), then primary, then secondary. Failover on unavailability
+// (no key, cap reached, timeouts, rate limits, server errors), never on a refusal: a declined question
+// is not re-asked elsewhere.
+const slotName = (p) => (p.slot === 'personal' ? 'your own key' : p.slot);
 async function answer(ctx, system, user, toolDefs = null) {
   const { rows: providers } = await db.query('select * from weft_private.providers_for_call()');
+  const { rows: [mine] } = await db.query('select * from weft_private.personal_for_call($1)', [ctx.asker]);
+  if (mine) providers.unshift({ ...mine, slot: 'personal', base_url: mine.kind === 'anthropic' ? (PERSONAL_ANTHROPIC_URL || null) : PERSONAL_OPENAI_URL });
   let reason = null;
   for (const p of providers) {
-    if (!p.enabled) { reason = reason || `${p.slot} disabled`; continue; }
+    if (!p.enabled) { reason = reason || `${slotName(p)} disabled`; continue; }
     if (p.monthly_cap_usd !== null) {
-      const { rows } = await db.query('select weft_private.month_cost($1) as c', [p.slot]);
-      if (Number(rows[0].c) >= Number(p.monthly_cap_usd)) { reason = reason || `${p.slot} reached its monthly cap`; continue; }
+      const { rows } = p.slot === 'personal'
+        ? await db.query('select weft_private.personal_month_cost($1) as c', [ctx.asker])
+        : await db.query('select weft_private.month_cost($1) as c', [p.slot]);
+      if (Number(rows[0].c) >= Number(p.monthly_cap_usd)) { reason = reason || `${slotName(p)} reached its monthly cap`; continue; }
     }
     try {
       // Only Anthropic models get the action tools; the fallback answers read-only.
@@ -250,7 +260,7 @@ async function answer(ctx, system, user, toolDefs = null) {
       if (!(e instanceof Unavailable)) throw e;
       await db.query('select weft_private.run_log($1,$2,$3,$4,$5,$6,false,null,null,null,null,null,$7)',
         [ctx.asker, ctx.space, ctx.question, p.slot, p.kind, p.model, e.message]);
-      reason = reason || `${p.slot} ${e.message}`;
+      reason = reason || `${slotName(p)}: ${e.message}`;
     }
   }
   return { unavailable: true, fallback: reason };
@@ -311,7 +321,7 @@ async function ask(user, messageId, tzIn) {
       }
     }
     const meta = {
-      citations, ...(proposals.length ? { proposals, asker: user.id } : {}),
+      citations, asker: user.id, ...(proposals.length ? { proposals } : {}),
       ...(result.unavailable ? {} : { served_by: { slot: result.slot, kind: result.kind, model: result.model } }),
       ...(result.fallback ? { fallback: result.fallback } : {}),
       question_id: q.id,
@@ -427,6 +437,58 @@ async function proposals(user, method, parts, url) {
     return [200, { status: 'undone' }];
   }
   return [404, { error: 'not found' }];
+}
+
+// ---------------------------------------------------------------- your own key
+const MODEL_RE = /^[A-Za-z0-9._:-]{1,80}$/;
+async function mine(user, method, parts, body) {
+  const { rows: [s] } = await db.query('select * from weft_private.settings_get()');
+  const allowed = s.allow_personal_keys;
+  if (method === 'GET' && parts.length === 0) {
+    const { rows: [p] } = await db.query('select * from weft_private.personal_get($1)', [user.id]);
+    return [200, { allowed, provider: p || null }];
+  }
+  if (method === 'DELETE' && parts.length === 0) {   // removing your own key always works
+    await db.query('select weft_private.personal_delete($1)', [user.id]);
+    return [200, { ok: true }];
+  }
+  if (!allowed) return [403, { error: 'Your admin has not turned on personal keys.' }];
+  if (method === 'PUT' && parts.length === 0) {
+    const b = body || {};
+    if (!['anthropic', 'openai'].includes(b.kind)) return [400, { error: 'Choose Anthropic or OpenAI.' }];
+    if (!MODEL_RE.test(String(b.model || ''))) return [400, { error: 'Give the model name, like claude-opus-5-5.' }];
+    if (b.effort && !EFFORTS.has(b.effort)) return [400, { error: 'bad effort' }];
+    const num = (v) => (v === '' || v === null || v === undefined ? null : Number(v));
+    for (const v of [b.monthly_cap_usd, b.price_in, b.price_out]) if (num(v) !== null && !(num(v) >= 0)) return [400, { error: 'Amounts must be zero or more.' }];
+    await db.query('select weft_private.personal_save($1,$2,$3,$4,$5,$6,$7,$8)',
+      [user.id, b.kind, String(b.model), b.kind === 'anthropic' ? (b.effort || 'low') : null, num(b.monthly_cap_usd), num(b.price_in) ?? 0, num(b.price_out) ?? 0, b.enabled !== false]);
+    return [200, { ok: true }];
+  }
+  if (method === 'PUT' && parts[0] === 'key') {
+    const key = String(body?.key || '').trim();
+    if (key.length < 8 || key.length > 400) return [400, { error: 'That does not look like a key.' }];
+    const { rows: [p] } = await db.query('select * from weft_private.personal_get($1)', [user.id]);
+    if (!p) return [400, { error: 'Save the provider and model first.' }];
+    await db.query('select weft_private.personal_set_key($1,$2,$3)', [user.id, encrypt(key), key.slice(-4)]);
+    return [200, { ok: true, key_hint: key.slice(-4) }];
+  }
+  if (method === 'POST' && parts[0] === 'test') {
+    const { rows: [p] } = await db.query('select * from weft_private.personal_for_call($1)', [user.id]);
+    if (!p) return [200, { ok: false, error: 'Add your key and turn it on first.' }];
+    try {
+      const r = await callProvider({ ...p, base_url: p.kind === 'anthropic' ? (PERSONAL_ANTHROPIC_URL || null) : PERSONAL_OPENAI_URL }, 'Reply with the single word OK.', 'Say OK.');
+      return [200, { ok: true, model: r.model, ms: r.ms }];
+    } catch (e) { return [200, { ok: false, error: e.message }]; }
+  }
+  return [404, { error: 'not found' }];
+}
+
+async function adminSettings(user, method, body) {
+  const { rows } = await db.query('select weft_private.assist_is_admin($1) as a', [user.id]);
+  if (!rows[0].a) return [403, { error: 'admins only' }];
+  if (method === 'PUT') await db.query('select weft_private.settings_save($1,$2)', [user.id, !!body?.allow_personal_keys]);
+  const { rows: [s] } = await db.query('select * from weft_private.settings_get()');
+  return [200, { allow_personal_keys: s.allow_personal_keys, personal_keys: Number(s.personal_keys) }];   // a count, never whose
 }
 
 // ---------------------------------------------------------------- admin
@@ -547,6 +609,9 @@ http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/assistant/ask') return send(res, ...(await ask(user, body.message_id, body.tz)));
     const pm = /^\/assistant\/proposals(?:\/(.*))?$/.exec(url.pathname);
     if (pm) return send(res, ...(await proposals(user, req.method, (pm[1] || '').split('/').filter(Boolean), url)));
+    const me = /^\/assistant\/me\/provider(?:\/(.*))?$/.exec(url.pathname);
+    if (me) return send(res, ...(await mine(user, req.method, (me[1] || '').split('/').filter(Boolean), body)));
+    if (url.pathname === '/assistant/admin/settings' && ['GET', 'PUT'].includes(req.method)) return send(res, ...(await adminSettings(user, req.method, body)));
     const m = /^\/assistant\/admin\/providers(?:\/(.*))?$/.exec(url.pathname);
     if (m) return send(res, ...(await admin(user, req.method, (m[1] || '').split('/').filter(Boolean), body)));
     send(res, 404, { error: 'not found' });

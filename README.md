@@ -21,7 +21,7 @@ Status: a working prototype for small teams. Not hardened for large or hostile m
 | Co-editing | Hocuspocus and Yjs; BlockNote documents, Excalidraw whiteboards |
 | Tables and calendar | AG Grid Community, FullCalendar |
 | Files | stored in Postgres; text read from PDF (pdf.js), Word (mammoth) and text files |
-| Assistant | Claude through the Anthropic API, with an optional Ollama fallback and meaning search |
+| Assistant | Claude through the Anthropic API, with an optional Ollama fallback, meaning search, and optional personal keys |
 | App | React and Vite, served by nginx |
 
 Everything runs with Docker Compose. Weft's own docs are inside the app: a help wiki for everyone and
@@ -68,7 +68,7 @@ Operations page has the details.
 ## Tests
 
 ```sh
-tests/run.sh          # builds a separate test stack, runs six suites (398 checks), removes it
+tests/run.sh          # builds a separate test stack, runs six suites (423 checks), removes it
 tests/run.sh --keep   # leaves the test stack up for the browser checks in tests/*.cjs
 ```
 

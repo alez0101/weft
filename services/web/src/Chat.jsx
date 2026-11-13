@@ -192,7 +192,7 @@ export default function Chat({ me, spaces, members, unread, active: activeRaw, s
                   )}
                   {m.meta?.proposals?.length > 0 && <Proposals list={m.meta.proposals} mine={m.meta.asker === me.id} members={members} asker={m.meta.asker} notice={notice} />}
                   {m.author?.is_assistant && m.meta && (
-                    <p className="served-by">{m.meta.served_by ? `Answered by ${m.meta.served_by.model}` : 'No model answered'}{m.meta.fallback ? ` (fallback: ${m.meta.fallback})` : ''}</p>
+                    <p className="served-by">{m.meta.served_by ? `Answered by ${m.meta.served_by.model}${m.meta.served_by.slot === 'personal' ? (m.meta.asker === me.id ? ' with your own key' : " with the asker's own key") : ''}` : 'No model answered'}{m.meta.fallback ? ` (fallback: ${m.meta.fallback})` : ''}</p>
                   )}
                 </li>
               );

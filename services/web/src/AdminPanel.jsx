@@ -96,6 +96,30 @@ export default function AdminPanel({ me, info }) {
       {error ? <p role="alert" className="send-error">Settings could not load: {error}</p>
         : !rows ? <div className="skeleton" aria-label="Loading settings"><span /><span /><span /></div>
         : <div className="slots">{rows.map((r) => <Slot key={`${r.slot}-${r.updated_at}`} slot={r.slot} initial={r} onSaved={load} />)}</div>}
+      <PersonalKeys />
     </div>
+  );
+}
+
+// Whether people may bring their own model key. Admins see only how many have one, never whose.
+function PersonalKeys() {
+  const [s, setS] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => { assistant('/admin/settings').then(setS).catch((e) => setError(e.message)); }, []);
+  if (error) return <p className="send-error" role="alert">{error}</p>;
+  if (!s) return null;
+  return (
+    <section className="slot users" aria-labelledby="pk-title">
+      <header className="slot-head">
+        <h3 id="pk-title">Personal keys</h3>
+        <label className="toggle"><input type="checkbox" checked={s.allow_personal_keys}
+          onChange={async (e) => {
+            const on = e.target.checked; const was = s;
+            setS({ ...s, allow_personal_keys: on });   // the switch moves at once; put back if saving fails
+            try { setS(await assistant('/admin/settings', { method: 'PUT', body: { allow_personal_keys: on } })); } catch (err) { setS(was); setError(err.message); }
+          }} /> Allow</label>
+      </header>
+      <p className="admin-lead">When allowed, each person can add their own Anthropic or OpenAI key from the menu on their initial. It answers only their own questions, before the models above, and is billed to them. Nobody else can see or use it, admins included. {s.personal_keys} {s.personal_keys === 1 ? 'person has' : 'people have'} a key saved.</p>
+    </section>
   );
 }

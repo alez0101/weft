@@ -5,6 +5,7 @@ import AdminPanel from './AdminPanel.jsx';
 import Docs from './Docs.jsx';
 import Calendar from './Calendar.jsx';
 import Widgets from './Home.jsx';
+import ModelKey from './ModelKey.jsx';
 import { applyMode, storedMode } from './mode.js';
 
 const APPS = [
@@ -135,6 +136,7 @@ function AccountMenu({ me, info, onSignOut }) {
   const [open, setOpen] = useState(false);
   const [pw, setPw] = useState(null); // null: closed
   const [status, setStatus] = useState('');
+  const [keyOpen, setKeyOpen] = useState(false);
   const canPassword = info.mode !== 'test' && info.methods.includes('password');
   return (
     <div className="account">
@@ -158,9 +160,11 @@ function AccountMenu({ me, info, onSignOut }) {
             </form>
           )}
           {status && <p className="slot-status" role="status">{status}</p>}
+          <button className="btn btn--sm" type="button" onClick={() => { setKeyOpen(true); setOpen(false); }}>Your model key</button>
           {canPassword && <button className="btn btn--sm" type="button" onClick={onSignOut}>Sign out</button>}
         </div>
       )}
+      {keyOpen && <ModelKey onClose={() => setKeyOpen(false)} />}
     </div>
   );
 }

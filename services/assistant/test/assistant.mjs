@@ -31,7 +31,9 @@ http.createServer((req, res) => {
     if (req.url.startsWith('/anthropic')) {
       // Anthropic Messages format, so the real SDK path (tools included) is exercised.
       const user = typeof body.messages?.[0]?.content === 'string' ? body.messages[0].content : '';
-      mock.anthropic.push({ user, system: body.system, tools: body.tools });
+      const apiKey = req.headers['x-api-key'] || (req.headers.authorization || '').replace(/^Bearer /, '');   // the SDK sends either
+      mock.anthropic.push({ user, system: body.system, tools: body.tools, key: apiKey });
+      if (apiKey === 'sk-personal-bad-0000') { res.writeHead(401, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } })); }
       const content = [];
       const ev = /^\[(\d+)\] event "The Backyard Radio/m.exec(user) || /^\[(\d+)\] event /m.exec(user);
       if (/MOVE-IT/.test(user) && ev) {
@@ -53,9 +55,9 @@ http.createServer((req, res) => {
       return res.end(JSON.stringify({ id: 'msg_test', type: 'message', role: 'assistant', model: 'mock-claude', content,
         stop_reason: content.some((c) => c.type === 'tool_use') ? 'tool_use' : 'end_turn', usage: { input_tokens: 800, output_tokens: 60 } }));
     }
-    const slot = req.url.startsWith('/primary') ? 'primary' : 'secondary';
+    const slot = req.url.startsWith('/primary') ? 'primary' : req.url.startsWith('/personal-openai') ? 'personal' : 'secondary';
     const user = body.messages?.find((m) => m.role === 'user')?.content || '';
-    mock.prompts.push({ slot, user, tools: body.tools });
+    mock.prompts.push({ slot, user, tools: body.tools, key: (req.headers.authorization || '').replace(/^Bearer /, '') });
     if (mock[slot] === 'fail') { res.writeHead(500); return res.end('{"error":"down"}'); }
     const hasSource = /^\[1\] /m.test(user);
     const text = /nocite/i.test(user) || !hasSource ? 'I am not sure.' : 'Here is what I found [1].';
@@ -267,6 +269,56 @@ check('Files: the assistant reads a file\'s text, labelled as a file', /\] file 
 check('Files: and cites it as a file', (a6.reply?.meta?.citations || []).some((c) => /^File: Insurance\.pdf/.test(c.label || '')), JSON.stringify(a6.reply?.meta?.citations));
 a6 = await askA(pat, await mine(pat), 'What does the insurance certificate cover?');
 check('Files: Pat never gets an Organizers file\'s text', !(a6.calls[0]?.user || '').includes('INS-FILE-8812'));
+
+// ================================================================ personal keys
+const pk = (who, path = '', opts = {}) => assist(who.token, `/assistant/me/provider${path}`, opts);
+let pr = await pk(pat);
+check('Personal keys: off by default', pr.status === 200 && pr.data.allowed === false && pr.data.provider === null, JSON.stringify(pr.data));
+check('Personal keys: cannot be saved while off', (await pk(pat, '', { method: 'PUT', body: { kind: 'anthropic', model: 'mock-claude-pat' } })).status === 403);
+check('Personal keys: only admins can turn them on', (await assist(pat.token, '/assistant/admin/settings', { method: 'PUT', body: { allow_personal_keys: true } })).status === 403);
+pr = await assist(alex.token, '/assistant/admin/settings', { method: 'PUT', body: { allow_personal_keys: true } });
+check('Personal keys: an admin turns them on', pr.status === 200 && pr.data.allow_personal_keys === true);
+check('Personal keys: no custom server addresses (only Anthropic or OpenAI)', (await pk(pat, '', { method: 'PUT', body: { kind: 'ollama', model: 'x', base_url: 'http://postgres:5432' } })).status === 400);
+check('Personal keys: model names are checked', (await pk(pat, '', { method: 'PUT', body: { kind: 'anthropic', model: "bad model'; drop" } })).status === 400);
+check('Personal keys: a key needs a provider first', (await pk(pat, '/key', { method: 'PUT', body: { key: 'sk-personal-pat-1234' } })).status === 400);
+check('Personal keys: Pat saves her provider', (await pk(pat, '', { method: 'PUT', body: { kind: 'anthropic', model: 'mock-claude-pat', effort: 'low', price_in: 1, price_out: 5 } })).status === 200);
+const PATKEY = 'sk-personal-pat-ABCDEF-5678';
+check('Personal keys: Pat saves her key and sees only its last four characters', (await pk(pat, '/key', { method: 'PUT', body: { key: PATKEY } })).data?.key_hint === '5678');
+pr = await pk(pat);
+check('Personal keys: the key is never returned', pr.data.provider?.has_key && pr.data.provider.key_hint === '5678' && !JSON.stringify(pr.data).includes('ABCDEF'), JSON.stringify(pr.data));
+const tc = await pk(pat, '/test', { method: 'POST', body: {} });
+check('Personal keys: test connection uses her key', tc.data?.ok === true && mock.anthropic.at(-1).key === PATKEY, JSON.stringify(tc.data));
+a6 = await askA(pat, await mine(pat), 'What are the host contacts?');
+check("Personal keys: Pat's question is answered with Pat's key", a6.calls[0]?.key === PATKEY && a6.reply?.meta?.served_by?.slot === 'personal' && a6.reply?.meta?.served_by?.model === 'mock-claude', JSON.stringify(a6.reply?.meta?.served_by));
+check('Personal keys: an Anthropic personal key can propose actions too', (a6.calls[0]?.tools || []).length > 0);
+a6 = await askA(olive, await mine(olive), 'What are the host contacts?');
+check("Personal keys: Olive's question uses the workspace key, never Pat's", a6.calls[0]?.key === 'sk-test-anthropic-mock-0001' && a6.reply?.meta?.served_by?.slot === 'primary', a6.calls[0]?.key);
+a6 = await askA(pat, spaces.festival, '@Weft what are the host contacts?');
+check("Personal keys: Pat's @Weft in a channel uses her key, still only that channel's content", a6.calls[0]?.key === PATKEY && !(a6.calls[0]?.user || '').includes(SECRET));
+const adm = await assist(alex.token, '/assistant/admin/settings');
+check('Personal keys: admins see only how many exist, not whose or which', adm.data.personal_keys === 1 && !/5678|mock-claude-pat|ABCDEF/.test(JSON.stringify(adm.data)) && !JSON.stringify(adm.data).includes(pat.user.id), JSON.stringify(adm.data));
+check("Personal keys: the admin provider list never includes them", !/mock-claude-pat|5678/.test(JSON.stringify((await assist(alex.token, '/assistant/admin/providers')).data)));
+check("Personal keys: nobody can read someone else's (Alex sees only his own, none)", (await pk(alex)).data.provider === null);
+await pk(pat, '/key', { method: 'PUT', body: { key: 'sk-personal-bad-0000' } });
+a6 = await askA(pat, await mine(pat), 'What are the host contacts?');
+check('Personal keys: a rejected key falls back to the workspace model, saying why', a6.reply?.meta?.served_by?.slot === 'primary' && /your own key: key rejected/.test(a6.reply?.meta?.fallback || ''), JSON.stringify(a6.reply?.meta));
+await pk(pat, '/key', { method: 'PUT', body: { key: PATKEY } });
+pr = await pk(pat);
+check('Personal keys: her spending is tracked separately', Number(pr.data.provider.month_cost_usd) > 0, String(pr.data.provider.month_cost_usd));
+await pk(pat, '', { method: 'PUT', body: { kind: 'anthropic', model: 'mock-claude-pat', price_in: 1, price_out: 5, monthly_cap_usd: 0 } });
+a6 = await askA(pat, await mine(pat), 'What are the host contacts?');
+check('Personal keys: at her own monthly cap, the workspace model answers', a6.reply?.meta?.served_by?.slot === 'primary' && /your own key reached its monthly cap/.test(a6.reply?.meta?.fallback || ''), JSON.stringify(a6.reply?.meta));
+await pk(pat, '', { method: 'PUT', body: { kind: 'openai', model: 'mock-gpt-pat' } });
+let po = await askIn(pat, await mine(pat), 'What are the host contacts?');
+check('Personal keys: an OpenAI key goes to the fixed OpenAI address with her key', po.prompts.some((x) => x.slot === 'personal' && x.key === PATKEY) && po.reply?.meta?.served_by?.slot === 'personal', JSON.stringify(po.prompts.map((x) => [x.slot, x.key])));
+await assist(alex.token, '/assistant/admin/settings', { method: 'PUT', body: { allow_personal_keys: false } });
+po = await askIn(pat, await mine(pat), 'What are the host contacts?');
+const before = mock.anthropic.length;
+check('Personal keys: turned off by the admin, her key is not used', !po.prompts.some((x) => x.slot === 'personal') && po.reply?.meta?.served_by?.slot !== 'personal', JSON.stringify(po.reply?.meta?.served_by));
+pr = await pk(pat);
+check('Personal keys: turned off, it is kept (not deleted) and cannot be changed', pr.data.allowed === false && pr.data.provider?.has_key && (await pk(pat, '/key', { method: 'PUT', body: { key: PATKEY } })).status === 403);
+check('Personal keys: she can always remove it', (await pk(pat, '', { method: 'DELETE' })).status === 200 && (await pk(pat)).data.provider === null);
+void before;
 
 // ================================================================ semantic search
 const POWERMSG = 'Porch P11 lost its outlet, the band cannot plug in';
