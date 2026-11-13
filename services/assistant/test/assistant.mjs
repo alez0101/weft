@@ -359,6 +359,7 @@ check('Search by meaning: not even when Pat searches its exact words', !rr.data.
 rr = await rel(olive, 'generator rental booking');   // her own earlier questions would crowd a query about electricity
 check('Search by meaning: Olive does find the Organizers note (positive control)', rr.data.results.some((x) => x.id === orgSem.id), JSON.stringify(rr.data.results.map((x) => x.id)));
 check('Search by meaning: no token, no results', (await assist(null, '/assistant/search/related?q=electricity')).status === 401);
+check('Search by meaning: questions asked to Weft are not listed as related', !(await rel(pat, 'electricity trouble')).data.results.some((x) => x.space_kind === 'assistant' || /@weft/i.test(x.snippet || '')));
 check('Search by meaning: very short searches return nothing', (await rel(pat, 'el')).data.results.length === 0);
 await api(olive.token, `/messages?id=eq.${semMsg.id}`, { method: 'DELETE' });
 check('Semantic: deleting a message deletes its embedding', (await api(olive.token, `/embeddings?source_id=eq.${semMsg.id}`)).rows.length === 0);

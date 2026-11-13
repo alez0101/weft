@@ -460,7 +460,8 @@ async function related(user, q) {
   ]);
   const snip = (s) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, 140);
   const out = [
-    ...ms.map((m) => ({ kind: 'message', id: m.id, space_id: m.space_id, space_name: m.space?.name, space_kind: m.space?.kind, title: null, snippet: snip(m.body), at: m.created_at })),
+    // Your own questions to Weft are not "related" results (they echo the search); word search still finds them.
+    ...ms.filter((m) => m.space?.kind !== 'assistant' && !/@weft\b/i.test(m.body)).map((m) => ({ kind: 'message', id: m.id, space_id: m.space_id, space_name: m.space?.name, space_kind: m.space?.kind, title: null, snippet: snip(m.body), at: m.created_at })),
     ...is.map((i) => ({ kind: i.kind, id: i.id, space_id: i.space_id, space_name: i.space?.name, space_kind: i.space?.kind, title: i.title,
       snippet: snip(best.get(i.id)?.content.replace(/^[^\n]*\n/, '')), at: i.updated_at })),
     ...es.map((e) => ({ kind: 'event', id: e.id, space_id: e.space_id, space_name: e.space?.name, space_kind: e.space?.kind, title: e.title, snippet: e.location, at: e.starts_at })),
