@@ -1494,6 +1494,165 @@ def inventory():
     call("DELETE", f"/items?id=eq.{fest}", olive)
 
 
+def goals():
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    O, A, P = uid("user", "u-org"), uid("user", "u-alex"), uid("user", "u-pub")
+    oq = lambda sql: owner_sql(sql)
+    st, rows = call("POST", "/items", olive, {"space_id": SID["organizers"], "kind": "goalset", "title": "Org goals"})
+    org = rows[0]["id"] if st == 201 else None
+    st2, rows = call("POST", "/items", olive, {"space_id": SID["festival"], "kind": "goalset", "title": "Festival goals"})
+    fest = rows[0]["id"] if st2 == 201 else None
+    check("Goals: Olive (editor) makes goal sets in Organizers and #festival", org and fest, f"{st} {st2}")
+    st, _ = call("POST", "/items", pat, {"space_id": SID["festival"], "kind": "goalset", "title": "x"})
+    check("Goals: Pat (viewer) cannot make a goal set in #festival", refused(st), str(st))
+    # Goals and key results: Olive adds them (positive controls), the database fills in authorship and stamps.
+    st, rows = call("POST", "/goals", olive, {"set_id": org, "title": "  Raise ORG-GOAL-SECRET sponsorship ", "note": " Board wants it \n", "due_on": "2027-03-31"})
+    og = rows[0]["id"] if st == 201 else None
+    check("Goals: Olive adds a goal in Organizers (positive control), created_by set by the database, text trimmed",
+          og and rows[0]["created_by"] == O and rows[0]["title"] == "Raise ORG-GOAL-SECRET sponsorship" and rows[0]["note"] == "Board wants it", f"{st} {rows}")
+    st, rows = call("POST", "/key_results", olive, {"goal_id": og, "title": " Sponsors signed ", "start_value": 0, "target_value": 8, "current_value": 2, "unit": " deals "})
+    okr = rows[0]["id"] if st == 201 else None
+    check("Goals: Olive adds a key result; progress worked out by the database (2 of 8 = 0.25), value stamped by her",
+          okr and float(rows[0]["progress"]) == 0.25 and rows[0]["value_updated_by"] == O and rows[0]["created_by"] == O
+          and rows[0]["title"] == "Sponsors signed" and rows[0]["unit"] == "deals", f"{st} {rows}")
+    st, rows = call("POST", "/goals", olive, {"set_id": fest, "title": "Sell out the festival"})
+    fg = rows[0]["id"] if st == 201 else None
+    st2, rows2 = call("POST", "/key_results", olive, {"goal_id": fg, "title": "Tickets sold", "target_value": 400, "current_value": 120, "unit": "tickets"})
+    fk = rows2[0]["id"] if st2 == 201 else None
+    st3, rows3 = call("POST", "/key_results", olive, {"goal_id": fg, "title": "Waste", "start_value": 500, "target_value": 300, "current_value": 450, "unit": "kg"})
+    fk2 = rows3[0]["id"] if st3 == 201 else None
+    check("Goals: a target lower than the start counts down (500 to 300, now 450 = 0.25)", fk2 and float(rows3[0]["progress"]) == 0.25, f"{st3} {rows3}")
+    check("Goals: a goal needs only a title; a key result only a title and a target (positive control)", fg and fk and float(rows2[0]["progress"]) == 0.3, f"{st} {st2} {rows2}")
+    # Outsiders see nothing, not by id and not by filtering.
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = call("GET", f"/goals?set_id=eq.{org}&select=id", tok)
+        st2, rows2 = call("GET", f"/key_results?goal_id=eq.{og}&select=id", tok)
+        check(f"Goals: {who} gets no Organizers goals or key results", st == 200 and rows == [] and st2 == 200 and rows2 == [], f"{rows} {rows2}")
+    st, rows = call("GET", "/goals?select=title&title=like.*ORG-GOAL*", pat)
+    st2, rows2 = call("GET", "/key_results?select=id&unit=eq.deals", vic)
+    check("Goals: nor finds them by filtering every goal and key result", st == 200 and rows == [] and rows2 == [], f"{rows} {rows2}")
+    st, rows = call("GET", f"/items?id=eq.{org}&select=body_text", pat)
+    check("Goals: Pat cannot read the Organizers goal set summary", st == 200 and rows == [], str(rows))
+    st, rows = call("GET", f"/items?id=eq.{org}&select=body_text", olive)
+    body = (rows[0]["body_text"] if rows else "") or ""
+    check("Goals: Olive can, and it carries the goal, its progress, due date and each key result",
+          "Raise ORG-GOAL-SECRET sponsorship (25% done), due 2027-03-31" in body and "- Sponsors signed: 2 of 8 deals (from 0), 25%" in body and "Board wants it" in body, body)
+    st, rows = call("GET", f"/goals?set_id=eq.{fest}&select=id,krs:key_results(id,progress)", pat)
+    check("Goals: Pat reads the #festival goals and key results with progress (positive control)", st == 200 and len(rows) == 1 and len(rows[0]["krs"]) == 2, str(rows))
+    # Viewers read only.
+    st, _ = call("POST", "/goals", pat, {"set_id": fest, "title": "pwned"})
+    st2, _ = call("POST", "/key_results", pat, {"goal_id": fg, "title": "pwned", "target_value": 1})
+    check("Goals: Pat (viewer) cannot add a goal or key result in #festival", refused(st) and refused(st2), f"{st} {st2}")
+    st, rows = call("PATCH", f"/key_results?id=eq.{fk}", pat, {"current_value": 400})
+    st2, rows2 = call("PATCH", f"/goals?id=eq.{fg}", pat, {"title": "pwned"})
+    st3, rows3 = call("DELETE", f"/key_results?id=eq.{fk}", pat)
+    st4, rows4 = call("DELETE", f"/goals?id=eq.{fg}", pat)
+    check("Goals: Pat cannot update progress, change or delete in #festival", rows == [] and rows2 == [] and rows3 == [] and rows4 == []
+          and oq(f"select current_value::int from weft.key_results where id = '{fk}'") == "120" and oq(f"select count(*) from weft.goals where id = '{fg}'") == "1", f"{st} {st2} {st3} {st4}")
+    st, rows = call("PATCH", f"/key_results?id=eq.{okr}", vic, {"current_value": 8})
+    st2, rows2 = call("DELETE", f"/goals?set_id=eq.{org}", vic)
+    check("Goals: Vic changes and deletes nothing in Organizers", rows == [] and rows2 == []
+          and oq(f"select current_value::int from weft.key_results where id = '{okr}'") == "2" and oq(f"select count(*) from weft.goals where set_id = '{org}'") == "1", f"{st} {st2}")
+    # Updating by hand: Alex (owner) updates; the stamp moves to him, only when the value changes.
+    st, rows = call("PATCH", f"/key_results?id=eq.{fk}", alex, {"current_value": 200})
+    check("Goals: Alex (owner) updates a key result's value (positive control); progress and stamp follow",
+          st == 200 and rows and float(rows[0]["progress"]) == 0.5 and rows[0]["value_updated_by"] == A, f"{st} {rows}")
+    st, rows = call("PATCH", f"/key_results?id=eq.{fk}", olive, {"title": "Tickets sold online"})
+    check("Goals: renaming a key result keeps who last updated its value", st == 200 and rows and rows[0]["value_updated_by"] == A, f"{st} {rows}")
+    st, rows = call("PATCH", f"/key_results?id=eq.{fk}", olive, {"current_value": 999})
+    check("Goals: progress never goes over 100%", st == 200 and rows and float(rows[0]["progress"]) == 1, f"{st} {rows}")
+    st, rows = call("PATCH", f"/key_results?id=eq.{fk}", olive, {"current_value": -5})
+    check("Goals: nor under 0%", st == 200 and rows and float(rows[0]["progress"]) == 0, f"{st} {rows}")
+    call("PATCH", f"/key_results?id=eq.{fk}", olive, {"current_value": 200})
+    st, rows = call("PATCH", f"/goals?id=eq.{fg}", olive, {"note": "Last year 310", "due_on": "2027-06-01"})
+    check("Goals: Olive changes a goal (positive control)", st == 200 and rows and rows[0]["due_on"] == "2027-06-01", f"{st} {rows}")
+    # Values the database refuses.
+    for bad, why in (({"title": "t", "target_value": 0}, "a target equal to the start"), ({"title": "   ", "target_value": 1}, "an empty title"),
+                     ({"title": "x" * 201, "target_value": 1}, "a title over 200"), ({"title": "t", "target_value": 1e13}, "a number too large"),
+                     ({"title": "t", "target_value": 1, "unit": "x" * 21}, "a unit over 20"), ({"title": "t"}, "no target")):
+        st, _ = call("POST", "/key_results", olive, {"goal_id": fg, **bad})
+        check(f"Goals: {why} is refused", st == 400, str(st))
+    for bad, why in (({"title": "   "}, "a goal with an empty title"), ({"title": "t", "note": "x" * 2001}, "a note over 2000"), ({"title": "t", "due_on": "not a date"}, "a due date that is not one")):
+        st, _ = call("POST", "/goals", olive, {"set_id": fest, **bad})
+        check(f"Goals: {why} is refused", st == 400, str(st))
+    # Authorship, stamps and progress cannot be forged; nothing jumps between sets or goals.
+    st, _ = call("POST", "/goals", olive, {"set_id": fest, "title": "forged", "created_by": A})
+    st2, _ = call("POST", "/key_results", olive, {"goal_id": fg, "title": "forged", "target_value": 1, "created_by": A})
+    check("Goals: authorship of a goal or key result cannot be forged", refused(st) and refused(st2), f"{st} {st2}")
+    st, _ = call("PATCH", f"/goals?id=eq.{fg}", olive, {"created_by": A})
+    st2, _ = call("PATCH", f"/key_results?id=eq.{fk}", olive, {"value_updated_by": P})
+    st3, _ = call("PATCH", f"/key_results?id=eq.{fk}", olive, {"value_updated_at": "2020-01-01T00:00:00Z"})
+    st4, _ = call("POST", "/key_results", olive, {"goal_id": fg, "title": "forged", "target_value": 1, "value_updated_by": P})
+    check("Goals: nor who last updated a value, or when", refused(st) and refused(st2) and refused(st3) and refused(st4)
+          and oq(f"select value_updated_by from weft.key_results where id = '{fk}'") == O, f"{st} {st2} {st3} {st4}")
+    st, _ = call("PATCH", f"/key_results?id=eq.{fk}", olive, {"progress": 1})
+    check("Goals: progress cannot be written, only worked out", st >= 400 and float(oq(f"select progress from weft.key_results where id = '{fk}'")) == 0.5, str(st))
+    st, _ = call("PATCH", f"/goals?id=eq.{fg}", olive, {"set_id": org})
+    st2, _ = call("PATCH", f"/key_results?id=eq.{fk}", olive, {"goal_id": og})
+    check("Goals: a goal cannot move to another set, nor a key result to another goal", refused(st) and refused(st2)
+          and oq(f"select set_id from weft.goals where id = '{fg}'") == fest and oq(f"select goal_id from weft.key_results where id = '{fk}'") == fg, f"{st} {st2}")
+    st, _ = call("POST", "/goals", olive, {"set_id": uid("item", "porches"), "title": "on a table"})
+    check("Goals: a goal cannot hang off an item that is not a goal set", refused(st), str(st))
+    st, _ = call("POST", "/goals", pat, {"set_id": org, "title": "x"})
+    st2, _ = call("POST", "/key_results", pat, {"goal_id": og, "title": "x", "target_value": 1})
+    check("Goals: Pat cannot add to an Organizers set or goal", refused(st) and refused(st2), f"{st} {st2}")
+    # Channel scope and the assistant.
+    scoped = mint("u-org", scope="festival")
+    st, rows = call("GET", f"/goals?set_id=in.({org},{fest})&select=set_id", scoped)
+    st2, rows2 = call("GET", f"/key_results?goal_id=in.({og},{fg})&select=goal_id", scoped)
+    check("Goals: a #festival-scoped token sees only #festival goals and key results", st == 200 and rows and {r["set_id"] for r in rows} == {fest}
+          and rows2 and {r["goal_id"] for r in rows2} == {fg}, f"{rows} {rows2}")
+    st, _ = call("POST", "/goals", scoped, {"set_id": org, "title": "scoped"})
+    st2, rows2 = call("PATCH", f"/key_results?id=eq.{okr}", scoped, {"current_value": 7})
+    check("Goals: nor writes in Organizers", refused(st) and rows2 == [] and oq(f"select current_value::int from weft.key_results where id = '{okr}'") == "2", f"{st} {st2}")
+    helper = mint("u-org", assistant=True)
+    st, rows = call("GET", f"/key_results?goal_id=eq.{og}&select=id", helper)
+    check("Goals: the assistant (for Olive) can read Organizers key results (positive control)", st == 200 and len(rows) == 1, str(rows))
+    st, _ = call("DELETE", f"/goals?id=eq.{og}", helper)
+    st2, _ = call("DELETE", f"/key_results?id=eq.{okr}", helper)
+    st3, _ = call("PATCH", f"/key_results?id=eq.{okr}", helper, {"current_value": 8})
+    st4, _ = call("POST", "/goals", helper, {"set_id": org, "title": "by the assistant"})
+    check("Goals: the assistant cannot delete, update or add goals or key results", refused(st) and refused(st2) and refused(st3) and refused(st4)
+          and oq(f"select count(*) || '|' || min(current_value::int) from weft.key_results where goal_id = '{og}'") == "1|2", f"{st} {st2} {st3} {st4}")
+    # Audit under the set's space.
+    st, rows = call("GET", f"/audit?row_id=eq.{fk}&select=op", olive)
+    st2, rows2 = call("GET", f"/audit?row_id=eq.{fk}&select=op", pat)
+    check("Goals: #festival key result updates are in the audit log, readable by its members, Pat included (positive control)", len(rows or []) >= 1 and len(rows2 or []) >= 1, f"{rows} {rows2}")
+    call("PATCH", f"/key_results?id=eq.{okr}", olive, {"current_value": 3})
+    st, rows = call("GET", f"/audit?row_id=eq.{okr}&select=op", olive)
+    st2, rows2 = call("GET", f"/audit?row_id=eq.{okr}&select=op", pat)
+    check("Goals: an Organizers update is in the audit log for Organizers members only", len(rows or []) >= 1 and rows2 == [], f"{rows} {rows2}")
+    # Search.
+    st, rows = call("POST", "/rpc/search", olive, {"p_q": "ORG-GOAL-SECRET"})
+    st2, rows2 = call("POST", "/rpc/search", pat, {"p_q": "ORG-GOAL-SECRET"})
+    check("Goals: search finds the set for Olive, not for Pat", any(r["id"] == org and r["kind"] == "goalset" for r in rows or []) and rows2 == [], f"{rows} {rows2}")
+    # Deleting a goal deletes its key results and updates the summary.
+    st, rows = call("POST", "/goals", olive, {"set_id": fest, "title": "Short-lived goal"})
+    tmp = rows[0]["id"] if st == 201 else None
+    call("POST", "/key_results", olive, {"goal_id": tmp, "title": "Short-lived result", "target_value": 3})
+    st, _ = call("DELETE", f"/goals?id=eq.{tmp}", olive)
+    check("Goals: deleting a goal deletes its key results and drops it from the summary", st in (200, 204)
+          and oq(f"select count(*) from weft.key_results where goal_id = '{tmp}'") == "0"
+          and "Short-lived" not in (oq(f"select body_text from weft.items where id = '{fest}'") or ""), str(st))
+    st, _ = call("DELETE", f"/key_results?id=eq.{fk2}", olive)
+    check("Goals: Olive deletes a key result (positive control)", st in (200, 204) and oq(f"select count(*) from weft.key_results where id = '{fk2}'") == "0", str(st))
+    # Moves follow the space: the set moves and everything in it goes with it.
+    st, _ = call("PATCH", f"/items?id=eq.{fest}", olive, {"space_id": SID["volunteers"]})
+    st2, rows = call("GET", f"/goals?set_id=eq.{fest}&select=id", pat)
+    st3, rows3 = call("GET", f"/key_results?goal_id=eq.{fg}&select=id", pat)
+    check("Goals: a set moved to Volunteers takes its goals and key results out of Pat's sight", st == 200 and rows == [] and rows3 == [], f"{st} {rows} {rows3}")
+    st, _ = call("PATCH", f"/items?id=eq.{org}", olive, {"space_id": SID["festival"]})
+    st2, rows = call("GET", f"/key_results?goal_id=eq.{og}&select=id", pat)
+    check("Goals: a set moved into #festival becomes readable to Pat, still read-only", st == 200 and len(rows) == 1
+          and call("PATCH", f"/key_results?id=eq.{okr}", pat, {"current_value": 8})[1] == [], f"{st} {rows}")
+    st, _ = call("DELETE", f"/items?id=eq.{org}", pat)
+    check("Goals: Pat cannot delete the goal set", oq(f"select count(*) from weft.items where id = '{org}'") == "1", str(st))
+    st, _ = call("DELETE", f"/items?id=eq.{org}", olive)
+    check("Goals: deleting a goal set deletes its goals and key results", st in (200, 204)
+          and oq(f"select count(*) from weft.goals where set_id = '{org}'") == "0" and oq(f"select count(*) from weft.key_results where id = '{okr}'") == "0", str(st))
+    call("DELETE", f"/items?id=eq.{fest}", olive)
+
+
 def announcements():
     pat, vic, olive = mint("u-pub"), mint("u-vol"), mint("u-org")
     P, O, A = uid("user", "u-pub"), uid("user", "u-org"), uid("user", "u-alex")
@@ -3071,6 +3230,7 @@ if __name__ == "__main__":
     checklists()
     expenses()
     inventory()
+    goals()
     announcements()
     meetings()
     rsvps()

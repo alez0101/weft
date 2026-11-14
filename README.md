@@ -1,7 +1,7 @@
 # Weft
 
 A small, self-hosted collaboration suite in one browser tab: chat, documents, a wiki, whiteboards,
-tables, task lists and boards, polls, forms, link lists, shared address books, decision logs, Q and A boards, reusable checklists, shared expenses with who owes whom, an inventory of shared things with check out and check in, meeting notes, announcements, bookings of shared things (rooms, vans), shift sign-ups, time off (who is away when), files and a calendar with RSVPs, opened as tabs from an iPad-like home screen, with a Teams-like chat rail and an
+tables, task lists and boards, polls, forms, link lists, shared address books, decision logs, Q and A boards, reusable checklists, shared expenses with who owes whom, an inventory of shared things with check out and check in, meeting notes, announcements, bookings of shared things (rooms, vans), shift sign-ups, time off (who is away when), goals with key results and progress, files and a calendar with RSVPs, opened as tabs from an iPad-like home screen, with a Teams-like chat rail and an
 AI assistant that answers only from what the person asking is allowed to see, with links to where
 each answer came from.
 
