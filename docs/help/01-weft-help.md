@@ -3,7 +3,7 @@ title: Weft help
 parent:
 summary: What Weft is and how to find your way around.
 ---
-Weft puts chat, documents, a wiki, whiteboards, tables, task lists, polls, forms, link lists and a calendar in one place, with an assistant that answers from what you can see.
+Weft puts chat, documents, a wiki, whiteboards, tables, task lists, polls, forms, link lists, announcements and a calendar in one place, with an assistant that answers from what you can see.
 
 ### Finding your way around
 
