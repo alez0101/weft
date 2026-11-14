@@ -40,6 +40,7 @@ const APPS = [
   { id: 'goals', label: 'Goals', tint: '--p-thu', real: true, glyph: <><circle cx="20" cy="20" r="13" /><circle cx="20" cy="20" r="8" /><circle cx="20" cy="20" r="3" /><path d="M20 20l11-11M27 9h4v4" /></> },
   { id: 'retros', label: 'Retros', tint: '--p-sun', real: true, glyph: <><rect x="6" y="8" width="28" height="25" rx="2" /><path d="M15.3 8v25M24.7 8v25" /><path d="M8.5 14.5l1.5 1.5 3-3M18 14h4M27 14.5h5M27 19h4" /><path d="M17 21.5a3 3 0 1 1 4.5 2.6" /></> },
   { id: 'glossary', label: 'Glossary', tint: '--p-wed', real: true, glyph: <><path d="M10 6h20a2 2 0 0 1 2 2v26H12a2 2 0 0 1-2-2z" /><path d="M10 30a2 2 0 0 1 2-2h20" /><path d="M15 21l3.5-10 3.5 10M16.2 17.5h4.6" /><path d="M25 13h3M25 17h3M25 21h3" /></> },
+  { id: 'ideas', label: 'Ideas', tint: '--p-fri', real: true, glyph: <><path d="M14 24.5a10 10 0 1 1 12 0c-1.3 1-2 2.3-2 3.8V29h-8v-.7c0-1.5-.7-2.8-2-3.8z" /><path d="M16.5 33h7M18 36.5h4M20 29v-7.5M17 18.5l3 3 3-3" /></> },
   { id: 'qa', label: 'Q and A', tint: '--p-tue', real: true, glyph: <><path d="M6 8h20v13H15l-5 4v-4H6z" /><path d="M14 12.5a2.5 2.5 0 1 1 3 2.4c-.7.2-1 .7-1 1.3M16 18.5v.5" /><path d="M29 15h5v13h-4v4l-5-4h-7v-3" /></> },
   { id: 'meetings', label: 'Meetings', tint: '--p-sat', real: true, glyph: <><rect x="9" y="8" width="22" height="26" rx="2" /><path d="M15 5.5h10v5H15zM14 17h12M14 22h12M14 27h6" /><path d="M23 27.5l1.8 1.8L28 26" /></> },
   { id: 'announcements', label: 'Announcements', tint: '--p-mon', real: true, glyph: <><path d="M7 17v7l17 7V10z" /><path d="M24 15h3a5 5 0 0 1 0 10h-3M11 25.5l2 7.5h4l-1.8-6" /></> },
@@ -61,7 +62,7 @@ const readHash = () => {
   return {
     tabs, active: active === 'home' || tabs.includes(active) ? active : 'home',
     convo: h.get('convo') || 'weft', rail: RAILS.includes(h.get('chat')) ? h.get('chat') : 'normal',
-    doc: h.get('doc') || null, page: h.get('page') || null, event: h.get('event') || null, board: h.get('board') || null, sheet: h.get('sheet') || null, list: h.get('list') || null, kanban: h.get('kanban') || null, poll: h.get('poll') || null, form: h.get('form') || null, links: h.get('links') || null, book: h.get('book') || null, log: h.get('log') || null, qa: h.get('qa') || null, checklist: h.get('checklist') || null, expenses: h.get('expenses') || null, inventory: h.get('inventory') || null, goals: h.get('goals') || null, retro: h.get('retro') || null, glossary: h.get('glossary') || null, meeting: h.get('meeting') || null, notices: h.get('notices') || null, booking: h.get('booking') || null, file: h.get('file') || null,
+    doc: h.get('doc') || null, page: h.get('page') || null, event: h.get('event') || null, board: h.get('board') || null, sheet: h.get('sheet') || null, list: h.get('list') || null, kanban: h.get('kanban') || null, poll: h.get('poll') || null, form: h.get('form') || null, links: h.get('links') || null, book: h.get('book') || null, log: h.get('log') || null, qa: h.get('qa') || null, checklist: h.get('checklist') || null, expenses: h.get('expenses') || null, inventory: h.get('inventory') || null, goals: h.get('goals') || null, retro: h.get('retro') || null, glossary: h.get('glossary') || null, ideas: h.get('ideas') || null, meeting: h.get('meeting') || null, notices: h.get('notices') || null, booking: h.get('booking') || null, file: h.get('file') || null,
   };
 };
 
@@ -262,6 +263,7 @@ export default function App() {
     if (ui.goals) h.set('goals', ui.goals);
     if (ui.retro) h.set('retro', ui.retro);
     if (ui.glossary) h.set('glossary', ui.glossary);
+    if (ui.ideas) h.set('ideas', ui.ideas);
     if (ui.meeting) h.set('meeting', ui.meeting);
     if (ui.notices) h.set('notices', ui.notices);
     if (ui.booking) h.set('booking', ui.booking);
@@ -302,7 +304,7 @@ export default function App() {
   const openNotices = (spaceId) => openTab('announcements', spaceId ? { notices: spaceId } : {});
   const openItem = async (id) => {
     const r = await api(`/items?id=eq.${id}&select=kind`).catch(() => []);
-    if (r[0]?.kind === 'wiki') openTab('wiki', { page: id }); else if (r[0]?.kind === 'whiteboard') openTab('whiteboard', { board: id }); else if (r[0]?.kind === 'table') openTab('sheets', { sheet: id }); else if (r[0]?.kind === 'tasklist') openTab('tasks', { list: id }); else if (r[0]?.kind === 'poll') openTab('polls', { poll: id }); else if (r[0]?.kind === 'form') openTab('forms', { form: id }); else if (r[0]?.kind === 'linklist') openTab('links', { links: id }); else if (r[0]?.kind === 'addressbook') openTab('contacts', { book: id }); else if (r[0]?.kind === 'decisionlog') openTab('decisions', { log: id }); else if (r[0]?.kind === 'qa') openTab('qa', { qa: id }); else if (r[0]?.kind === 'checklist') openTab('checklists', { checklist: id }); else if (r[0]?.kind === 'expenselist') openTab('expenses', { expenses: id }); else if (r[0]?.kind === 'inventory') openTab('inventory', { inventory: id }); else if (r[0]?.kind === 'goalset') openTab('goals', { goals: id }); else if (r[0]?.kind === 'retro') openTab('retros', { retro: id }); else if (r[0]?.kind === 'glossary') openTab('glossary', { glossary: id }); else if (r[0]?.kind === 'meeting') openTab('meetings', { meeting: id }); else if (r[0]?.kind === 'file') openTab('files', { file: id }); else openTab('documents', { doc: id });
+    if (r[0]?.kind === 'wiki') openTab('wiki', { page: id }); else if (r[0]?.kind === 'whiteboard') openTab('whiteboard', { board: id }); else if (r[0]?.kind === 'table') openTab('sheets', { sheet: id }); else if (r[0]?.kind === 'tasklist') openTab('tasks', { list: id }); else if (r[0]?.kind === 'poll') openTab('polls', { poll: id }); else if (r[0]?.kind === 'form') openTab('forms', { form: id }); else if (r[0]?.kind === 'linklist') openTab('links', { links: id }); else if (r[0]?.kind === 'addressbook') openTab('contacts', { book: id }); else if (r[0]?.kind === 'decisionlog') openTab('decisions', { log: id }); else if (r[0]?.kind === 'qa') openTab('qa', { qa: id }); else if (r[0]?.kind === 'checklist') openTab('checklists', { checklist: id }); else if (r[0]?.kind === 'expenselist') openTab('expenses', { expenses: id }); else if (r[0]?.kind === 'inventory') openTab('inventory', { inventory: id }); else if (r[0]?.kind === 'goalset') openTab('goals', { goals: id }); else if (r[0]?.kind === 'retro') openTab('retros', { retro: id }); else if (r[0]?.kind === 'glossary') openTab('glossary', { glossary: id }); else if (r[0]?.kind === 'ideaboard') openTab('ideas', { ideas: id }); else if (r[0]?.kind === 'meeting') openTab('meetings', { meeting: id }); else if (r[0]?.kind === 'file') openTab('files', { file: id }); else openTab('documents', { doc: id });
   };
   const closeTab = (id) => setUi((u) => {
     const i = u.tabs.indexOf(id); const tabs = u.tabs.filter((t) => t !== id);
@@ -391,6 +393,7 @@ export default function App() {
             : ui.active === 'retros' ? <Docs key="retros" kind="retro" me={me} members={members} notice={notice} onOpenItem={openItem} openId={ui.retro} setOpenId={(retro) => setUi((u) => ({ ...u, retro }))} />
             : ui.active === 'glossary' ? <Docs key="glossary" kind="glossary" me={me} members={members} notice={notice} openId={ui.glossary} setOpenId={(glossary) => setUi((u) => ({ ...u, glossary }))} />
             : ui.active === 'goals' ? <Docs key="goals" kind="goalset" me={me} members={members} notice={notice} openId={ui.goals} setOpenId={(goals) => setUi((u) => ({ ...u, goals }))} />
+            : ui.active === 'ideas' ? <Docs key="ideas" kind="ideaboard" me={me} members={members} notice={notice} openId={ui.ideas} setOpenId={(ideas) => setUi((u) => ({ ...u, ideas }))} />
             : ui.active === 'qa' ? <Docs key="qa" kind="qa" me={me} members={members} notice={notice} openId={ui.qa} setOpenId={(qa) => setUi((u) => ({ ...u, qa }))} />
             : ui.active === 'announcements' ? <Announcements me={me} spaces={spaces} members={members} notice={notice} openId={ui.notices} setOpenId={(notices) => setUi((u) => ({ ...u, notices }))} />
             : ui.active === 'files' ? <Docs key="files" kind="file" me={me} members={members} notice={notice} openId={ui.file} setOpenId={(file) => setUi((u) => ({ ...u, file }))} />

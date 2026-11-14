@@ -24,6 +24,7 @@ const WIDGETS = {
   links: 'New links',
   contacts: 'New contacts',
   glossary: 'New terms',
+  ideas: 'Top ideas',
   decisions: 'Recent decisions',
   questions: 'Open questions',
   checklists: 'Checklists in progress',
@@ -39,7 +40,7 @@ const WIDGETS = {
   ask: 'Ask Weft',
 };
 const DEFAULT = ['announcements', 'upcoming', 'yeses', 'bookings', 'shifts', 'away', 'tasks', 'polls', 'forms', 'unread', 'recent', 'ask'];
-const KIND = { document: 'Document', wiki: 'Wiki page', whiteboard: 'Whiteboard', table: 'Table', tasklist: 'Task list', poll: 'Poll', form: 'Form', linklist: 'Link list', addressbook: 'Address book', decisionlog: 'Decision log', qa: 'Q and A board', checklist: 'Checklist', expenselist: 'Expense list', inventory: 'Inventory', goalset: 'Goal set', retro: 'Retro', glossary: 'Glossary', meeting: 'Meeting', file: 'File' };
+const KIND = { document: 'Document', wiki: 'Wiki page', whiteboard: 'Whiteboard', table: 'Table', tasklist: 'Task list', poll: 'Poll', form: 'Form', linklist: 'Link list', addressbook: 'Address book', decisionlog: 'Decision log', qa: 'Q and A board', checklist: 'Checklist', expenselist: 'Expense list', inventory: 'Inventory', goalset: 'Goal set', retro: 'Retro', glossary: 'Glossary', ideaboard: 'Ideas board', meeting: 'Meeting', file: 'File' };
 const where = (s) => (s?.kind === 'channel' ? `#${s.name}` : s?.kind === 'personal' ? 'Personal' : s?.name || '');
 const when = (iso) => new Date(iso).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 const ago = (iso) => {
@@ -189,6 +190,14 @@ function RecentDecisions({ data, onOpenItem }) {
       <span className="widget-main">{d.title}</span><span className="widget-sub">{day(d.decided_on)}{d.decided_by ? `, ${d.decided_by}` : ''}, {d.log?.title} in {where(d.log?.space)}</span>
     </button></li>))}</ul>;
 }
+// Open ideas (new or planned) with the most votes, on boards the person can see. A row opens the board.
+function TopIdeas({ data, onOpenItem }) {
+  if (!data.length) return <p className="widget-empty">No open ideas. Suggest one in Ideas.</p>;
+  return <ul className="widget-list">{data.map((d) => (
+    <li key={d.id}><button type="button" className="widget-row" onClick={() => onOpenItem(d.board_id)}>
+      <span className="widget-main">{d.title}</span><span className="widget-sub">{d.votes.length} vote{d.votes.length === 1 ? '' : 's'}{d.status === 'planned' ? ', planned' : ''}, {d.board?.title} in {where(d.board?.space)}</span>
+    </button></li>))}</ul>;
+}
 // The newest terms in glossaries the person can see. A row opens the glossary.
 function NewTerms({ data, onOpenItem }) {
   if (!data.length) return <p className="widget-empty">No terms yet. Add them in Glossary.</p>;
@@ -289,7 +298,7 @@ function Ask({ assistantSpace, onAsked }) {
 export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpenEvent, onOpenNotices, onOpenBooking, onOpenShifts, onOpenProfiles, onOpenTimeOff, onOpenConvo }) {
   const [order, setOrder] = useState(null);
   const [editing, setEditing] = useState(false);
-  const [data, setData] = useState({ announcements: [], upcoming: [], yeses: [], bookings: [], shifts: [], away: [], tasks: [], polls: [], forms: [], links: [], contacts: [], glossary: [], decisions: [], questions: [], checklists: [], balances: [], holding: [], goals: [], retros: [], profile: [], meetings: [], recent: [], files: [] });
+  const [data, setData] = useState({ announcements: [], upcoming: [], yeses: [], bookings: [], shifts: [], away: [], tasks: [], polls: [], forms: [], links: [], contacts: [], glossary: [], ideas: [], decisions: [], questions: [], checklists: [], balances: [], holding: [], goals: [], retros: [], profile: [], meetings: [], recent: [], files: [] });
   const [error, setError] = useState('');
   const timer = useRef(null);
 
@@ -309,7 +318,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
     const now = new Date(); const soon = new Date(now.getTime() + 14 * 86400000);
     try {
       const week = new Date(Date.now() + 7 * 86400000); week.setMinutes(week.getMinutes() - week.getTimezoneOffset());
-      const [upcoming, recent, files, due, open, openForms, links, announcements, meetings, yeses, bookings, onShifts, contacts, profile, decisions, questions, checklists, owed, holding, away, goals, retroActions, glossary] = await Promise.all([
+      const [upcoming, recent, files, due, open, openForms, links, announcements, meetings, yeses, bookings, onShifts, contacts, profile, decisions, questions, checklists, owed, holding, away, goals, retroActions, glossary, openIdeas] = await Promise.all([
         api(`/events?ends_at=gte.${now.toISOString()}&starts_at=lte.${soon.toISOString()}&select=id,title,starts_at,location,space:spaces(name,kind)&order=starts_at&limit=5`),
         api('/items?select=id,title,kind,updated_at,space:spaces(name,kind)&order=updated_at.desc&limit=6'),
         api('/items?kind=eq.file&select=id,title,kind,updated_at,space:spaces(name,kind)&order=updated_at.desc&limit=5'),
@@ -333,6 +342,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
         api('/items?kind=eq.goalset&select=id,title,updated_at,space:spaces(name,kind),goals(krs:key_results(progress))&order=updated_at.desc&limit=5'),
         api(`/retro_notes?kind=eq.action&created_at=gte.${new Date(Date.now() - 60 * 86400000).toISOString()}&select=id,body,retro_id,task:tasks(done),retro:items(title,space:spaces(name,kind))&order=created_at.desc&limit=40`),
         api('/glossary_terms?select=id,term,glossary_id,created_at,glossary:items(title,space:spaces(name,kind))&order=created_at.desc&limit=5'),
+        api('/ideas?status=in.(new,planned)&select=id,title,status,board_id,created_at,votes:idea_votes(voter_id),board:items(title,space:spaces(name,kind))&order=created_at.desc&limit=100'),
       ]);
       const lists = owed.length ? await api(`/items?id=in.(${owed.map((b) => b.list_id).join(',')})&select=id,title,updated_at,space:spaces(name,kind)&order=updated_at.desc`) : [];
       const balances = lists.slice(0, 5).map((l) => ({ ...owed.find((b) => b.list_id === l.id), list: l }));
@@ -340,15 +350,16 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
       const tasks = [...due.filter((t) => t.assignee_id === me.id), ...due.filter((t) => t.assignee_id !== me.id)].slice(0, 6);
       const isClosed = (p) => (Array.isArray(p.state) ? p.state[0]?.closed : p.state?.closed);
       const polls = open.filter((p) => !isClosed(p) && !p.mine?.length).slice(0, 5);
+      const ideas = [...openIdeas].sort((a, b) => b.votes.length - a.votes.length || b.created_at.localeCompare(a.created_at)).slice(0, 5);
       const retros = retroActions.filter((n) => !n.task?.done).slice(0, 5);
       const forms = openForms.filter((f) => !isClosed(f) && !f.mine?.length).slice(0, 5);
-      setData({ announcements, upcoming, yeses, bookings, shifts, away, tasks, polls, forms, links, contacts, glossary, decisions, questions, checklists, balances, holding, goals, retros, profile, meetings, recent, files }); setError('');
+      setData({ announcements, upcoming, yeses, bookings, shifts, away, tasks, polls, forms, links, contacts, glossary, ideas, decisions, questions, checklists, balances, holding, goals, retros, profile, meetings, recent, files }); setError('');
     } catch (e) { setError(`Widgets could not load: ${e.message}`); }
   }, [me.id]);
   useEffect(() => { load(); }, [load]);
   // Live: refresh shortly after anything they show changes (several notices in a row refresh once).
   useEffect(() => {
-    if (!notice || !['events', 'items', 'members', 'tasks', 'polls', 'forms', 'links', 'contacts', 'glossary', 'decisions', 'qa', 'checklists', 'expenses', 'inventory', 'goals', 'retros', 'announcements', 'meetings', 'rsvps', 'bookings', 'resources', 'shifts', 'shift_signups', 'profiles', 'time_off'].includes(notice.t)) return;
+    if (!notice || !['events', 'items', 'members', 'tasks', 'polls', 'forms', 'links', 'contacts', 'glossary', 'ideas', 'decisions', 'qa', 'checklists', 'expenses', 'inventory', 'goals', 'retros', 'announcements', 'meetings', 'rsvps', 'bookings', 'resources', 'shifts', 'shift_signups', 'profiles', 'time_off'].includes(notice.t)) return;
     clearTimeout(timer.current); timer.current = setTimeout(load, 400);
   }, [notice, load]);
 
@@ -366,6 +377,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
     : k === 'links' ? <NewLinks data={data.links} onOpenItem={onOpenItem} />
     : k === 'contacts' ? <NewContacts data={data.contacts} onOpenItem={onOpenItem} />
     : k === 'glossary' ? <NewTerms data={data.glossary} onOpenItem={onOpenItem} />
+    : k === 'ideas' ? <TopIdeas data={data.ideas} onOpenItem={onOpenItem} />
     : k === 'decisions' ? <RecentDecisions data={data.decisions} onOpenItem={onOpenItem} />
     : k === 'questions' ? <OpenQuestions data={data.questions} onOpenItem={onOpenItem} />
     : k === 'checklists' ? <ChecklistsInProgress data={data.checklists} onOpenItem={onOpenItem} />

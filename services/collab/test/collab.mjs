@@ -180,6 +180,9 @@ check('Nor a retro (its text is its notes)', rs.failed && !rs.scope, `${rs.faile
 const [glossaryItem] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'glossary', title: 'Collab glossary' } })).rows;
 const gl = await open(olive.token, glossaryItem.id);
 check('Nor a glossary (its text is its terms)', gl.failed && !gl.scope, `${gl.failed} ${gl.scope}`); close(gl);
+const [ideasItem] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'ideaboard', title: 'Collab ideas' } })).rows;
+const ib = await open(olive.token, ideasItem.id);
+check('Nor an ideas board (its text is its ideas)', ib.failed && !ib.scope, `${ib.failed} ${ib.scope}`); close(ib);
 
 // ---------------- moving or deleting a document closes its sessions
 const [mv] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'document', title: 'Move test' } })).rows;

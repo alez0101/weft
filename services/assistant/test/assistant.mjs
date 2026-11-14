@@ -288,6 +288,22 @@ a6 = await askA(olive, await mine(olive), 'What is the headliner cap?');
 check('Glossary: Olive in her own conversation gets it (positive control)', (a6.calls[0]?.user || '').includes('GLOSS-ORG-SECRET-4410'), (a6.calls[0]?.user || '').slice(0, 300));
 await api(olive.token, `/items?id=in.(${festGl.id},${orgGl.id})`, { method: 'DELETE' });
 
+// ================================================================ ideas
+// An ideas board reaches the model as its text, labelled as an ideas board with each idea's status and
+// votes; an Organizers board never reaches it for Pat.
+const [festIb] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'ideaboard', title: 'Festival ideas' } })).rows;
+await api(olive.token, '/ideas', { method: 'POST', body: { board_id: festIb.id, title: 'Water refill point by the main stage' } });
+const [orgIb] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.organizers, kind: 'ideaboard', title: 'Organizer ideas' } })).rows;
+await api(olive.token, '/ideas', { method: 'POST', body: { board_id: orgIb.id, title: 'IDEA-ORG-SECRET-7731 raise ticket prices' } });
+a6 = await askA(pat, spaces.festival, '@Weft what ideas are there for water at the main stage?');
+check('Ideas: a #festival idea reaches the model for Pat in #festival, labelled as an ideas board with its status',
+  /\] ideas board \([^)]*\) "Festival ideas" in #festival: Ideas, 1 idea \/ Idea: Water refill point by the main stage \(new, 0 votes/.test(a6.calls[0]?.user || ''), (a6.calls[0]?.user || '').slice(0, 300));
+a6 = await askA(pat, await mine(pat), 'What ideas are there about ticket prices?');
+check('Ideas: an Organizers idea never reaches the model for Pat', !(a6.calls[0]?.user || '').includes('IDEA-ORG-SECRET'));
+a6 = await askA(olive, await mine(olive), 'What ideas are there about ticket prices?');
+check('Ideas: Olive in her own conversation gets it (positive control)', (a6.calls[0]?.user || '').includes('IDEA-ORG-SECRET-7731'), (a6.calls[0]?.user || '').slice(0, 300));
+await api(olive.token, `/items?id=in.(${festIb.id},${orgIb.id})`, { method: 'DELETE' });
+
 // ================================================================ personal keys
 const pk = (who, path = '', opts = {}) => assist(who.token, `/assistant/me/provider${path}`, opts);
 let pr = await pk(pat);
