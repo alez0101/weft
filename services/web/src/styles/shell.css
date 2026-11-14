@@ -474,3 +474,30 @@
 .kanban-tick { justify-self: start; margin-top: var(--space-2xs); }
 .kanban-empty { margin: 0; padding: var(--space-xs); color: var(--color-muted); font-size: var(--text-sm); text-align: center; }
 @media (prefers-reduced-motion: reduce) { .kanban-col, .kanban-card, .kanban-tools { transition: none; } }
+/* Meetings: a meeting's facts, its text sections and its action items (task rows). */
+.docs-meeting { max-width: 900px; margin: 0 auto var(--space-lg); padding-top: var(--space-sm); }
+.meeting { display: grid; gap: var(--space-md); }
+.meeting > .docs-hint { margin: 0; padding: 0; }
+.meeting-facts { display: grid; gap: var(--space-xs); padding: var(--space-sm); border-radius: var(--radius-card);
+  background: var(--color-paper); box-shadow: 0 0 0 1px var(--color-rule); border-left: 4px solid var(--p-sat); }
+.meeting-fact { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-xs); }
+.meeting-fact label { min-width: 8.5rem; font-size: var(--text-sm); color: var(--color-ink-2); }
+.meeting-fact input, .meeting-fact select, .meeting-text {
+  min-height: var(--ctl-h); padding: var(--space-2xs) var(--space-xs); min-width: 0; font: inherit; font-size: var(--text-sm);
+  border: 1px solid var(--color-muted); border-radius: var(--radius-input); background: var(--color-paper); color: var(--color-ink); }
+.meeting-fact select { flex: 0 1 26rem; }
+.meeting-fact input:focus-visible, .meeting-fact select:focus-visible, .meeting-text:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+.meeting-value { font-size: var(--text-sm); color: var(--color-ink); overflow-wrap: anywhere; }
+.meeting .meeting-hint { margin: 0; padding: 0; }
+.meeting-section { display: grid; gap: var(--space-xs); }
+.meeting-heading { margin: 0; font-size: var(--text-md); font-weight: 600; color: var(--color-ink); }
+.meeting-text { width: 100%; resize: vertical; line-height: 1.5; }
+.meeting-read { margin: 0; padding: var(--space-sm); border-radius: var(--radius-card); background: var(--color-paper); box-shadow: 0 0 0 1px var(--color-rule);
+  white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; color: var(--color-ink); }
+.task.meeting-action { grid-template-columns: auto minmax(0, 1fr) minmax(8rem, 12rem) 10rem auto; }
+.task.meeting-action:not(:has(.btn)) { grid-template-columns: auto minmax(0, 1fr) minmax(8rem, 12rem) 10rem; }
+.cal-notes { justify-self: start; }
+@media (max-width: 720px) {
+  .meeting-fact label { min-width: 0; flex-basis: 100%; }
+  .task.meeting-action, .task.meeting-action:not(:has(.btn)) { grid-template-columns: auto minmax(0, 1fr); }
+}

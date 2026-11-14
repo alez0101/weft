@@ -22,6 +22,7 @@ const APPS = [
   { id: 'polls', label: 'Polls', tint: '--p-thu', real: true, glyph: <><path d="M8 33h24" /><rect x="10" y="19" width="5" height="14" rx="1" /><rect x="17.5" y="11" width="5" height="22" rx="1" /><rect x="25" y="15" width="5" height="18" rx="1" /><path d="M17 6.5l2.5 2.5L24 4.5" /></> },
   { id: 'forms', label: 'Forms', tint: '--p-wed', real: true, glyph: <><rect x="8" y="6" width="24" height="28" rx="2" /><path d="M13 13h14M13 18h14" /><rect x="13" y="23" width="4" height="4" rx="1" /><path d="M20 25h7M13 31h9" /></> },
   { id: 'links', label: 'Links', tint: '--p-fri', real: true, glyph: <><path d="M17.5 22.5a6 6 0 0 0 8.5 0l5-5a6 6 0 0 0-8.5-8.5l-2.5 2.5" /><path d="M22.5 17.5a6 6 0 0 0-8.5 0l-5 5a6 6 0 0 0 8.5 8.5l2.5-2.5" /></> },
+  { id: 'meetings', label: 'Meetings', tint: '--p-sat', real: true, glyph: <><rect x="9" y="8" width="22" height="26" rx="2" /><path d="M15 5.5h10v5H15zM14 17h12M14 22h12M14 27h6" /><path d="M23 27.5l1.8 1.8L28 26" /></> },
   { id: 'announcements', label: 'Announcements', tint: '--p-mon', real: true, glyph: <><path d="M7 17v7l17 7V10z" /><path d="M24 15h3a5 5 0 0 1 0 10h-3M11 25.5l2 7.5h4l-1.8-6" /></> },
   { id: 'files', label: 'Files', tint: '--p-sat', real: true, glyph: <path d="M6 12h10l3 3h15v17H6z" /> },
   { id: 'settings', label: 'Settings', tint: '--p-fri', admin: true, glyph: <><circle cx="20" cy="20" r="5" /><path d="M20 7v5M20 28v5M7 20h5M28 20h5M10.8 10.8l3.5 3.5M25.7 25.7l3.5 3.5M10.8 29.2l3.5-3.5M25.7 14.3l3.5-3.5" /></> },
@@ -41,7 +42,7 @@ const readHash = () => {
   return {
     tabs, active: active === 'home' || tabs.includes(active) ? active : 'home',
     convo: h.get('convo') || 'weft', rail: RAILS.includes(h.get('chat')) ? h.get('chat') : 'normal',
-    doc: h.get('doc') || null, page: h.get('page') || null, event: h.get('event') || null, board: h.get('board') || null, sheet: h.get('sheet') || null, list: h.get('list') || null, kanban: h.get('kanban') || null, poll: h.get('poll') || null, form: h.get('form') || null, links: h.get('links') || null, notices: h.get('notices') || null, file: h.get('file') || null,
+    doc: h.get('doc') || null, page: h.get('page') || null, event: h.get('event') || null, board: h.get('board') || null, sheet: h.get('sheet') || null, list: h.get('list') || null, kanban: h.get('kanban') || null, poll: h.get('poll') || null, form: h.get('form') || null, links: h.get('links') || null, meeting: h.get('meeting') || null, notices: h.get('notices') || null, file: h.get('file') || null,
   };
 };
 
@@ -233,6 +234,7 @@ export default function App() {
     if (ui.poll) h.set('poll', ui.poll);
     if (ui.form) h.set('form', ui.form);
     if (ui.links) h.set('links', ui.links);
+    if (ui.meeting) h.set('meeting', ui.meeting);
     if (ui.notices) h.set('notices', ui.notices);
     if (ui.file) h.set('file', ui.file);
     history.replaceState(null, '', `#${h}`);
@@ -270,7 +272,7 @@ export default function App() {
   const openNotices = (spaceId) => openTab('announcements', spaceId ? { notices: spaceId } : {});
   const openItem = async (id) => {
     const r = await api(`/items?id=eq.${id}&select=kind`).catch(() => []);
-    if (r[0]?.kind === 'wiki') openTab('wiki', { page: id }); else if (r[0]?.kind === 'whiteboard') openTab('whiteboard', { board: id }); else if (r[0]?.kind === 'table') openTab('sheets', { sheet: id }); else if (r[0]?.kind === 'tasklist') openTab('tasks', { list: id }); else if (r[0]?.kind === 'poll') openTab('polls', { poll: id }); else if (r[0]?.kind === 'form') openTab('forms', { form: id }); else if (r[0]?.kind === 'linklist') openTab('links', { links: id }); else if (r[0]?.kind === 'file') openTab('files', { file: id }); else openTab('documents', { doc: id });
+    if (r[0]?.kind === 'wiki') openTab('wiki', { page: id }); else if (r[0]?.kind === 'whiteboard') openTab('whiteboard', { board: id }); else if (r[0]?.kind === 'table') openTab('sheets', { sheet: id }); else if (r[0]?.kind === 'tasklist') openTab('tasks', { list: id }); else if (r[0]?.kind === 'poll') openTab('polls', { poll: id }); else if (r[0]?.kind === 'form') openTab('forms', { form: id }); else if (r[0]?.kind === 'linklist') openTab('links', { links: id }); else if (r[0]?.kind === 'meeting') openTab('meetings', { meeting: id }); else if (r[0]?.kind === 'file') openTab('files', { file: id }); else openTab('documents', { doc: id });
   };
   const closeTab = (id) => setUi((u) => {
     const i = u.tabs.indexOf(id); const tabs = u.tabs.filter((t) => t !== id);
@@ -349,6 +351,7 @@ export default function App() {
             : ui.active === 'boards' ? <Docs key="boards" kind="tasklist" view="board" me={me} members={members} notice={notice} openId={ui.kanban} setOpenId={(kanban) => setUi((u) => ({ ...u, kanban }))} onSwitch={(list) => openTab('tasks', { list })} />
             : ui.active === 'polls' ? <Docs key="polls" kind="poll" me={me} members={members} notice={notice} openId={ui.poll} setOpenId={(poll) => setUi((u) => ({ ...u, poll }))} />
             : ui.active === 'forms' ? <Docs key="forms" kind="form" me={me} members={members} notice={notice} openId={ui.form} setOpenId={(form) => setUi((u) => ({ ...u, form }))} />
+            : ui.active === 'meetings' ? <Docs key="meetings" kind="meeting" me={me} members={members} notice={notice} onOpenEvent={openEvent} onOpenItem={openItem} openId={ui.meeting} setOpenId={(meeting) => setUi((u) => ({ ...u, meeting }))} />
             : ui.active === 'links' ? <Docs key="links" kind="linklist" me={me} members={members} notice={notice} openId={ui.links} setOpenId={(links) => setUi((u) => ({ ...u, links }))} />
             : ui.active === 'announcements' ? <Announcements me={me} spaces={spaces} members={members} notice={notice} openId={ui.notices} setOpenId={(notices) => setUi((u) => ({ ...u, notices }))} />
             : ui.active === 'files' ? <Docs key="files" kind="file" me={me} members={members} notice={notice} openId={ui.file} setOpenId={(file) => setUi((u) => ({ ...u, file }))} />

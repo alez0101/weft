@@ -34,6 +34,7 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
   const [open, setOpen] = useState(null);     // event row
   const [note, setNote] = useState('');
   const [initial, setInitial] = useState(null);
+  const [notes, setNotes] = useState([]);    // meetings linked to the open event
 
   useEffect(() => {
     api('/spaces?kind=in.(channel,personal)&select=id,kind,name&order=kind.desc,name').then(setSpaces).catch((e) => setError(e.message));
@@ -107,6 +108,18 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
     if (!open || !window.confirm(`Delete "${open.title}"? Everyone in ${label(spaces.find((s) => s.id === open.space_id))} will lose it.`)) return;
     try { await api(`/events?id=eq.${open.id}`, { method: 'DELETE', prefer: 'return=minimal' }); setOpen(null); load(); } catch (err) { setError(`Could not delete: ${err.message}`); }
   }
+  // Meeting notes linked to the open event (only those the person can see), and starting new ones from it.
+  useEffect(() => {
+    if (!open) { setNotes([]); return; }
+    api(`/meetings?event_id=eq.${open.id}&select=id,item:items!meetings_id_fkey(title)`).then(setNotes).catch(() => setNotes([]));
+  }, [open, notice]);
+  async function startNotes() {
+    try {
+      const [row] = await api('/items', { method: 'POST', body: { space_id: open.space_id, kind: 'meeting', title: open.title }, prefer: 'return=representation' });
+      await api(`/meetings?id=eq.${row.id}`, { method: 'PATCH', body: { event_id: open.id, held_at: open.starts_at }, prefer: 'return=minimal' });
+      onOpenItem(row.id);
+    } catch (err) { setError(`Could not start meeting notes: ${err.message}`); }
+  }
   async function share(channelId) {
     try {
       await api('/messages', { method: 'POST', body: { space_id: channelId, body: `Shared an event, "${open.title}": weft://event/${open.id}` }, prefer: 'return=minimal' });
@@ -155,6 +168,8 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
             <p className="cal-when">{when(open.starts_at, open.ends_at)}</p>
             {open.location && <p>{open.location}</p>}
             <p className="docs-meta"><span>{label(spaces.find((s) => s.id === open.space_id))}</span>{!canEdit(open.space_id) && <span className="docs-status">View only</span>}</p>
+            {notes.map((n) => <button key={n.id} type="button" className="btn btn--sm cal-notes" onClick={() => onOpenItem(n.id)}>Meeting notes: {n.item?.title}</button>)}
+            {!notes.length && canEdit(open.space_id) && <button type="button" className="btn btn--sm cal-notes" onClick={startNotes}>Start meeting notes</button>}
             <span className="pair">
               <label className="visually-hidden" htmlFor="ev-share">Share to channel</label>
               <select id="ev-share" defaultValue="" onChange={(e) => { if (e.target.value) share(e.target.value); e.target.value = ''; }}>
