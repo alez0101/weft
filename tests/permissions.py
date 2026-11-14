@@ -2319,6 +2319,133 @@ def journal():
         oq(f"delete from weft.journal_entries where id = '{i}'")
 
 
+def timeline():
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, V, O, A = uid("user", "u-pub"), uid("user", "u-vol"), uid("user", "u-org"), uid("user", "u-alex")
+    oq = lambda sql: owner_sql(sql)
+    st, rows = call("POST", "/milestones", olive, {"space_id": SID["organizers"], "title": "  MILESTONE-ORG-SECRET budget sign-off \n", "day": "2027-02-01", "note": " board meets "})
+    org = rows[0]["id"] if st == 201 else None
+    check("Timeline: Olive (editor) adds a milestone in Organizers (positive control), created_by set by the database, text trimmed",
+          org and rows[0]["created_by"] == O and rows[0]["title"] == "MILESTONE-ORG-SECRET budget sign-off" and rows[0]["note"] == "board meets", f"{st} {rows}")
+    st, rows = call("POST", "/milestones", olive, {"space_id": SID["festival"], "title": "Gates open", "day": "2027-06-12"})
+    fest = rows[0]["id"] if st == 201 else None
+    check("Timeline: Olive adds a milestone in #festival, with no note (positive control)", fest is not None and rows[0]["note"] == "", f"{st} {rows}")
+    # Reading follows membership.
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = call("GET", f"/milestones?space_id=eq.{SID['organizers']}&select=id", tok)
+        st2, rows2 = call("GET", "/milestones?title=like.*MILESTONE-ORG*&select=id", tok)
+        check(f"Timeline: {who} gets no Organizers milestones, by space or by text", st == 200 and rows == [] and st2 == 200 and rows2 == [], f"{rows} {rows2}")
+    st, rows = call("GET", f"/milestones?id=eq.{fest}&select=id,title,day,by:users!milestones_created_by_fkey(display_name)", pat)
+    check("Timeline: Pat (viewer) reads the #festival timeline, with who added it (positive control)",
+          st == 200 and len(rows) == 1 and rows[0]["day"] == "2027-06-12" and rows[0]["by"]["display_name"], str(rows))
+    # Viewers read only.
+    st, _ = call("POST", "/milestones", pat, {"space_id": SID["festival"], "title": "pwned", "day": "2027-01-01"})
+    st2, _ = call("POST", "/milestones", vic, {"space_id": SID["festival"], "title": "pwned", "day": "2027-01-01"})
+    check("Timeline: Pat and Vic (viewers in #festival) cannot add milestones there", refused(st) and refused(st2), f"{st} {st2}")
+    st, rows = call("PATCH", f"/milestones?id=eq.{fest}", pat, {"day": "2020-01-01"})
+    st2, rows2 = call("DELETE", f"/milestones?id=eq.{fest}", pat)
+    check("Timeline: Pat cannot move or delete a #festival milestone", rows == [] and rows2 == []
+          and oq(f"select day::text || title from weft.milestones where id = '{fest}'") == "2027-06-12Gates open", f"{st} {st2}")
+    st, _ = call("POST", "/milestones", pat, {"space_id": SID["organizers"], "title": "pwned", "day": "2027-01-01"})
+    st2, _ = call("POST", "/milestones", vic, {"space_id": SID["organizers"], "title": "pwned", "day": "2027-01-01"})
+    check("Timeline: Pat and Vic cannot add milestones in Organizers", refused(st) and refused(st2), f"{st} {st2}")
+    st, rows = call("PATCH", f"/milestones?id=eq.{org}", vic, {"title": "pwned"})
+    st2, rows2 = call("DELETE", f"/milestones?space_id=eq.{SID['organizers']}", vic)
+    check("Timeline: Vic changes and deletes nothing in Organizers", rows == [] and rows2 == []
+          and oq(f"select count(*) from weft.milestones where space_id = '{SID['organizers']}'") == "1", f"{st} {st2}")
+    # An outsider learns nothing from the guard's answer.
+    st, body = call("POST", "/milestones", pat, {"space_id": SID["dm-alex-olive"], "title": "probe", "day": "2027-01-01"})
+    check("Timeline: an outsider's attempt gets the plain refusal, not the guard's reason", refused(st) and "channel" not in json.dumps(body), f"{st} {body}")
+    # Editors and owners change and delete any milestone in the channel, not only their own.
+    st, rows = call("POST", "/milestones", alex, {"space_id": SID["festival"], "title": "Stage build", "day": "2027-06-10"})
+    am = rows[0]["id"] if st == 201 else None
+    st, rows = call("PATCH", f"/milestones?id=eq.{am}", olive, {"day": "2027-06-09", "note": " a day earlier "})
+    check("Timeline: Olive (editor) moves Alex's milestone to another date (positive control); author and times kept",
+          st == 200 and rows and rows[0]["day"] == "2027-06-09" and rows[0]["note"] == "a day earlier" and rows[0]["created_by"] == A
+          and rows[0]["updated_at"] > rows[0]["created_at"], f"{st} {rows}")
+    st, rows = call("PATCH", f"/milestones?id=eq.{fest}", alex, {"title": "Gates open at ten"})
+    check("Timeline: Alex (owner) renames Olive's milestone (positive control)", st == 200 and rows and rows[0]["title"] == "Gates open at ten", f"{st} {rows}")
+    st, rows = call("DELETE", f"/milestones?id=eq.{am}", olive)
+    check("Timeline: Olive (editor) deletes Alex's milestone (positive control)", st == 200 and len(rows or []) == 1
+          and oq(f"select count(*) from weft.milestones where id = '{am}'") == "0", f"{st} {rows}")
+    # What a milestone may be.
+    for key in ("personal-u-org", "dm-alex-olive", "assistant-u-org"):
+        st, body = call("POST", "/milestones", olive, {"space_id": SID[key], "title": "not a channel", "day": "2027-01-01"})
+        check(f"Timeline: only channels have a timeline ({key.split('-')[0]} refused)", st == 400 and "channel" in json.dumps(body), f"{st} {body}")
+    st, _ = call("POST", "/milestones", olive, {"space_id": SID["festival"], "title": "   ", "day": "2027-01-01"})
+    st2, _ = call("POST", "/milestones", olive, {"space_id": SID["festival"], "title": "x" * 121, "day": "2027-01-01"})
+    st3, _ = call("POST", "/milestones", olive, {"space_id": SID["festival"], "title": "long note", "day": "2027-01-01", "note": "x" * 301})
+    st4, _ = call("PATCH", f"/milestones?id=eq.{fest}", olive, {"title": ""})
+    check("Timeline: an empty or over-long title or note is refused, also when changing", st == 400 and st2 == 400 and st3 == 400 and st4 == 400, f"{st} {st2} {st3} {st4}")
+    st, _ = call("POST", "/milestones", olive, {"space_id": SID["festival"], "title": "no date"})
+    st2, _ = call("POST", "/milestones", olive, {"space_id": SID["festival"], "title": "far", "day": "2999-01-01"})
+    st3, _ = call("PATCH", f"/milestones?id=eq.{fest}", olive, {"day": "1900-01-01"})
+    check("Timeline: a milestone needs a date between 2000 and 2100", st == 400 and st2 == 400 and st3 == 400
+          and oq(f"select day from weft.milestones where id = '{fest}'") == "2027-06-12", f"{st} {st2} {st3}")
+    # Authorship, times and channel are fixed.
+    st, _ = call("POST", "/milestones", olive, {"space_id": SID["festival"], "title": "forged", "day": "2027-01-01", "created_by": A})
+    check("Timeline: authorship cannot be forged", refused(st), str(st))
+    st, _ = call("PATCH", f"/milestones?id=eq.{fest}", olive, {"created_by": A})
+    st2, _ = call("PATCH", f"/milestones?id=eq.{fest}", olive, {"created_at": "2020-01-01T00:00:00Z"})
+    check("Timeline: nor changed afterwards, nor the time it was added", refused(st) and refused(st2)
+          and oq(f"select created_by from weft.milestones where id = '{fest}'") == O, f"{st} {st2}")
+    st, _ = call("PATCH", f"/milestones?id=eq.{fest}", olive, {"space_id": SID["organizers"]})
+    check("Timeline: a milestone cannot be moved to another channel", refused(st)
+          and oq(f"select space_id from weft.milestones where id = '{fest}'") == SID["festival"], str(st))
+    # Channel scope and the assistant.
+    scoped = mint("u-org", scope="festival")
+    st, rows = call("GET", f"/milestones?id=in.({org},{fest})&select=space_id", scoped)
+    check("Timeline: a #festival-scoped token sees only #festival milestones", st == 200 and rows and {r["space_id"] for r in rows} == {SID["festival"]}, str(rows))
+    st, _ = call("POST", "/milestones", scoped, {"space_id": SID["organizers"], "title": "scoped", "day": "2027-01-01"})
+    st2, rows2 = call("PATCH", f"/milestones?id=eq.{org}", scoped, {"title": "scoped"})
+    st3, rows3 = call("DELETE", f"/milestones?id=eq.{org}", scoped)
+    check("Timeline: nor adds, changes or deletes milestones in Organizers", refused(st) and rows2 == [] and rows3 == [], f"{st} {st2} {rows2} {st3}")
+    helper = mint("u-org", assistant=True)
+    st, rows = call("GET", f"/milestones?id=eq.{org}&select=id", helper)
+    check("Timeline: the assistant (for Olive) reads Organizers milestones (positive control)", st == 200 and len(rows) == 1, str(rows))
+    st, _ = call("DELETE", f"/milestones?id=eq.{org}", helper)
+    st2, _ = call("PATCH", f"/milestones?id=eq.{org}", helper, {"title": "by the assistant"})
+    st3, _ = call("POST", "/milestones", helper, {"space_id": SID["organizers"], "title": "by the assistant", "day": "2027-01-01"})
+    check("Timeline: the assistant cannot delete, change or add milestones", refused(st) and refused(st2) and refused(st3)
+          and oq(f"select title from weft.milestones where id = '{org}'") == "MILESTONE-ORG-SECRET budget sign-off", f"{st} {st2} {st3}")
+    st, rows = call("GET", f"/milestones?id=eq.{org}&select=id", mint("u-pub", assistant=True))
+    check("Timeline: the assistant for Pat reads no Organizers milestones", st == 200 and rows == [], str(rows))
+    # Audit.
+    st, rows = call("GET", f"/audit?row_id=eq.{fest}&select=op", vic)
+    check("Timeline: #festival changes are in the audit log, readable by its members, Vic included (positive control)", len(rows or []) >= 1, str(rows))
+    call("PATCH", f"/milestones?id=eq.{org}", olive, {"title": "MILESTONE-ORG-SECRET budget sign-off, moved"})
+    st, rows = call("GET", f"/audit?row_id=eq.{org}&select=op", olive)
+    st2, rows2 = call("GET", f"/audit?row_id=eq.{org}&select=op", pat)
+    check("Timeline: an Organizers change is in the audit log for Organizers members only", len(rows or []) >= 1 and rows2 == [], f"{rows} {rows2}")
+    # Milestones follow the channel: membership and role decide, and deleting the channel deletes them.
+    st, ch = call("POST", "/rpc/create_channel", olive, {"p_name": "timeline test"})
+    call("POST", "/members", olive, {"space_id": ch, "user_id": V, "role": "editor"}, prefer="return=minimal")
+    st, rows = call("POST", "/milestones", olive, {"space_id": ch, "title": "Kick-off", "day": "2027-03-01"})
+    cn = rows[0]["id"] if st == 201 else None
+    st, rows = call("GET", f"/milestones?id=eq.{cn}&select=id", pat)
+    check("Timeline: Pat cannot read milestones in a channel she is not in", cn and st == 200 and rows == [], f"{st} {rows}")
+    call("POST", "/members", olive, {"space_id": ch, "user_id": P, "role": "viewer"}, prefer="return=minimal")
+    st, rows = call("GET", f"/milestones?id=eq.{cn}&select=id", pat)
+    st2, _ = call("POST", "/milestones", pat, {"space_id": ch, "title": "x", "day": "2027-01-01"})
+    check("Timeline: added as a viewer, she reads them (positive control) and still cannot add one", len(rows or []) == 1 and refused(st2), f"{rows} {st2}")
+    st, rows = call("POST", "/milestones", vic, {"space_id": ch, "title": "Wrap-up", "day": "2027-04-01"})
+    vm = rows[0]["id"] if st == 201 else None
+    check("Timeline: Vic (editor there) adds a milestone (positive control)", vm is not None, f"{st} {rows}")
+    call("PATCH", f"/members?space_id=eq.{ch}&user_id=eq.{V}", olive, {"role": "viewer"})
+    st, rows = call("PATCH", f"/milestones?id=eq.{vm}", vic, {"title": "changed"})
+    st2, rows2 = call("DELETE", f"/milestones?id=eq.{vm}", vic)
+    check("Timeline: made a viewer, Vic can no longer change or delete even his own milestone", rows == [] and rows2 == []
+          and oq(f"select title from weft.milestones where id = '{vm}'") == "Wrap-up", f"{st} {st2}")
+    call("DELETE", f"/members?space_id=eq.{ch}&user_id=eq.{P}", olive)
+    st, rows = call("GET", f"/milestones?id=eq.{cn}&select=id", pat)
+    check("Timeline: removed from the channel, she reads them no more", st == 200 and rows == [], str(rows))
+    st, _ = call("DELETE", f"/spaces?id=eq.{ch}", olive)
+    check("Timeline: deleting the channel deletes its milestones", st in (200, 204) and oq(f"select count(*) from weft.milestones where space_id = '{ch}'") == "0", str(st))
+    st, _ = call("DELETE", f"/milestones?id=eq.{org}", olive)
+    check("Timeline: Olive deletes an Organizers milestone (positive control)", st in (200, 204) and oq(f"select count(*) from weft.milestones where id = '{org}'") == "0", str(st))
+    call("DELETE", f"/milestones?id=eq.{fest}", olive)
+
+
 # ---------------------------------------------------------------- polls
 def polls():
     pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
@@ -4000,6 +4127,7 @@ if __name__ == "__main__":
     goals()
     announcements()
     kudos()
+    timeline()
     journal()
     meetings()
     rsvps()
