@@ -18,6 +18,7 @@ const APPS = [
   { id: 'sheets', label: 'Sheets', tint: '--p-tue', real: true, glyph: <><rect x="7" y="8" width="26" height="24" rx="2" /><path d="M7 16h26M7 24h26M16 8v24M25 8v24" /></> },
   { id: 'calendar', label: 'Calendar', tint: '--p-mon', real: true, glyph: <><rect x="7" y="9" width="26" height="24" rx="2" /><path d="M7 16h26M14 6v6M26 6v6M13 22h4M19 22h4M25 22h2M13 27h4" /></> },
   { id: 'tasks', label: 'Tasks', tint: '--p-sun', real: true, glyph: <><rect x="8" y="7" width="24" height="27" rx="2" /><path d="M13 15l2.5 2.5L20 13M23 15.5h4M13 23l2.5 2.5L20 21M23 23.5h4M14 30h12" /></> },
+  { id: 'boards', label: 'Boards', tint: '--p-tue', real: true, glyph: <><rect x="6" y="8" width="28" height="25" rx="2" /><path d="M15.3 8v25M24.7 8v25" /><rect x="8.6" y="11.5" width="4.2" height="4" rx="1" /><rect x="8.6" y="18" width="4.2" height="4" rx="1" /><rect x="17.9" y="11.5" width="4.2" height="4" rx="1" /><rect x="27.2" y="11.5" width="4.2" height="4" rx="1" /><rect x="27.2" y="18" width="4.2" height="4" rx="1" /><rect x="27.2" y="24.5" width="4.2" height="4" rx="1" /></> },
   { id: 'polls', label: 'Polls', tint: '--p-thu', real: true, glyph: <><path d="M8 33h24" /><rect x="10" y="19" width="5" height="14" rx="1" /><rect x="17.5" y="11" width="5" height="22" rx="1" /><rect x="25" y="15" width="5" height="18" rx="1" /><path d="M17 6.5l2.5 2.5L24 4.5" /></> },
   { id: 'forms', label: 'Forms', tint: '--p-wed', real: true, glyph: <><rect x="8" y="6" width="24" height="28" rx="2" /><path d="M13 13h14M13 18h14" /><rect x="13" y="23" width="4" height="4" rx="1" /><path d="M20 25h7M13 31h9" /></> },
   { id: 'links', label: 'Links', tint: '--p-fri', real: true, glyph: <><path d="M17.5 22.5a6 6 0 0 0 8.5 0l5-5a6 6 0 0 0-8.5-8.5l-2.5 2.5" /><path d="M22.5 17.5a6 6 0 0 0-8.5 0l-5 5a6 6 0 0 0 8.5 8.5l2.5-2.5" /></> },
@@ -40,7 +41,7 @@ const readHash = () => {
   return {
     tabs, active: active === 'home' || tabs.includes(active) ? active : 'home',
     convo: h.get('convo') || 'weft', rail: RAILS.includes(h.get('chat')) ? h.get('chat') : 'normal',
-    doc: h.get('doc') || null, page: h.get('page') || null, event: h.get('event') || null, board: h.get('board') || null, sheet: h.get('sheet') || null, list: h.get('list') || null, poll: h.get('poll') || null, form: h.get('form') || null, links: h.get('links') || null, notices: h.get('notices') || null, file: h.get('file') || null,
+    doc: h.get('doc') || null, page: h.get('page') || null, event: h.get('event') || null, board: h.get('board') || null, sheet: h.get('sheet') || null, list: h.get('list') || null, kanban: h.get('kanban') || null, poll: h.get('poll') || null, form: h.get('form') || null, links: h.get('links') || null, notices: h.get('notices') || null, file: h.get('file') || null,
   };
 };
 
@@ -228,6 +229,7 @@ export default function App() {
     if (ui.board) h.set('board', ui.board);
     if (ui.sheet) h.set('sheet', ui.sheet);
     if (ui.list) h.set('list', ui.list);
+    if (ui.kanban) h.set('kanban', ui.kanban);
     if (ui.poll) h.set('poll', ui.poll);
     if (ui.form) h.set('form', ui.form);
     if (ui.links) h.set('links', ui.links);
@@ -343,7 +345,8 @@ export default function App() {
             : ui.active === 'wiki' ? <Docs key="wiki" kind="wiki" me={me} members={members} notice={notice} openId={ui.page} setOpenId={(page) => setUi((u) => ({ ...u, page }))} />
             : ui.active === 'whiteboard' ? <Docs key="whiteboard" kind="whiteboard" me={me} members={members} notice={notice} openId={ui.board} setOpenId={(board) => setUi((u) => ({ ...u, board }))} />
             : ui.active === 'sheets' ? <Docs key="sheets" kind="table" me={me} members={members} notice={notice} openId={ui.sheet} setOpenId={(sheet) => setUi((u) => ({ ...u, sheet }))} />
-            : ui.active === 'tasks' ? <Docs key="tasks" kind="tasklist" me={me} members={members} notice={notice} openId={ui.list} setOpenId={(list) => setUi((u) => ({ ...u, list }))} />
+            : ui.active === 'tasks' ? <Docs key="tasks" kind="tasklist" me={me} members={members} notice={notice} openId={ui.list} setOpenId={(list) => setUi((u) => ({ ...u, list }))} onSwitch={(kanban) => openTab('boards', { kanban })} />
+            : ui.active === 'boards' ? <Docs key="boards" kind="tasklist" view="board" me={me} members={members} notice={notice} openId={ui.kanban} setOpenId={(kanban) => setUi((u) => ({ ...u, kanban }))} onSwitch={(list) => openTab('tasks', { list })} />
             : ui.active === 'polls' ? <Docs key="polls" kind="poll" me={me} members={members} notice={notice} openId={ui.poll} setOpenId={(poll) => setUi((u) => ({ ...u, poll }))} />
             : ui.active === 'forms' ? <Docs key="forms" kind="form" me={me} members={members} notice={notice} openId={ui.form} setOpenId={(form) => setUi((u) => ({ ...u, form }))} />
             : ui.active === 'links' ? <Docs key="links" kind="linklist" me={me} members={members} notice={notice} openId={ui.links} setOpenId={(links) => setUi((u) => ({ ...u, links }))} />

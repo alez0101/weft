@@ -14,6 +14,7 @@ import { useEffectiveMode } from './mode.js';
 import Board from './Board.jsx';
 import Table from './Table.jsx';
 import TaskList from './TaskList.jsx';
+import Kanban from './Kanban.jsx';
 import Poll from './Poll.jsx';
 import LinkList from './LinkList.jsx';
 import Form from './Form.jsx';
@@ -67,7 +68,7 @@ function SyncedEditor({ state, me, editable }) {
   return <BlockNoteView editor={editor} editable={editable} theme={appearance} />;
 }
 
-export default function Docs({ kind, me, members, openId, setOpenId, notice }) {
+export default function Docs({ kind, view, me, members, openId, setOpenId, notice, onSwitch }) {
   const [spaces, setSpaces] = useState([]);
   const [items, setItems] = useState(null);
   const [error, setError] = useState('');
@@ -217,6 +218,7 @@ export default function Docs({ kind, me, members, openId, setOpenId, notice }) {
                   {channels.map((c) => <option key={c.id} value={c.id}>#{c.name}</option>)}
                 </select>
                 <button className="btn btn--sm" onClick={share} disabled={!shareTo}>Share</button>
+                {onSwitch && <button className="btn btn--sm" type="button" onClick={() => onSwitch(current.id)}>{view === 'board' ? 'See as a list' : 'See as a board'}</button>}
                 {canEditIn(current.space_id) && !current.managed && (<>
                   <label className="visually-hidden" htmlFor={`move-${kind}`}>Move to space</label>
                   <select id={`move-${kind}`} value="" onChange={(e) => { if (e.target.value) moveTo(e.target.value); }}>
@@ -236,6 +238,8 @@ export default function Docs({ kind, me, members, openId, setOpenId, notice }) {
               ? <div className="docs-links"><LinkList key={current.id} item={current} editable={canEditIn(current.space_id)} notice={notice} /></div>
               : kind === 'poll'
               ? <div className="docs-poll"><Poll key={current.id} item={current} me={me} members={members} editable={canEditIn(current.space_id)} notice={notice} /></div>
+              : kind === 'tasklist' && view === 'board'
+              ? <div className="docs-kanban"><Kanban key={current.id} item={current} me={me} members={members} editable={canEditIn(current.space_id)} notice={notice} /></div>
               : kind === 'tasklist'
               ? <div className="docs-tasks"><TaskList key={current.id} item={current} me={me} members={members} editable={canEditIn(current.space_id)} notice={notice} /></div>
               : kind === 'table'
@@ -247,7 +251,7 @@ export default function Docs({ kind, me, members, openId, setOpenId, notice }) {
         ) : missing ? (
           <div className="empty"><h2>You don't have access to this {noun}</h2><p>It belongs to a space you're not in, or it was deleted. Ask someone in that space to add you.</p></div>
         ) : (
-          <div className="empty"><h2>{kind === 'wiki' ? 'Pick a page' : kind === 'whiteboard' ? 'Pick a whiteboard' : kind === 'table' ? 'Pick a table' : kind === 'tasklist' ? 'Pick a task list' : kind === 'poll' ? 'Pick a poll' : kind === 'form' ? 'Pick a form' : kind === 'linklist' ? 'Pick a link list' : kind === 'file' ? 'Pick a file' : 'Pick a document'}</h2><p>Everything here is saved in Weft, and the assistant can answer from it for anyone who can open it.</p></div>
+          <div className="empty"><h2>{kind === 'wiki' ? 'Pick a page' : kind === 'whiteboard' ? 'Pick a whiteboard' : kind === 'table' ? 'Pick a table' : kind === 'tasklist' ? (view === 'board' ? 'Pick a task list to see it as a board' : 'Pick a task list') : kind === 'poll' ? 'Pick a poll' : kind === 'form' ? 'Pick a form' : kind === 'linklist' ? 'Pick a link list' : kind === 'file' ? 'Pick a file' : 'Pick a document'}</h2><p>Everything here is saved in Weft, and the assistant can answer from it for anyone who can open it.</p></div>
         )}
       </section>
     </div>

@@ -423,3 +423,54 @@
 .notice-when { color: var(--color-ink-2); font-size: var(--text-xs); }
 .widget-note { color: var(--color-ink-2); font-size: var(--text-sm); overflow-wrap: anywhere;
   display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* Boards: a task list as columns. Cards are the list's tasks; Done is the tasks that are done. */
+.docs-kanban { margin: 0 auto var(--space-lg); padding-top: var(--space-sm); }
+.kanban-wrap { display: grid; gap: var(--space-sm); }
+.kanban-wrap > .docs-hint, .kanban-bar .docs-hint { margin: 0; padding: 0; }
+.kanban-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-sm); }
+.kanban-bar .docs-hint { flex: 1 1 24rem; }
+.kanban-newcol, .kanban-add { display: flex; gap: var(--space-2xs); }
+.kanban-newcol input, .kanban-add input, .kanban-name {
+  height: var(--ctl-h); padding: 0 var(--space-xs); min-width: 0; font: inherit; font-size: var(--text-sm);
+  border: 1px solid var(--color-muted); border-radius: var(--radius-input); background: var(--color-paper); color: var(--color-ink); }
+.kanban-add input { flex: 1 1 0; width: auto; }
+.kanban-newcol input { flex: 0 1 14rem; width: auto; }
+.kanban-newcol .btn { white-space: nowrap; }
+.kanban-add, .kanban-col { min-width: 0; }
+.kanban-newcol input:focus-visible, .kanban-add input:focus-visible, .kanban-name:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+.kanban { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(11.5rem, 1fr); gap: var(--space-sm); align-items: start; overflow-x: auto; padding-bottom: var(--space-xs); }
+.kanban-col { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-xs); padding: var(--space-xs); border-radius: var(--radius-card); background: var(--color-paper-3); box-shadow: 0 0 0 1px var(--color-rule);
+  transition: box-shadow var(--dur-micro) var(--ease-out); }
+.kanban-col.is-over { box-shadow: 0 0 0 2px var(--color-accent); }
+.kanban-col--done { background: color-mix(in oklab, var(--p-thu) 35%, var(--color-paper-3)); }
+.kanban-head { display: flex; align-items: center; gap: var(--space-2xs); min-height: var(--ctl-h); }
+.kanban-name { flex: 1; font-weight: 600; border-color: transparent; background: transparent; }
+.kanban-name:hover { border-color: var(--color-muted); }
+.kanban-name--read { margin: 0; padding: 0 var(--space-xs); font-size: var(--text-sm); line-height: var(--ctl-h); color: var(--color-ink); }
+.kanban-count { min-width: 1.5rem; padding: 0 var(--space-2xs); border-radius: var(--radius-pill); background: var(--color-paper); color: var(--color-ink-2); font-size: var(--text-xs); text-align: center; line-height: 1.5rem; }
+/* Column tools sit over the end of the header and show on hover or focus, so long names keep their room;
+   on touch screens (no hover) they always show. */
+.kanban-head { position: relative; }
+.kanban-tools { position: absolute; inset-block: 0; right: 0; display: flex; align-items: center; padding-left: var(--space-xs); border-radius: var(--radius-input);
+  background: var(--color-paper-3); opacity: 0; pointer-events: none; transition: opacity var(--dur-micro) var(--ease-out); }
+.kanban-head:hover .kanban-tools, .kanban-head:focus-within .kanban-tools { opacity: 1; pointer-events: auto; }
+@media (hover: none) { .kanban-tools { position: static; opacity: 1; pointer-events: auto; padding: 0; } }
+.kanban-tool { width: 1.75rem; height: 1.75rem; padding: 0; border: 0; border-radius: var(--radius-input); background: none; color: var(--color-ink-2); font: inherit; font-size: var(--text-md); line-height: 1; cursor: pointer; }
+.kanban-tool:hover:not(:disabled) { background: var(--color-paper-3); color: var(--color-ink); }
+.kanban-tool:disabled { opacity: 0.35; cursor: default; }
+.kanban-tool:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+.kanban-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2xs); min-height: var(--space-xs); }
+.kanban-card { display: grid; gap: var(--space-3xs); padding: var(--space-xs) var(--space-sm); border-radius: var(--radius-input); background: var(--color-paper); box-shadow: 0 0 0 1px var(--color-rule);
+  transition: opacity var(--dur-micro) var(--ease-out), box-shadow var(--dur-micro) var(--ease-out); }
+.kanban-card[draggable="true"] { cursor: grab; }
+.kanban-card[draggable="true"]:hover { box-shadow: 0 0 0 1px var(--color-muted); }
+.kanban-card:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.kanban-card.is-dragging { opacity: 0.45; }
+.kanban-card.is-drop-before { box-shadow: 0 0 0 1px var(--color-rule), 0 -3px 0 0 var(--color-accent); }
+.kanban-drop { height: 3px; border-radius: var(--radius-pill); background: var(--color-accent); }
+.kanban-title { font-size: var(--text-sm); color: var(--color-ink); overflow-wrap: anywhere; }
+.kanban-card.is-done .kanban-title { text-decoration: line-through; color: var(--color-muted); }
+.kanban-meta { display: flex; flex-wrap: wrap; gap: var(--space-2xs) var(--space-xs); color: var(--color-ink-2); font-size: var(--text-xs); }
+.kanban-tick { justify-self: start; margin-top: var(--space-2xs); }
+.kanban-empty { margin: 0; padding: var(--space-xs); color: var(--color-muted); font-size: var(--text-sm); text-align: center; }
+@media (prefers-reduced-motion: reduce) { .kanban-col, .kanban-card, .kanban-tools { transition: none; } }
