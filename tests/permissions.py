@@ -1615,6 +1615,170 @@ def rsvps():
           oq(f"select count(*) from weft.audit where table_name = 'rsvps' and row_id = '{mev}' and space_id = '{SID['organizers']}' and old_row->>'user_id' = '{Q}'") == "1"
           and oq(f"select count(*) from weft.audit where table_name = 'rsvps' and row_id = '{mev}' and space_id = '{SID['festival']}'") == "0")
 
+# ---------------------------------------------------------------- bookings
+def bookings():
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, O, A = uid("user", "u-pub"), uid("user", "u-org"), uid("user", "u-alex")
+    oq = lambda sql: owner_sql(sql)
+    ts = lambda iv: oq(f"select to_char(date_trunc('hour', now()) + interval '{iv}', 'YYYY-MM-DD\"T\"HH24:MI:SSOF')")
+    count = lambda where: oq(f"select count(*) from weft.bookings where {where}")
+    # Things to book.
+    st, rows = call("POST", "/resources", olive, {"space_id": SID["organizers"], "name": "  ORG-BOOK-SECRET board room ", "note": "Key at the desk"})
+    room = rows[0]["id"] if st == 201 else None
+    check("Bookings: Olive (editor) adds a thing in Organizers (positive control), created_by set by the database, name trimmed",
+          room and rows[0]["created_by"] == O and rows[0]["name"] == "ORG-BOOK-SECRET board room", f"{st} {rows}")
+    st, rows = call("POST", "/resources", olive, {"space_id": SID["festival"], "name": "Festival van"})
+    van = rows[0]["id"] if st == 201 else None
+    check("Bookings: Olive adds a thing in #festival", van is not None, f"{st} {rows}")
+    st, _ = call("POST", "/resources", pat, {"space_id": SID["festival"], "name": "pwned"})
+    st2, _ = call("POST", "/resources", vic, {"space_id": SID["festival"], "name": "pwned"})
+    st3, _ = call("POST", "/resources", vic, {"space_id": SID["organizers"], "name": "pwned"})
+    check("Bookings: Pat and Vic (viewers in #festival) cannot add things there, nor Vic in Organizers", refused(st) and refused(st2) and refused(st3), f"{st} {st2} {st3}")
+    for key in ("personal-u-org", "dm-alex-olive"):
+        st, body = call("POST", "/resources", olive, {"space_id": SID[key], "name": "not a channel"})
+        check(f"Bookings: only channels have things to book ({key.split('-')[0]} refused)", st == 400 and "channel" in json.dumps(body), f"{st} {body}")
+    # Booking, and no double booking.
+    s10, s12, s11, s13, s14 = ts("3 days 10 hours"), ts("3 days 12 hours"), ts("3 days 11 hours"), ts("3 days 13 hours"), ts("3 days 14 hours")
+    st, rows = call("POST", "/bookings", olive, {"resource_id": room, "starts_at": s10, "ends_at": s12, "note": "ORG-BOOK-SECRET budget"})
+    org = rows[0]["id"] if st == 201 else None
+    check("Bookings: Olive books the Organizers room; the database sets who booked and the channel",
+          org and rows[0]["booked_by"] == O and rows[0]["space_id"] == SID["organizers"], f"{st} {rows}")
+    st, rows = call("POST", "/bookings", olive, {"resource_id": van, "starts_at": s10, "ends_at": s12, "note": " Pick up chairs "})
+    fest = rows[0]["id"] if st == 201 else None
+    check("Bookings: Olive books the #festival van, note trimmed (positive control)", fest and rows[0]["space_id"] == SID["festival"] and rows[0]["note"] == "Pick up chairs", f"{st} {rows}")
+    st, body = call("POST", "/bookings", alex, {"resource_id": van, "starts_at": s11, "ends_at": s13})
+    clash = lambda st, body: st in (400, 409) and isinstance(body, dict) and body.get("code") == "23P01"
+    check("Bookings: Alex cannot book the van for an overlapping slot (no double booking)", clash(st, body) and "overlaps" in json.dumps(body), f"{st} {body}")
+    st, body = call("POST", "/bookings", alex, {"resource_id": van, "starts_at": ts("3 days 9 hours"), "ends_at": ts("3 days 15 hours")})
+    check("Bookings: nor a slot that covers the whole booking", clash(st, body), f"{st} {body}")
+    st, rows = call("POST", "/bookings", alex, {"resource_id": van, "starts_at": s12, "ends_at": s13})
+    alexb = rows[0]["id"] if st == 201 else None
+    check("Bookings: a slot that starts as the other ends is fine (positive control)", alexb is not None, f"{st} {rows}")
+    st, rows = call("POST", "/bookings", alex, {"resource_id": room, "starts_at": s12, "ends_at": s13})
+    check("Bookings: another thing at the same time is fine (the room is not the van)", st == 201, f"{st} {rows}")
+    if st == 201:
+        call("DELETE", f"/bookings?id=eq.{rows[0]['id']}", alex)
+    # The constraint holds even without the trigger's check (two bookings racing).
+    try:
+        oq(f"set session_replication_role = replica; insert into weft.bookings (resource_id, space_id, starts_at, ends_at, booked_by) values ('{van}', '{SID['festival']}', '{s11}', '{s13}', '{A}')")
+        raced = True
+    except subprocess.CalledProcessError:
+        raced = False
+    check("Bookings: the exclusion constraint itself refuses an overlap the trigger did not see", not raced and count(f"resource_id = '{van}'") == "2")
+    # Reads: members only, viewers included.
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = call("GET", f"/resources?space_id=eq.{SID['organizers']}&select=id", tok)
+        st2, rows2 = call("GET", "/resources?name=like.*ORG-BOOK*&select=id", tok)
+        st3, rows3 = call("GET", f"/bookings?or=(resource_id.eq.{room},note.like.*ORG-BOOK*)&select=id", tok)
+        check(f"Bookings: {who} gets no Organizers things or bookings, by space, name, thing or note",
+              st == 200 and rows == [] and rows2 == [] and rows3 == [], f"{rows} {rows2} {rows3}")
+    st, rows = call("GET", f"/bookings?resource_id=eq.{van}&select=id,note,who:users!bookings_booked_by_fkey(display_name)&order=starts_at", pat)
+    check("Bookings: Pat (viewer) reads the #festival van's bookings with names (positive control)",
+          st == 200 and len(rows) == 2 and rows[0]["who"]["display_name"] == "Olive Organizer", str(rows))
+    # Viewers read only; outsiders learn nothing.
+    st, _ = call("POST", "/bookings", pat, {"resource_id": van, "starts_at": s13, "ends_at": s14})
+    st2, _ = call("POST", "/bookings", vic, {"resource_id": van, "starts_at": s13, "ends_at": s14})
+    check("Bookings: Pat and Vic (viewers) cannot book the #festival van", refused(st) and refused(st2), f"{st} {st2}")
+    st, b1 = call("POST", "/bookings", vic, {"resource_id": room, "starts_at": s10, "ends_at": s12})
+    st2, b2 = call("POST", "/bookings", vic, {"resource_id": room, "starts_at": ts("5 days"), "ends_at": ts("5 days 1 hour")})
+    st3, b3 = call("POST", "/bookings", vic, {"resource_id": uid("resource", "nothing"), "starts_at": s10, "ends_at": s12})
+    st4, b4 = call("POST", "/bookings", vic, {"resource_id": room, "starts_at": ts("-3 days"), "ends_at": ts("-3 days 1 hour")})
+    check("Bookings: Vic booking the Organizers room gets the same refusal whether the slot is taken, free, in the past, or the thing does not exist",
+          all(refused(x) for x in (st, st2, st3, st4)) and len({json.dumps(b.get("message") if isinstance(b, dict) else b) for b in (b1, b2, b3, b4)}) == 1, f"{st} {st2} {st3} {st4} {b1} {b3}")
+    st, rows = call("PATCH", f"/bookings?id=eq.{fest}", pat, {"note": "pwned"})
+    st2, rows2 = call("DELETE", f"/bookings?id=eq.{fest}", pat)
+    st3, rows3 = call("PATCH", f"/resources?id=eq.{van}", pat, {"name": "pwned"})
+    check("Bookings: Pat cannot change or cancel a booking, or rename the van", rows == [] and rows2 == [] and (refused(st3) or rows3 == []), f"{st} {st2} {st3}")
+    check("Bookings: so the booking and the van are unchanged", oq(f"select note from weft.bookings where id = '{fest}'") == "Pick up chairs"
+          and oq(f"select name from weft.resources where id = '{van}'") == "Festival van")
+    # The booker or an owner changes and cancels; another editor does not.
+    st, rows = call("PATCH", f"/bookings?id=eq.{alexb}", olive, {"note": "pwned"})
+    st2, rows2 = call("DELETE", f"/bookings?id=eq.{alexb}", olive)
+    check("Bookings: Olive (editor) cannot change or cancel Alex's booking", rows == [] and rows2 == [] and count(f"id = '{alexb}' and note = ''") == "1", f"{st} {st2} {rows}")
+    st, rows = call("PATCH", f"/bookings?id=eq.{fest}", olive, {"starts_at": ts("3 days 9 hours"), "note": "Chairs and tables"})
+    check("Bookings: Olive changes her own booking (positive control)", st == 200 and len(rows or []) == 1 and rows[0]["note"] == "Chairs and tables", f"{st} {rows}")
+    st, body = call("PATCH", f"/bookings?id=eq.{fest}", olive, {"ends_at": s13})
+    check("Bookings: a change that overlaps another booking is refused too", clash(st, body), f"{st} {body}")
+    st, rows = call("PATCH", f"/bookings?id=eq.{fest}", alex, {"note": "Checked by Alex"})
+    check("Bookings: Alex (owner of #festival) can change Olive's booking", st == 200 and len(rows or []) == 1 and rows[0]["booked_by"] == O, f"{st} {rows}")
+    st, rows = call("PATCH", f"/resources?id=eq.{van}", olive, {"name": " Festival van (white) ", "note": "Diesel"})
+    check("Bookings: Olive (editor) renames the van", st == 200 and rows and rows[0]["name"] == "Festival van (white)", f"{st} {rows}")
+    # Sensible times.
+    st, _ = call("POST", "/bookings", olive, {"resource_id": van, "starts_at": ts("-2 hours"), "ends_at": ts("-1 hour")})
+    st2, _ = call("POST", "/bookings", olive, {"resource_id": van, "starts_at": ts("10 days"), "ends_at": ts("42 days")})
+    st3, _ = call("POST", "/bookings", olive, {"resource_id": van, "starts_at": ts("10 days 2 hours"), "ends_at": ts("10 days 1 hour")})
+    st4, _ = call("POST", "/bookings", olive, {"resource_id": van, "starts_at": ts("10 days"), "ends_at": ts("10 days 1 hour"), "note": "x" * 201})
+    check("Bookings: a booking that has ended, lasts over 31 days, ends before it starts, or has a long note is refused",
+          all(x == 400 for x in (st, st2, st3, st4)), f"{st} {st2} {st3} {st4}")
+    past = oq(f"insert into weft.bookings (resource_id, space_id, starts_at, ends_at, booked_by) values ('{van}', '{SID['festival']}', now() - interval '2 days', now() - interval '2 days' + interval '1 hour', '{O}') returning id").splitlines()[0]
+    st, b = call("PATCH", f"/bookings?id=eq.{past}", olive, {"note": "late"})
+    st2, b2 = call("DELETE", f"/bookings?id=eq.{past}", olive)
+    check("Bookings: an ended booking is fixed: neither changed nor cancelled", refused(st) and refused(st2) and count(f"id = '{past}' and note = ''") == "1", f"{st} {st2} {b}")
+    # Authorship, the channel and the thing are fixed.
+    st, _ = call("POST", "/bookings", olive, {"resource_id": van, "starts_at": ts("6 days"), "ends_at": ts("6 days 1 hour"), "booked_by": A})
+    st2, _ = call("POST", "/bookings", olive, {"resource_id": van, "starts_at": ts("6 days"), "ends_at": ts("6 days 1 hour"), "space_id": SID["organizers"]})
+    st3, _ = call("POST", "/resources", olive, {"space_id": SID["festival"], "name": "forged", "created_by": A})
+    check("Bookings: who booked, the booking's channel and who added a thing cannot be forged", refused(st) and refused(st2) and refused(st3), f"{st} {st2} {st3}")
+    st, _ = call("PATCH", f"/bookings?id=eq.{fest}", olive, {"booked_by": A})
+    st2, _ = call("PATCH", f"/bookings?id=eq.{fest}", olive, {"resource_id": room})
+    st3, _ = call("PATCH", f"/bookings?id=eq.{fest}", olive, {"space_id": SID["organizers"]})
+    st4, _ = call("PATCH", f"/resources?id=eq.{van}", olive, {"space_id": SID["organizers"]})
+    check("Bookings: nor changed afterwards: a booking never moves to another thing or channel, nor a thing to another channel",
+          all(refused(x) for x in (st, st2, st3, st4)) and oq(f"select booked_by::text || resource_id::text || space_id::text from weft.bookings where id = '{fest}'") == f"{O}{van}{SID['festival']}"
+          and oq(f"select space_id from weft.resources where id = '{van}'") == SID["festival"], f"{st} {st2} {st3} {st4}")
+    # Channel scope and the assistant.
+    scoped = mint("u-org", scope="festival")
+    st, rows = call("GET", f"/bookings?id=in.({org},{fest})&select=space_id", scoped)
+    st2, rows2 = call("GET", f"/resources?id=in.({room},{van})&select=space_id", scoped)
+    check("Bookings: a #festival-scoped token sees only #festival things and bookings", rows and {r["space_id"] for r in rows} == {SID["festival"]}
+          and rows2 and {r["space_id"] for r in rows2} == {SID["festival"]}, f"{rows} {rows2}")
+    st, _ = call("POST", "/bookings", scoped, {"resource_id": room, "starts_at": ts("7 days"), "ends_at": ts("7 days 1 hour")})
+    check("Bookings: nor books in Organizers", refused(st), str(st))
+    helper = mint("u-org", assistant=True)
+    st, rows = call("GET", f"/bookings?id=eq.{org}&select=id", helper)
+    check("Bookings: the assistant (for Olive) reads Organizers bookings (positive control)", st == 200 and len(rows) == 1, str(rows))
+    st, _ = call("DELETE", f"/bookings?id=eq.{org}", helper)
+    st2, _ = call("PATCH", f"/bookings?id=eq.{org}", helper, {"note": "by the assistant"})
+    st3, _ = call("POST", "/bookings", helper, {"resource_id": room, "starts_at": ts("8 days"), "ends_at": ts("8 days 1 hour")})
+    st4, _ = call("DELETE", f"/resources?id=eq.{room}", helper)
+    check("Bookings: the assistant cannot delete, change or make bookings, nor delete things", all(refused(x) for x in (st, st2, st3, st4))
+          and count(f"id = '{org}' and note = 'ORG-BOOK-SECRET budget'") == "1", f"{st} {st2} {st3} {st4}")
+    st, rows = call("GET", f"/bookings?id=eq.{org}&select=id", mint("u-pub", assistant=True))
+    check("Bookings: the assistant for Pat reads no Organizers bookings", st == 200 and rows == [], str(rows))
+    # Audit.
+    call("PATCH", f"/bookings?id=eq.{org}", olive, {"note": "ORG-BOOK-SECRET budget, moved"})
+    st, rows = call("GET", f"/audit?row_id=eq.{org}&select=op", olive)
+    st2, rows2 = call("GET", f"/audit?row_id=eq.{org}&select=op", pat)
+    check("Bookings: an Organizers change is in the audit log for Organizers members only", len(rows or []) >= 1 and rows2 == [], f"{rows} {rows2}")
+    st, rows = call("GET", f"/audit?row_id=eq.{fest}&select=op", vic)
+    check("Bookings: #festival changes are readable by its members, Vic included (positive control)", len(rows or []) >= 1, str(rows))
+    # Deleting: owners delete things (and their bookings go); the booker cancels.
+    st, rows = call("DELETE", f"/resources?id=eq.{van}", olive)
+    check("Bookings: Olive (editor) cannot delete the van", rows == [] and oq(f"select count(*) from weft.resources where id = '{van}'") == "1", f"{st} {rows}")
+    st, _ = call("DELETE", f"/bookings?id=eq.{fest}", olive)
+    check("Bookings: Olive cancels her own booking (positive control)", st in (200, 204) and count(f"id = '{fest}'") == "0", str(st))
+    st, _ = call("DELETE", f"/resources?id=eq.{van}", alex)
+    check("Bookings: Alex (owner) deletes the van, and its bookings (the ended one too) go with it", st in (200, 204)
+          and oq(f"select count(*) from weft.resources where id = '{van}'") == "0" and count(f"resource_id = '{van}'") == "0", str(st))
+    # Membership decides, and deleting the channel deletes everything in it.
+    st, ch = call("POST", "/rpc/create_channel", olive, {"p_name": "booking test"})
+    st, rows = call("POST", "/resources", olive, {"space_id": ch, "name": "Projector"})
+    proj = rows[0]["id"] if st == 201 else None
+    call("POST", "/members", olive, {"space_id": ch, "user_id": P, "role": "editor"}, prefer="return=minimal")
+    st, rows = call("POST", "/bookings", pat, {"resource_id": proj, "starts_at": ts("4 days"), "ends_at": ts("4 days 2 hours")})
+    pb = rows[0]["id"] if st == 201 else None
+    check("Bookings: added as an editor, Pat books the projector (positive control)", pb is not None and rows[0]["booked_by"] == P, f"{st} {rows}")
+    call("DELETE", f"/members?space_id=eq.{ch}&user_id=eq.{P}", olive)
+    st, rows = call("GET", f"/bookings?id=eq.{pb}&select=id", pat)
+    st2, rows2 = call("DELETE", f"/bookings?id=eq.{pb}", pat)
+    check("Bookings: removed from the channel, she reads nothing there and cannot cancel", rows == [] and rows2 == [] and count(f"id = '{pb}'") == "1", f"{rows} {rows2}")
+    st, _ = call("DELETE", f"/spaces?id=eq.{ch}", olive)
+    check("Bookings: deleting the channel deletes its things and bookings", st in (200, 204)
+          and oq(f"select count(*) from weft.resources where id = '{proj}'") == "0" and count(f"id = '{pb}'") == "0", str(st))
+    call("DELETE", f"/bookings?id=eq.{alexb}", alex)
+    call("DELETE", f"/resources?id=eq.{room}", alex)
+
+
 def teeth():
     """Loosen one policy on purpose and confirm the suite would catch it, then restore it."""
     owner_sql("create policy teeth_leak on weft.items for select to weft_user using (true)")
@@ -1643,6 +1807,7 @@ if __name__ == "__main__":
     announcements()
     meetings()
     rsvps()
+    bookings()
     people()
     trees()
     prefs_and_files()
