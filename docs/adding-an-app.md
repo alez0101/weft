@@ -21,6 +21,11 @@ assistant). Follow this for every app, by hand or by a scheduled build.
 - **Live updates**: add the table to the `announce` trigger pattern in `006_notify.sql` (a notice carries
   only table, operation, id and space; the browser refetches through the API). The notification server
   forwards notices only to members.
+- **Moves between spaces leak by default.** When something moves to another space and a trigger cleans
+  up rows that do not belong in the new space (answers, assignees, links), record those removals in the
+  audit log and notices under the space it moved **from**, never the new one: the new space's members must
+  not learn what was there. Test it: someone only in Organizers acts, the thing moves to #festival, Pat
+  sees no trace (and an Organizers member still sees the audit row).
 - **The assistant role** (`weft_assistant`) gets `select` only if the assistant should read the app, and
   never `delete`.
 - **Search and the assistant** read `weft.items.body_text`. If the app's content is text people will look
