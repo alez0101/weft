@@ -6,6 +6,7 @@ import Docs from './Docs.jsx';
 import Calendar from './Calendar.jsx';
 import Announcements from './Announcements.jsx';
 import Kudos from './Kudos.jsx';
+import Journal from './Journal.jsx';
 import Rsvps from './Rsvps.jsx';
 import Bookings from './Bookings.jsx';
 import Shifts from './Shifts.jsx';
@@ -46,6 +47,7 @@ const APPS = [
   { id: 'meetings', label: 'Meetings', tint: '--p-sat', real: true, glyph: <><rect x="9" y="8" width="22" height="26" rx="2" /><path d="M15 5.5h10v5H15zM14 17h12M14 22h12M14 27h6" /><path d="M23 27.5l1.8 1.8L28 26" /></> },
   { id: 'announcements', label: 'Announcements', tint: '--p-mon', real: true, glyph: <><path d="M7 17v7l17 7V10z" /><path d="M24 15h3a5 5 0 0 1 0 10h-3M11 25.5l2 7.5h4l-1.8-6" /></> },
   { id: 'kudos', label: 'Kudos', tint: '--p-sun', real: true, glyph: <><path d="M7 8h26v19H18l-7 6v-6H7z" /><path d="M20 23l-4.8-4.4a2.9 2.9 0 0 1 4.8-3.3 2.9 2.9 0 0 1 4.8 3.3z" /></> },
+  { id: 'journal', label: 'Journal', tint: '--p-thu', real: true, glyph: <><path d="M11 6h19a2 2 0 0 1 2 2v26H11z" /><path d="M11 6v28M7 11h4M7 17h4M7 23h4M7 29h4" /><path d="M17 14h10M17 19h10M17 24h6" /></> },
   { id: 'files', label: 'Files', tint: '--p-sat', real: true, glyph: <path d="M6 12h10l3 3h15v17H6z" /> },
   { id: 'settings', label: 'Settings', tint: '--p-fri', admin: true, glyph: <><circle cx="20" cy="20" r="5" /><path d="M20 7v5M20 28v5M7 20h5M28 20h5M10.8 10.8l3.5 3.5M25.7 25.7l3.5 3.5M10.8 29.2l3.5-3.5M25.7 14.3l3.5-3.5" /></> },
 ];
@@ -64,7 +66,7 @@ const readHash = () => {
   return {
     tabs, active: active === 'home' || tabs.includes(active) ? active : 'home',
     convo: h.get('convo') || 'weft', rail: RAILS.includes(h.get('chat')) ? h.get('chat') : 'normal',
-    doc: h.get('doc') || null, page: h.get('page') || null, event: h.get('event') || null, board: h.get('board') || null, sheet: h.get('sheet') || null, list: h.get('list') || null, kanban: h.get('kanban') || null, poll: h.get('poll') || null, form: h.get('form') || null, links: h.get('links') || null, book: h.get('book') || null, log: h.get('log') || null, qa: h.get('qa') || null, checklist: h.get('checklist') || null, expenses: h.get('expenses') || null, inventory: h.get('inventory') || null, goals: h.get('goals') || null, retro: h.get('retro') || null, glossary: h.get('glossary') || null, ideas: h.get('ideas') || null, meeting: h.get('meeting') || null, notices: h.get('notices') || null, kudos: h.get('kudos') || null, booking: h.get('booking') || null, file: h.get('file') || null,
+    doc: h.get('doc') || null, page: h.get('page') || null, event: h.get('event') || null, board: h.get('board') || null, sheet: h.get('sheet') || null, list: h.get('list') || null, kanban: h.get('kanban') || null, poll: h.get('poll') || null, form: h.get('form') || null, links: h.get('links') || null, book: h.get('book') || null, log: h.get('log') || null, qa: h.get('qa') || null, checklist: h.get('checklist') || null, expenses: h.get('expenses') || null, inventory: h.get('inventory') || null, goals: h.get('goals') || null, retro: h.get('retro') || null, glossary: h.get('glossary') || null, ideas: h.get('ideas') || null, meeting: h.get('meeting') || null, notices: h.get('notices') || null, kudos: h.get('kudos') || null, journal: h.get('journal') || null, booking: h.get('booking') || null, file: h.get('file') || null,
   };
 };
 
@@ -269,6 +271,7 @@ export default function App() {
     if (ui.meeting) h.set('meeting', ui.meeting);
     if (ui.notices) h.set('notices', ui.notices);
     if (ui.kudos) h.set('kudos', ui.kudos);
+    if (ui.journal) h.set('journal', ui.journal);
     if (ui.booking) h.set('booking', ui.booking);
     if (ui.file) h.set('file', ui.file);
     history.replaceState(null, '', `#${h}`);
@@ -375,7 +378,7 @@ export default function App() {
                   </a></li>
                 ))}
               </ul>
-              <Widgets me={me} spaces={spaces} unread={unread} notice={notice} onOpenItem={openItem} onOpenEvent={openEvent} onOpenNotices={openNotices} onOpenKudos={openKudos} onOpenBooking={openBooking} onOpenShifts={() => openTab('shifts')} onOpenProfiles={() => openTab('profiles')} onOpenTimeOff={() => openTab('timeoff')}
+              <Widgets me={me} spaces={spaces} unread={unread} notice={notice} onOpenItem={openItem} onOpenEvent={openEvent} onOpenNotices={openNotices} onOpenKudos={openKudos} onOpenBooking={openBooking} onOpenShifts={() => openTab('shifts')} onOpenProfiles={() => openTab('profiles')} onOpenTimeOff={() => openTab('timeoff')} onOpenJournal={(journal) => openTab('journal', { journal })}
                 onOpenConvo={(convo) => setUi((u) => ({ ...u, convo, rail: u.rail === 'collapsed' ? 'normal' : u.rail }))} />
             </div>
           ) : ui.active === 'settings' ? (isAdmin ? <AdminPanel me={me} info={mode} /> : null)
@@ -400,6 +403,7 @@ export default function App() {
             : ui.active === 'ideas' ? <Docs key="ideas" kind="ideaboard" me={me} members={members} notice={notice} openId={ui.ideas} setOpenId={(ideas) => setUi((u) => ({ ...u, ideas }))} />
             : ui.active === 'qa' ? <Docs key="qa" kind="qa" me={me} members={members} notice={notice} openId={ui.qa} setOpenId={(qa) => setUi((u) => ({ ...u, qa }))} />
             : ui.active === 'kudos' ? <Kudos me={me} spaces={spaces} members={members} notice={notice} openId={ui.kudos} setOpenId={(kudos) => setUi((u) => ({ ...u, kudos }))} />
+            : ui.active === 'journal' ? <Journal notice={notice} openDay={ui.journal} setOpenDay={(journal) => setUi((u) => ({ ...u, journal }))} />
             : ui.active === 'announcements' ? <Announcements me={me} spaces={spaces} members={members} notice={notice} openId={ui.notices} setOpenId={(notices) => setUi((u) => ({ ...u, notices }))} />
             : ui.active === 'files' ? <Docs key="files" kind="file" me={me} members={members} notice={notice} openId={ui.file} setOpenId={(file) => setUi((u) => ({ ...u, file }))} />
             : ui.active === 'bookings' ? <Bookings me={me} spaces={spaces} members={members} notice={notice} openId={ui.booking} setOpenId={(booking) => setUi((u) => ({ ...u, booking }))} />

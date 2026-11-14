@@ -2207,6 +2207,118 @@ def kudos():
     call("DELETE", f"/kudos?id=eq.{fest}", olive)
 
 
+# ---------------------------------------------------------------- journal
+def journal():
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, O, A = uid("user", "u-pub"), uid("user", "u-org"), uid("user", "u-alex")
+    OS, PS = SID["personal-u-org"], SID["personal-u-pub"]
+    oq = lambda sql: owner_sql(sql)
+    day = oq("select current_date::text")
+    body = lambda i: oq(f"select body from weft.journal_entries where id = '{i}'")
+    st, rows = call("POST", "/journal_entries", olive, {"day": day, "body": "\nJOURNAL-SECRET slept badly before the budget meeting  \n"})
+    oj = rows[0]["id"] if st == 201 else None
+    check("Journal: Olive writes today's page (positive control); author and personal space set by the database, text tidied",
+          oj and rows[0]["author_id"] == O and rows[0]["space_id"] == OS and rows[0]["body"] == "JOURNAL-SECRET slept badly before the budget meeting", f"{st} {rows}")
+    st, _ = call("POST", "/journal_entries", olive, {"day": day, "body": "a second page today"})
+    check("Journal: one page per person per day (a second one is refused)", st == 409 and oq(f"select count(*) from weft.journal_entries where author_id = '{O}'") == "1", str(st))
+    st, rows = call("POST", "/journal_entries", pat, {"day": day, "body": "Pat's own day"})
+    pj = rows[0]["id"] if st == 201 else None
+    check("Journal: Pat (a viewer everywhere) writes her own journal too, in her personal space (positive control)",
+          pj and rows[0]["space_id"] == PS and rows[0]["author_id"] == P, f"{st} {rows}")
+    st, rows = call("GET", f"/journal_entries?select=id,body&order=day.desc", olive)
+    st2, rows2 = call("GET", f"/journal_entries?body=ilike.*JOURNAL-SECRET*&select=id", olive)
+    check("Journal: Olive reads and searches her own pages, and only hers (positive control)",
+          st == 200 and [r["id"] for r in rows] == [oj] and rows2 == [{"id": oj}], f"{rows} {rows2}")
+    # Nobody else reads them: not Pat, not Vic, not Alex (admin, owner of every channel Olive is in).
+    for who, tok in (("Pat", pat), ("Vic", vic), ("Alex (admin)", alex)):
+        st, rows = call("GET", f"/journal_entries?id=eq.{oj}&select=id", tok)
+        st2, rows2 = call("GET", "/journal_entries?body=ilike.*JOURNAL-SECRET*&select=id", tok)
+        st3, rows3 = call("GET", f"/journal_entries?space_id=eq.{OS}&select=id", tok)
+        check(f"Journal: {who} gets none of Olive's pages, by id, text or space", st == 200 and rows == [] and rows2 == [] and rows3 == [], f"{rows} {rows2} {rows3}")
+        st, rows = call("PATCH", f"/journal_entries?id=eq.{oj}", tok, {"body": "pwned"})
+        st2, rows2 = call("DELETE", f"/journal_entries?id=eq.{oj}", tok)
+        check(f"Journal: {who} cannot change or delete Olive's page", rows == [] and rows2 == [] and body(oj).startswith("JOURNAL-SECRET"), f"{st} {st2}")
+    # Where a page lives and who wrote it cannot be chosen or changed.
+    st, _ = call("POST", "/journal_entries", pat, {"day": "2026-01-02", "body": "into Olive's space", "space_id": OS})
+    st2, _ = call("POST", "/journal_entries", pat, {"day": "2026-01-02", "body": "into #festival", "space_id": SID["festival"]})
+    st3, _ = call("POST", "/journal_entries", pat, {"day": "2026-01-02", "body": "forged", "author_id": O})
+    check("Journal: nobody picks the space or the author of a page (never granted)", refused(st) and refused(st2) and refused(st3)
+          and oq(f"select count(*) from weft.journal_entries where day = '2026-01-02'") == "0", f"{st} {st2} {st3}")
+    st, _ = call("PATCH", f"/journal_entries?id=eq.{oj}", olive, {"author_id": P})
+    st2, _ = call("PATCH", f"/journal_entries?id=eq.{oj}", olive, {"space_id": SID["festival"]})
+    st3, _ = call("PATCH", f"/journal_entries?id=eq.{oj}", olive, {"day": "2026-01-01"})
+    st4, _ = call("PATCH", f"/journal_entries?id=eq.{oj}", olive, {"created_at": "2020-01-01T00:00:00Z"})
+    check("Journal: a page never moves to another person, space or day, nor are its times set", all(refused(x) for x in (st, st2, st3, st4))
+          and oq(f"select author_id::text || space_id::text || day::text from weft.journal_entries where id = '{oj}'") == O + OS + day, f"{st} {st2} {st3} {st4}")
+    # What a page may be.
+    st, b1 = call("POST", "/journal_entries", olive, {"day": "2999-01-01", "body": "the future"})
+    st2, _ = call("POST", "/journal_entries", olive, {"day": "2026-01-03", "body": "  \n "})
+    st3, _ = call("POST", "/journal_entries", olive, {"day": "2026-01-03", "body": "x" * 20001})
+    st4, _ = call("PATCH", f"/journal_entries?id=eq.{oj}", olive, {"body": ""})
+    check("Journal: a page for a future day, an empty one or one over 20,000 characters is refused", st == 400 and "day" in json.dumps(b1)
+          and st2 == 400 and st3 == 400 and st4 == 400, f"{st} {st2} {st3} {st4}")
+    st, rows = call("POST", "/journal_entries", olive, {"day": "2026-01-03", "body": "A past day, written later"})
+    old = rows[0]["id"] if st == 201 else None
+    check("Journal: Olive writes a page for a past day (positive control)", old is not None, f"{st} {rows}")
+    st, rows = call("PATCH", f"/journal_entries?id=eq.{oj}", olive, {"body": "JOURNAL-SECRET slept badly, then the meeting went fine"})
+    check("Journal: Olive rewrites her page (positive control); updated_at moves", st == 200 and rows and rows[0]["updated_at"] > rows[0]["created_at"], f"{st} {rows}")
+    # Someone the owner adds to her personal space still sees nothing: every rule also needs author = you.
+    st, _ = call("POST", "/members", olive, {"space_id": OS, "user_id": A, "role": "editor"}, prefer="return=minimal")
+    added = oq(f"select count(*) from weft.members where space_id = '{OS}' and user_id = '{A}'") == "1"
+    st2, rows2 = call("GET", f"/journal_entries?space_id=eq.{OS}&select=id", alex)
+    st3, rows3 = call("PATCH", f"/journal_entries?id=eq.{oj}", alex, {"body": "pwned"})
+    st4, rows4 = call("GET", f"/audit?space_id=eq.{OS}&table_name=eq.journal_entries&select=old_row", alex)
+    check("Journal: Alex, added to Olive's personal space as an editor, reads and changes none of her pages",
+          added and rows2 == [] and rows3 == [] and body(oj).startswith("JOURNAL-SECRET"), f"{st} {rows2} {rows3}")
+    check("Journal: the audit log he can read there holds no page text", st4 == 200 and len(rows4) >= 1 and "JOURNAL-SECRET" not in json.dumps(rows4)
+          and "slept" not in json.dumps(rows4), str(rows4))
+    call("DELETE", f"/members?space_id=eq.{OS}&user_id=eq.{A}", olive)
+    # Channel scope, a personal-space token and the assistant.
+    scoped = mint("u-org", scope="festival")
+    st, rows = call("GET", "/journal_entries?select=id", scoped)
+    st2, _ = call("POST", "/journal_entries", scoped, {"day": "2026-01-04", "body": "scoped"})
+    st3, rows3 = call("PATCH", f"/journal_entries?id=eq.{oj}", scoped, {"body": "scoped"})
+    st4, rows4 = call("DELETE", f"/journal_entries?id=eq.{oj}", scoped)
+    check("Journal: a #festival-scoped token of Olive's reads, writes, changes and deletes none of her pages",
+          st == 200 and rows == [] and refused(st2) and rows3 == [] and rows4 == [] and body(oj).startswith("JOURNAL-SECRET"), f"{rows} {st2} {rows3} {rows4}")
+    st, rows = call("GET", "/journal_entries?select=id", mint("u-org", scope="personal-u-org"))
+    check("Journal: a token scoped to her own personal space reads her pages (positive control)", st == 200 and {r["id"] for r in rows} == {oj, old}, str(rows))
+    helper = mint("u-org", assistant=True)
+    st, rows = call("GET", f"/journal_entries?select=id", helper)
+    st2, _ = call("DELETE", f"/journal_entries?id=eq.{oj}", helper)
+    st3, _ = call("PATCH", f"/journal_entries?id=eq.{oj}", helper, {"body": "by the assistant"})
+    st4, _ = call("POST", "/journal_entries", helper, {"day": "2026-01-05", "body": "by the assistant"})
+    check("Journal: the assistant (for Olive) cannot read, delete, change or write her journal", refused(st) and refused(st2) and refused(st3) and refused(st4)
+          and body(oj).startswith("JOURNAL-SECRET"), f"{st} {rows} {st2} {st3} {st4}")
+    st, rows = call("POST", "/rpc/search", olive, {"p_q": "JOURNAL-SECRET"})
+    check("Journal: pages are not in Weft search, not even for their writer", st == 200 and rows == [], f"{st} {rows}")
+    # Audit: under the personal space, no text, readable only by its members.
+    st, rows = call("GET", f"/audit?row_id=eq.{oj}&select=space_id,old_row", olive)
+    st2, rows2 = call("GET", f"/audit?row_id=eq.{oj}&select=op", pat)
+    check("Journal: a change is in the audit log under Olive's personal space, with the day but not the text; Pat sees none",
+          rows and {r["space_id"] for r in rows} == {OS} and rows[0]["old_row"].get("day") == day and "body" not in rows[0]["old_row"]
+          and "JOURNAL-SECRET" not in json.dumps(rows) and rows2 == [], f"{rows} {rows2}")
+    # Deleting: your own; the words are then gone from the database.
+    st, rows = call("DELETE", f"/journal_entries?id=eq.{oj}", olive)
+    check("Journal: Olive deletes her page (positive control) and its text is nowhere left, audit included",
+          st == 200 and len(rows or []) == 1 and oq("select count(*) from weft.audit where old_row::text like '%JOURNAL-SECRET%'") == "0"
+          and oq("select count(*) from weft.journal_entries where body like '%JOURNAL-SECRET%'") == "0", f"{st} {rows}")
+    st, rows = call("DELETE", f"/journal_entries?id=eq.{pj}", olive)
+    check("Journal: Olive cannot delete Pat's page", rows == [] and oq(f"select count(*) from weft.journal_entries where id = '{pj}'") == "1", f"{st} {rows}")
+    # A disabled account reads nothing, its own journal included; enabling it again restores it.
+    oq(f"update weft.users set disabled = true where id = '{P}'")
+    try:
+        st, rows = call("GET", "/journal_entries?select=id", pat)
+        st2, _ = call("POST", "/journal_entries", pat, {"day": "2026-01-06", "body": "while disabled"})
+    finally:
+        oq(f"update weft.users set disabled = false where id = '{P}'")
+    st3, rows3 = call("GET", "/journal_entries?select=id", mint("u-pub"))
+    check("Journal: a disabled account reads and writes no journal, not even its own; enabled again, it is back",
+          st == 200 and rows == [] and refused(st2) and rows3 == [{"id": pj}], f"{rows} {st2} {rows3}")
+    for i in (old, pj):
+        oq(f"delete from weft.journal_entries where id = '{i}'")
+
+
 # ---------------------------------------------------------------- polls
 def polls():
     pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
@@ -3888,6 +4000,7 @@ if __name__ == "__main__":
     goals()
     announcements()
     kudos()
+    journal()
     meetings()
     rsvps()
     bookings()
