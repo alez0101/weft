@@ -5,7 +5,7 @@ summary: Notices over websockets, the collab server, and the traps in BlockNote.
 ---
 ### Live notices (svc)
 
-Database triggers send `NOTIFY weft_events` with `{t, op, id, space}` on messages, items, events, members, table rows, tasks, polls (choices, votes, open or closed) and forms (questions, answers, open or closed; never answer text). svc forwards each notice only to sockets of members of that space, refreshes a person's memberships when theirs change, closes sockets whose token has expired, and closes a disabled account's sockets at once (code 4003).
+Database triggers send `NOTIFY weft_events` with `{t, op, id, space}` on messages, items, events, members, table rows, tasks, polls (choices, votes, open or closed), forms (questions, answers, open or closed; never answer text) and links. svc forwards each notice only to sockets of members of that space, refreshes a person's memberships when theirs change, closes sockets whose token has expired, and closes a disabled account's sockets at once (code 4003).
 
 ### Co-editing (collab)
 

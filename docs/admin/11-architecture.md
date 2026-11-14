@@ -20,7 +20,7 @@ summary: The services, how a request flows, and the two front doors.
 
 1. The browser signs in at `/auth/`: with an email and password, an invite or reset link, or (if configured) Cloudflare Access's signed header. svc returns a Weft token (HS256, 15 minutes) and, for Weft accounts, sets a session cookie that renews the token before it expires.
 2. Every API call sends that token to PostgREST at `/api/`. PostgREST switches to the database role in the token (`weft_user`), and row-level security decides every row.
-3. The browser keeps one websocket at `/live`. svc listens to Postgres notices and forwards each one only to members of its space. A notice carries the table, operation, id and space, never content (task notices add the list's id, poll notices the poll's, form notices the form's); the browser fetches the row through the API, so the database still decides.
+3. The browser keeps one websocket at `/live`. svc listens to Postgres notices and forwards each one only to members of its space. A notice carries the table, operation, id and space, never content (task notices add the list's id, poll notices the poll's, form notices the form's, link notices the list's); the browser fetches the row through the API, so the database still decides.
 4. Documents open a second websocket at `/collab`. The collab server checks and loads each document as the person, through row-level security.
 5. Files go to `/files` (upload, at most `FILE_MAX_MB`, default 25) and come back from `/files/<id>`; the files service does every database step as the person, so row-level security decides. The type is read from the bytes, not trusted from the name, and anything that could run scripts (HTML, SVG, unknown types) always downloads rather than opening.
 6. The search box calls `weft.search` through the API (word matches, as the person) and `/assistant/search/related` (matches by meaning, with the person's own token).
@@ -34,4 +34,4 @@ summary: The services, how a request flows, and the two front doors.
 
 ### Libraries
 
-BlockNote 0.57 (documents and wiki), Excalidraw 0.18 with Weft's own Yjs binding (whiteboards), AG Grid Community 36 (tables), FullCalendar 7 (calendar, including tasks due), plain React (task lists, polls, forms), `@anthropic-ai/sdk` (Claude), `@modelcontextprotocol/sdk` (the connector). All open source under MIT, MPL-2.0 or PostgreSQL licences; none of BlockNote's GPL or commercial packages are used.
+BlockNote 0.57 (documents and wiki), Excalidraw 0.18 with Weft's own Yjs binding (whiteboards), AG Grid Community 36 (tables), FullCalendar 7 (calendar, including tasks due), plain React (task lists, polls, forms, link lists), `@anthropic-ai/sdk` (Claude), `@modelcontextprotocol/sdk` (the connector). All open source under MIT, MPL-2.0 or PostgreSQL licences; none of BlockNote's GPL or commercial packages are used.

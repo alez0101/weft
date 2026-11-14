@@ -147,6 +147,9 @@ check('Nor a poll (its text is its votes)', po.failed && !po.scope, `${po.failed
 const [formItem] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'form', title: 'Collab form' } })).rows;
 const fm = await open(olive.token, formItem.id);
 check('Nor a form (its text is its questions)', fm.failed && !fm.scope, `${fm.failed} ${fm.scope}`); close(fm);
+const [linksItem] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'linklist', title: 'Collab links' } })).rows;
+const lk = await open(olive.token, linksItem.id);
+check('Nor a link list (its text is its links)', lk.failed && !lk.scope, `${lk.failed} ${lk.scope}`); close(lk);
 
 // ---------------- moving or deleting a document closes its sessions
 const [mv] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'document', title: 'Move test' } })).rows;
