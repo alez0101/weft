@@ -14,7 +14,7 @@ own database volume, its own secrets (`stacks/weft-test/.env`, git-ignored) and 
 
 ## Commands
 
-    tests/run.sh            rebuild the test stack, run all seven suites (637 checks); makes the test .env on first run, remove the test stack
+    tests/run.sh            rebuild the test stack, run all seven suites (675 checks); makes the test .env on first run, remove the test stack
     tests/run.sh --keep     same, but leave the test stack up (for the browser checks)
     db/reset.sh             rebuild the test stack's database only
     db/reset.sh --live --yes-wipe-live   rebuild the LIVE database: destroys real accounts, keys and edits
@@ -25,10 +25,10 @@ where `npm install playwright` was done) and target the test stack's 3211 by def
 
 ## Suites
 
-- `tests/permissions.py`: row-level security, every user, table and action, accounts, channels, the wikis, search, tasks, polls, forms, plus the teeth check (327).
+- `tests/permissions.py`: row-level security, every user, table and action, accounts, channels, the wikis, search, tasks, polls, forms, links, plus the teeth check (364).
 - `services/svc/test/live.mjs`: live notices reach members only (25).
 - `services/svc/test/accounts.mjs`: Weft accounts: links, passwords, lockouts, sessions (43).
 - `services/assistant/test/assistant.mjs`: retrieval scoping, citations, settings, failover, proposals, meaning search, files, personal keys, search by meaning (109).
-- `services/collab/test/collab.mjs`: co-editing access and live saves (35).
+- `services/collab/test/collab.mjs`: co-editing access and live saves (36).
 - `services/files/test/files.mjs`: uploads, downloads, text extraction, safe types (30).
 - `services/mcp/test/mcp.mjs`: the connector for AI apps: OAuth sign-in, permissions through the tools, writes, revoking (68).
