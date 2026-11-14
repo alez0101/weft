@@ -501,3 +501,27 @@
   .meeting-fact label { min-width: 0; flex-basis: 100%; }
   .task.meeting-action, .task.meeting-action:not(:has(.btn)) { grid-template-columns: auto minmax(0, 1fr); }
 }
+/* RSVPs: Going, Maybe or Not going on an event, in the RSVPs app and on the event in Calendar. */
+.rsvp-filter { display: flex; align-items: center; justify-content: space-between; gap: var(--space-xs); }
+.rsvp-head { margin-block: 0; }
+.rsvp-day { display: grid; gap: var(--space-xs); margin-bottom: var(--space-sm); }
+.rsvp-card.is-going { box-shadow: 0 0 0 2px var(--color-accent-deep); }
+.rsvp-title { font-size: var(--text-md); font-weight: 600; color: var(--color-accent-deep); text-align: left; overflow-wrap: anywhere; }
+.rsvp { display: grid; gap: var(--space-2xs); }
+.rsvp-buttons { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
+.rsvp-btn { display: inline-flex; align-items: center; gap: var(--space-xs); transition: background-color var(--dur-micro) var(--ease-out), box-shadow var(--dur-micro) var(--ease-out); }
+.rsvp-btn:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.rsvp-btn[aria-pressed="true"] { background: var(--color-accent-soft); color: var(--color-ink); box-shadow: 0 0 0 2px var(--color-accent-deep); font-weight: 600; }
+.rsvp-btn.rsvp-no[aria-pressed="true"] { background: var(--color-paper-3); box-shadow: 0 0 0 2px var(--color-muted); }
+.rsvp-n { min-width: 1.4em; padding: 0 var(--space-3xs); border-radius: var(--radius-pill); background: var(--color-paper-3); color: var(--color-ink-2);
+  font-size: var(--text-xs); font-variant-numeric: tabular-nums; text-align: center; }
+.rsvp-btn[aria-pressed="true"] .rsvp-n { background: var(--color-paper); color: var(--color-ink); }
+.rsvp-sum { margin: 0; color: var(--color-ink-2); font-size: var(--text-sm); }
+.rsvp-who { margin: 0; color: var(--color-ink); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.rsvp-who--no { color: var(--color-muted); }
+.rsvp-who-label { color: var(--color-ink-2); font-weight: 600; }
+.rsvp-note { margin: 0; color: var(--color-muted); font-size: var(--text-xs); }
+.rsvp-foot { margin: var(--space-sm) 0 0; padding: 0; }
+.rsvp-event { display: grid; gap: var(--space-2xs); padding-top: var(--space-2xs); border-top: 1px solid var(--color-rule); }
+.rsvp-event .rsvp-sum { font-weight: 600; color: var(--color-ink); }
+@media (prefers-reduced-motion: reduce) { .rsvp-btn { transition: none; } .rsvp-btn:active { transform: none; } }

@@ -1,5 +1,6 @@
 // Calendar: events from every space you can see (row-level security decides), coloured per space.
 // Editors drag to create, move and resize; viewers only read. Live: an events notice refetches.
+// Each event shows its RSVPs (Going, Maybe, Not going) and lets anyone in its space answer for themselves.
 // Open tasks with a due date show as all-day entries (read-only here; clicking one opens its list).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import FullCalendar from '@fullcalendar/react';
@@ -11,6 +12,7 @@ import interactionPlugin from '@fullcalendar/react/interaction';
 import '@fullcalendar/react/skeleton.css';
 import '@fullcalendar/react/themes/classic/theme.css';
 import { api } from './api.js';
+import { EventRsvps } from './Rsvps.jsx';
 
 const label = (s) => (s?.kind === 'personal' ? 'Personal' : s?.kind === 'channel' ? `#${s.name}` : s?.name ?? '');
 const when = (a, b) => {
@@ -45,7 +47,7 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
       api(`/tasks?done=is.false&due_on=gte.${d.toISOString().slice(0, 10)}&select=due_on&order=due_on&limit=1`).catch(() => []),
     ]).then(([ev, tk]) => {
       const next = [ev[0] && new Date(ev[0].starts_at), tk[0] && new Date(`${tk[0].due_on}T12:00:00`)].filter(Boolean).sort((x, y) => x - y)[0];
-      setInitial((next ?? now).toISOString());
+      setInitial((cur) => cur ?? (next ?? now).toISOString());   // an event opened from a link wins
     });
   }, []);
 
@@ -77,7 +79,8 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
     if (!focusId) return;
     api(`/events?id=eq.${focusId}&select=id,space_id,title,starts_at,ends_at,location,item_id`).then((r) => {
       if (!r[0]) { setNote("You don't have access to that event, or it was deleted."); setOpen(null); return; }
-      cal.current?.getApi().gotoDate(r[0].starts_at); setOpen(r[0]); setNote('');
+      if (cal.current) cal.current.getApi().gotoDate(r[0].starts_at); else setInitial(r[0].starts_at);
+      setOpen(r[0]); setNote('');
     }).catch(() => {});
   }, [focusId]);
 
@@ -168,6 +171,7 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
             <p className="cal-when">{when(open.starts_at, open.ends_at)}</p>
             {open.location && <p>{open.location}</p>}
             <p className="docs-meta"><span>{label(spaces.find((s) => s.id === open.space_id))}</span>{!canEdit(open.space_id) && <span className="docs-status">View only</span>}</p>
+            <EventRsvps key={open.id} event={open} me={me} notice={notice} />
             {notes.map((n) => <button key={n.id} type="button" className="btn btn--sm cal-notes" onClick={() => onOpenItem(n.id)}>Meeting notes: {n.item?.title}</button>)}
             {!notes.length && canEdit(open.space_id) && <button type="button" className="btn btn--sm cal-notes" onClick={startNotes}>Start meeting notes</button>}
             <span className="pair">

@@ -5,6 +5,7 @@ import AdminPanel from './AdminPanel.jsx';
 import Docs from './Docs.jsx';
 import Calendar from './Calendar.jsx';
 import Announcements from './Announcements.jsx';
+import Rsvps from './Rsvps.jsx';
 import Widgets from './Home.jsx';
 import ModelKey from './ModelKey.jsx';
 import Connect, { CONNECTING, ConnectedApps } from './Connect.jsx';
@@ -17,6 +18,7 @@ const APPS = [
   { id: 'whiteboard', label: 'Whiteboard', tint: '--p-wed', real: true, glyph: <><rect x="6" y="8" width="28" height="20" rx="2" /><path d="M12 22c3-6 6 2 9-4s5 1 7-2M14 34l6-6 6 6" /></> },
   { id: 'sheets', label: 'Sheets', tint: '--p-tue', real: true, glyph: <><rect x="7" y="8" width="26" height="24" rx="2" /><path d="M7 16h26M7 24h26M16 8v24M25 8v24" /></> },
   { id: 'calendar', label: 'Calendar', tint: '--p-mon', real: true, glyph: <><rect x="7" y="9" width="26" height="24" rx="2" /><path d="M7 16h26M14 6v6M26 6v6M13 22h4M19 22h4M25 22h2M13 27h4" /></> },
+  { id: 'rsvps', label: 'RSVPs', tint: '--p-sun', real: true, glyph: <><rect x="7" y="9" width="26" height="24" rx="2" /><path d="M7 16h26M14 6v6M26 6v6" /><path d="M14 24.5l3.5 3.5L26 20" /></> },
   { id: 'tasks', label: 'Tasks', tint: '--p-sun', real: true, glyph: <><rect x="8" y="7" width="24" height="27" rx="2" /><path d="M13 15l2.5 2.5L20 13M23 15.5h4M13 23l2.5 2.5L20 21M23 23.5h4M14 30h12" /></> },
   { id: 'boards', label: 'Boards', tint: '--p-tue', real: true, glyph: <><rect x="6" y="8" width="28" height="25" rx="2" /><path d="M15.3 8v25M24.7 8v25" /><rect x="8.6" y="11.5" width="4.2" height="4" rx="1" /><rect x="8.6" y="18" width="4.2" height="4" rx="1" /><rect x="17.9" y="11.5" width="4.2" height="4" rx="1" /><rect x="27.2" y="11.5" width="4.2" height="4" rx="1" /><rect x="27.2" y="18" width="4.2" height="4" rx="1" /><rect x="27.2" y="24.5" width="4.2" height="4" rx="1" /></> },
   { id: 'polls', label: 'Polls', tint: '--p-thu', real: true, glyph: <><path d="M8 33h24" /><rect x="10" y="19" width="5" height="14" rx="1" /><rect x="17.5" y="11" width="5" height="22" rx="1" /><rect x="25" y="15" width="5" height="18" rx="1" /><path d="M17 6.5l2.5 2.5L24 4.5" /></> },
@@ -355,6 +357,7 @@ export default function App() {
             : ui.active === 'links' ? <Docs key="links" kind="linklist" me={me} members={members} notice={notice} openId={ui.links} setOpenId={(links) => setUi((u) => ({ ...u, links }))} />
             : ui.active === 'announcements' ? <Announcements me={me} spaces={spaces} members={members} notice={notice} openId={ui.notices} setOpenId={(notices) => setUi((u) => ({ ...u, notices }))} />
             : ui.active === 'files' ? <Docs key="files" kind="file" me={me} members={members} notice={notice} openId={ui.file} setOpenId={(file) => setUi((u) => ({ ...u, file }))} />
+            : ui.active === 'rsvps' ? <Rsvps me={me} notice={notice} onOpenEvent={openEvent} />
             : ui.active === 'calendar' ? <Calendar me={me} members={members} notice={notice} onOpenItem={openItem} focusId={ui.event} setFocusId={(event) => setUi((u) => ({ ...u, event }))} />
             : <AppPanel id={ui.active} />}
         </section>

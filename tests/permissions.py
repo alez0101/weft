@@ -1468,6 +1468,138 @@ def meetings():
 
 
 # ---------------------------------------------------------------- teeth
+# ---------------------------------------------------------------- rsvps
+def rsvps():
+    pat, vic, olive = mint("u-pub"), mint("u-vol"), mint("u-org")
+    P, V, O = uid("user", "u-pub"), uid("user", "u-vol"), uid("user", "u-org")
+    oq = lambda sql: owner_sql(sql)
+    ts = lambda iv: oq(f"select to_char(now() + interval '{iv}', 'YYYY-MM-DD\"T\"HH24:MI:SSOF')")
+    soon, soon_end = ts("3 days"), ts("3 days 2 hours")
+    mine = lambda ev, who: oq(f"select coalesce((select answer from weft.rsvps where event_id = '{ev}' and user_id = '{who}'), 'none')")
+    fest = uid("slot", "S008")   # a seeded #festival event (in the future)
+    st, rows = call("POST", "/events", olive, {"space_id": SID["organizers"], "title": "ORG-RSVP-SECRET board dinner", "starts_at": soon, "ends_at": soon_end})
+    org = rows[0]["id"] if st == 201 else None
+    check("RSVPs: Olive (editor) makes an Organizers event to answer", org is not None, f"{st} {rows}")
+    st, rows = call("POST", "/rsvps", olive, {"event_id": org, "answer": "going"})
+    check("RSVPs: Olive answers Going in Organizers; the database records her as the person", st == 201 and rows[0]["user_id"] == O and rows[0]["answer"] == "going", f"{st} {rows}")
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = call("GET", f"/rsvps?event_id=eq.{org}&select=user_id", tok)
+        st2, rows2 = call("GET", "/rsvps?select=event_id", tok)
+        st3, rows3 = call("GET", f"/events?id=eq.{org}&select=id,rsvps(user_id)", tok)
+        check(f"RSVPs: {who} gets no Organizers answers, by event, by listing every answer, or through the event",
+              st == 200 and rows == [] and org not in {r["event_id"] for r in rows2 or []} and rows3 == [], f"{rows} {rows3}")
+        st, _ = call("POST", "/rsvps", tok, {"event_id": org, "answer": "going"})
+        check(f"RSVPs: {who} cannot answer on an Organizers event", refused(st), str(st))
+    check("RSVPs: so the Organizers event has only Olive's answer", oq(f"select count(*) from weft.rsvps where event_id = '{org}'") == "1")
+    # Viewers answer for themselves.
+    st, rows = call("POST", "/rsvps", pat, {"event_id": fest, "answer": "going"})
+    check("RSVPs: Pat (viewer) answers Going on a #festival event (positive control)", st == 201 and rows[0]["user_id"] == P, f"{st} {rows}")
+    st, _ = call("POST", "/rsvps", pat, {"event_id": fest, "answer": "maybe"})
+    check("RSVPs: one answer per person per event: a second is refused", st == 409 and mine(fest, P) == "going", str(st))
+    st, rows = call("PATCH", f"/rsvps?event_id=eq.{fest}&user_id=eq.{P}", pat, {"answer": "maybe"})
+    check("RSVPs: Pat changes her answer to Maybe", st == 200 and len(rows or []) == 1 and rows[0]["answer"] == "maybe", f"{st} {rows}")
+    st, _ = call("PATCH", f"/rsvps?event_id=eq.{fest}&user_id=eq.{P}", pat, {"answer": "yes please"})
+    st2, _ = call("POST", "/rsvps", vic, {"event_id": fest, "answer": "perhaps"})
+    check("RSVPs: only Going, Maybe or Not going", st == 400 and st2 == 400 and mine(fest, P) == "maybe", f"{st} {st2}")
+    st, rows = call("POST", "/rsvps", olive, {"event_id": fest, "answer": "no"})
+    check("RSVPs: Olive answers Not going on the #festival event", st == 201, f"{st} {rows}")
+    # Nobody writes someone else's answer, and Pat still cannot write in #festival.
+    st, _ = call("POST", "/rsvps", vic, {"event_id": fest, "answer": "going", "user_id": P})
+    check("RSVPs: an answer cannot be given in someone else's name (authorship cannot be forged)", refused(st) and mine(fest, V) == "none", str(st))
+    st, rows = call("PATCH", f"/rsvps?event_id=eq.{fest}&user_id=eq.{O}", pat, {"answer": "going"})
+    st2, rows2 = call("DELETE", f"/rsvps?event_id=eq.{fest}&user_id=eq.{O}", pat)
+    st3, rows3 = call("PATCH", f"/rsvps?event_id=eq.{fest}&user_id=eq.{P}", olive, {"answer": "no"})
+    st4, rows4 = call("DELETE", f"/rsvps?event_id=eq.{fest}&user_id=eq.{P}", olive)
+    check("RSVPs: nobody, editors included, changes or clears someone else's answer", rows == [] and rows2 == [] and rows3 == [] and rows4 == []
+          and mine(fest, O) == "no" and mine(fest, P) == "maybe", f"{st} {st2} {st3} {st4}")
+    st, rows = call("PATCH", f"/events?id=eq.{fest}", pat, {"title": "pwned"})
+    st2, _ = call("POST", "/events", pat, {"space_id": SID["festival"], "title": "pwned", "starts_at": soon, "ends_at": soon_end})
+    check("RSVPs: answering does not let Pat (viewer) change or add #festival events", rows == [] and refused(st2)
+          and oq(f"select title from weft.events where id = '{fest}'") != "pwned", f"{st} {st2}")
+    st, _ = call("PATCH", f"/rsvps?event_id=eq.{fest}&user_id=eq.{P}", pat, {"user_id": V})
+    st2, _ = call("PATCH", f"/rsvps?event_id=eq.{fest}&user_id=eq.{P}", pat, {"event_id": org})
+    st3, _ = call("PATCH", f"/rsvps?event_id=eq.{fest}&user_id=eq.{P}", pat, {"updated_at": "2020-01-01T00:00:00Z"})
+    check("RSVPs: an answer's person, event and times cannot be changed", refused(st) and refused(st2) and refused(st3)
+          and mine(fest, P) == "maybe", f"{st} {st2} {st3}")
+    st, rows = call("GET", f"/rsvps?event_id=eq.{fest}&select=user_id,answer,user:users(display_name)", pat)
+    check("RSVPs: members see who answered what (Pat sees her and Olive's answers, with names)", st == 200
+          and {(r["user_id"], r["answer"]) for r in rows} == {(P, "maybe"), (O, "no")} and all(r["user"] for r in rows), str(rows))
+    # Channel scope and the assistant.
+    scoped = mint("u-org", scope="festival")
+    st, rows = call("GET", f"/rsvps?event_id=in.({org},{fest})&select=event_id", scoped)
+    check("RSVPs: a #festival-scoped token sees only #festival answers", st == 200 and rows and {r["event_id"] for r in rows} == {fest}, str(rows))
+    st, rows = call("PATCH", f"/rsvps?event_id=eq.{org}&user_id=eq.{O}", scoped, {"answer": "no"})
+    st2, rows2 = call("DELETE", f"/rsvps?event_id=eq.{org}&user_id=eq.{O}", scoped)
+    check("RSVPs: nor changes or clears Olive's own Organizers answer", rows == [] and rows2 == [] and mine(org, O) == "going", f"{st} {st2}")
+    st, rows = call("PATCH", f"/rsvps?event_id=eq.{fest}&user_id=eq.{P}", mint("u-pub", scope="volunteers"), {"answer": "going"})
+    check("RSVPs: Pat cannot answer through a token scoped to another channel", rows == [] and mine(fest, P) == "maybe", f"{st} {rows}")
+    helper = mint("u-org", assistant=True)
+    st, rows = call("GET", f"/rsvps?event_id=eq.{org}&select=answer", helper)
+    check("RSVPs: the assistant (for Olive) reads Organizers answers (positive control)", st == 200 and len(rows) == 1, str(rows))
+    st, _ = call("DELETE", f"/rsvps?event_id=eq.{org}", helper)
+    st2, _ = call("POST", "/rsvps", helper, {"event_id": fest, "answer": "going"})
+    st3, _ = call("PATCH", f"/rsvps?event_id=eq.{org}", helper, {"answer": "no"})
+    check("RSVPs: the assistant cannot delete, give or change answers", refused(st) and refused(st2) and refused(st3)
+          and mine(org, O) == "going", f"{st} {st2} {st3}")
+    st, rows = call("GET", f"/rsvps?event_id=eq.{org}&select=answer", mint("u-pub", assistant=True))
+    check("RSVPs: the assistant for Pat reads no Organizers answers", st == 200 and rows == [], str(rows))
+    # Audit.
+    st, rows = call("GET", f"/audit?row_id=eq.{fest}&table_name=eq.rsvps&select=op", vic)
+    check("RSVPs: a changed #festival answer is in the audit log, for its members, Vic included (positive control)", len(rows or []) >= 1, str(rows))
+    call("PATCH", f"/rsvps?event_id=eq.{org}&user_id=eq.{O}", olive, {"answer": "maybe"})
+    st, rows = call("GET", f"/audit?row_id=eq.{org}&table_name=eq.rsvps&select=op", olive)
+    st2, rows2 = call("GET", f"/audit?row_id=eq.{org}&select=op", pat)
+    check("RSVPs: an Organizers change is in the audit log for Organizers members only", len(rows or []) >= 1 and rows2 == [], f"{rows} {rows2}")
+    # Clearing your own answer.
+    st, _ = call("DELETE", f"/rsvps?event_id=eq.{fest}&user_id=eq.{O}", olive)
+    check("RSVPs: Olive clears her own answer (positive control)", st in (200, 204) and mine(fest, O) == "none", str(st))
+    # Ended events: the answers are fixed.
+    st, rows = call("POST", "/events", olive, {"space_id": SID["festival"], "title": "Soundcheck", "starts_at": soon, "ends_at": soon_end})
+    ev = rows[0]["id"] if st == 201 else None
+    call("POST", "/rsvps", pat, {"event_id": ev, "answer": "going"})
+    oq(f"update weft.events set starts_at = now() - interval '3 hours', ends_at = now() - interval '1 hour' where id = '{ev}'")
+    st, _ = call("PATCH", f"/rsvps?event_id=eq.{ev}&user_id=eq.{P}", pat, {"answer": "no"})
+    st2, _ = call("DELETE", f"/rsvps?event_id=eq.{ev}&user_id=eq.{P}", pat)
+    st3, body = call("POST", "/rsvps", olive, {"event_id": ev, "answer": "going"})
+    check("RSVPs: once an event has ended, nobody changes, clears or adds an answer", refused(st) and refused(st2) and refused(st3)
+          and "ended" in json.dumps(body) and mine(ev, P) == "going" and mine(ev, O) == "none", f"{st} {st2} {st3} {body}")
+    st, rows = call("GET", f"/rsvps?event_id=eq.{ev}&select=answer", pat)
+    check("RSVPs: the ended event's answers can still be read", rows == [{"answer": "going"}], str(rows))
+    # Moves follow the space.
+    st, rows = call("POST", "/events", olive, {"space_id": SID["festival"], "title": "Parade walk-through", "starts_at": soon, "ends_at": soon_end})
+    mv = rows[0]["id"] if st == 201 else None
+    for tok in (pat, vic, olive):
+        call("POST", "/rsvps", tok, {"event_id": mv, "answer": "going"})
+    check("RSVPs: Pat, Vic and Olive say Going to a #festival event", oq(f"select count(*) from weft.rsvps where event_id = '{mv}'") == "3")
+    st, _ = call("PATCH", f"/events?id=eq.{mv}", olive, {"space_id": SID["volunteers"]})
+    st2, rows = call("GET", f"/rsvps?event_id=eq.{mv}&select=user_id", pat)
+    check("RSVPs: the event moved to Volunteers keeps only answers from its members (Vic, Olive), and Pat sees none",
+          st == 200 and rows == [] and oq(f"select string_agg(user_id::text, ',' order by user_id) from weft.rsvps where event_id = '{mv}'") == ",".join(sorted([V, O])), f"{st} {rows}")
+    st, rows = call("GET", f"/rsvps?event_id=eq.{mv}&select=user_id", vic)
+    check("RSVPs: Vic (editor in Volunteers) still sees the answers there (positive control)", len(rows or []) == 2, str(rows))
+    st, _ = call("PATCH", f"/events?id=eq.{mv}", olive, {"space_id": SID["organizers"]})
+    check("RSVPs: moved on to Organizers, only Olive's answer stays", mine(mv, O) == "going" and mine(mv, V) == "none", str(st))
+    # Leaving a space takes your answers there with you.
+    st, ch = call("POST", "/rpc/create_channel", olive, {"p_name": "rsvp test"})
+    call("POST", "/members", olive, {"space_id": ch, "user_id": P, "role": "viewer"}, prefer="return=minimal")
+    st, rows = call("POST", "/events", olive, {"space_id": ch, "title": "Picnic", "starts_at": soon, "ends_at": soon_end})
+    pic = rows[0]["id"] if st == 201 else None
+    st, _ = call("POST", "/rsvps", pat, {"event_id": pic, "answer": "going"})
+    check("RSVPs: added to a new channel as a viewer, Pat answers on its event (positive control)", st == 201, str(st))
+    call("DELETE", f"/members?space_id=eq.{ch}&user_id=eq.{P}", olive)
+    check("RSVPs: removed from the channel, her answer there is gone", mine(pic, P) == "none")
+    st, _ = call("DELETE", f"/events?id=eq.{pic}", pat)
+    check("RSVPs: Pat cannot delete an event or its answers", oq(f"select count(*) from weft.events where id = '{pic}'") == "1", str(st))
+    call("POST", "/rsvps", olive, {"event_id": pic, "answer": "maybe"})
+    st, _ = call("DELETE", f"/events?id=eq.{pic}", olive)
+    check("RSVPs: deleting an event deletes its answers", st in (200, 204) and oq(f"select count(*) from weft.rsvps where event_id = '{pic}'") == "0", str(st))
+    call("DELETE", f"/spaces?id=eq.{ch}", olive)
+    for e in (org, ev, mv):
+        call("DELETE", f"/events?id=eq.{e}", olive)
+    check("RSVPs: deleting an ended event deletes its answers too", oq(f"select count(*) from weft.rsvps where event_id in ('{org}', '{ev}', '{mv}')") == "0")
+    call("DELETE", f"/rsvps?event_id=eq.{fest}&user_id=eq.{P}", pat)
+
+
 def teeth():
     """Loosen one policy on purpose and confirm the suite would catch it, then restore it."""
     owner_sql("create policy teeth_leak on weft.items for select to weft_user using (true)")
@@ -1495,6 +1627,7 @@ if __name__ == "__main__":
     links()
     announcements()
     meetings()
+    rsvps()
     people()
     trees()
     prefs_and_files()
