@@ -143,7 +143,7 @@ function fmtTime(iso, tz) {
 function prompt(question, sources, tz) {
   const lines = sources.map((s, i) => {
     const n = `[${i + 1}]`;
-    if (s.type === 'item') return `${n} ${({ wiki: 'wiki page', whiteboard: 'whiteboard', table: 'table', tasklist: 'task list', poll: 'poll', form: 'form', linklist: 'link list', addressbook: 'address book', decisionlog: 'decision log', meeting: 'meeting notes', file: 'file' })[s.kind] || 'document'} "${s.title}" in ${where(s.space)}: ${s.text || '(empty)'}`;
+    if (s.type === 'item') return `${n} ${({ wiki: 'wiki page', whiteboard: 'whiteboard', table: 'table', tasklist: 'task list', poll: 'poll', form: 'form', linklist: 'link list', addressbook: 'address book', decisionlog: 'decision log', qa: 'Q and A board (questions and answers; prefer the accepted answer, then the most upvoted)', meeting: 'meeting notes', file: 'file' })[s.kind] || 'document'} "${s.title}" in ${where(s.space)}: ${s.text || '(empty)'}`;
     if (s.type === 'event') return `${n} event "${s.title}" in ${where(s.space)}, ${fmtTime(s.starts_at, tz)} to ${fmtTime(s.ends_at, tz)}${s.location ? `, at ${s.location}` : ''}`;
     return `${n} message in ${where(s.space)}, ${s.author?.display_name}, ${s.created_at.slice(0, 16).replace('T', ' ')}: ${s.body}`;
   });

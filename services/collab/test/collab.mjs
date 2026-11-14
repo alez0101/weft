@@ -159,6 +159,9 @@ check('Nor an address book (its text is its contacts)', ab.failed && !ab.scope, 
 const [logItem] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'decisionlog', title: 'Collab decisions' } })).rows;
 const dl = await open(olive.token, logItem.id);
 check('Nor a decision log (its text is its decisions)', dl.failed && !dl.scope, `${dl.failed} ${dl.scope}`); close(dl);
+const [qaItem] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'qa', title: 'Collab questions' } })).rows;
+const qb = await open(olive.token, qaItem.id);
+check('Nor a Q and A board (its text is its questions and answers)', qb.failed && !qb.scope, `${qb.failed} ${qb.scope}`); close(qb);
 
 // ---------------- moving or deleting a document closes its sessions
 const [mv] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'document', title: 'Move test' } })).rows;

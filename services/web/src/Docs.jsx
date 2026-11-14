@@ -19,6 +19,7 @@ import Poll from './Poll.jsx';
 import LinkList from './LinkList.jsx';
 import ContactList from './Contacts.jsx';
 import DecisionLog from './Decisions.jsx';
+import QandA from './QandA.jsx';
 import Meeting from './Meeting.jsx';
 import Form from './Form.jsx';
 
@@ -120,7 +121,7 @@ export default function Docs({ kind, view, me, members, openId, setOpenId, notic
   async function create() {
     try {
       const parent = kind === 'wiki' && current && current.space_id === newSpace ? current.id : null;
-      const [row] = await api('/items', { method: 'POST', body: { space_id: newSpace, kind, title: kind === 'wiki' ? 'New page' : kind === 'whiteboard' ? 'Untitled whiteboard' : kind === 'table' ? 'Untitled table' : kind === 'tasklist' ? 'New task list' : kind === 'poll' ? 'New poll' : kind === 'form' ? 'New form' : kind === 'linklist' ? 'Useful links' : kind === 'addressbook' ? 'Contacts' : kind === 'decisionlog' ? 'Decisions' : kind === 'meeting' ? `Meeting ${new Date().toLocaleDateString([], { month: 'short', day: 'numeric' })}` : 'Untitled document', parent_id: parent }, prefer: 'return=representation' });
+      const [row] = await api('/items', { method: 'POST', body: { space_id: newSpace, kind, title: kind === 'wiki' ? 'New page' : kind === 'whiteboard' ? 'Untitled whiteboard' : kind === 'table' ? 'Untitled table' : kind === 'tasklist' ? 'New task list' : kind === 'poll' ? 'New poll' : kind === 'form' ? 'New form' : kind === 'linklist' ? 'Useful links' : kind === 'addressbook' ? 'Contacts' : kind === 'decisionlog' ? 'Decisions' : kind === 'qa' ? 'Questions' : kind === 'meeting' ? `Meeting ${new Date().toLocaleDateString([], { month: 'short', day: 'numeric' })}` : 'Untitled document', parent_id: parent }, prefer: 'return=representation' });
       if (kind === 'poll') await api('/poll_choices', { method: 'POST', body: [{ poll_id: row.id, label: 'Yes', position: 0 }, { poll_id: row.id, label: 'No', position: 1 }], prefer: 'return=minimal' });
       if (kind === 'form') await api('/form_questions', { method: 'POST', body: { form_id: row.id, label: 'Your name', kind: 'short', required: true, position: 0 }, prefer: 'return=minimal' });
       if (kind === 'table') await api('/table_columns', { method: 'POST', body: { table_id: row.id, name: 'Name', type: 'text', position: 0 }, prefer: 'return=minimal' });
@@ -174,11 +175,11 @@ export default function Docs({ kind, view, me, members, openId, setOpenId, notic
         {kind === 'wiki' && <ul>{renderRows(rows.filter((x) => x.parent_id === r.id), r.id, depth + 1)}</ul>}
       </li>
     ));
-  const noun = kind === 'wiki' ? 'page' : kind === 'whiteboard' ? 'whiteboard' : kind === 'table' ? 'table' : kind === 'tasklist' ? 'task list' : kind === 'poll' ? 'poll' : kind === 'form' ? 'form' : kind === 'linklist' ? 'link list' : kind === 'addressbook' ? 'address book' : kind === 'decisionlog' ? 'decision log' : kind === 'meeting' ? 'meeting' : kind === 'file' ? 'file' : 'document';
+  const noun = kind === 'wiki' ? 'page' : kind === 'whiteboard' ? 'whiteboard' : kind === 'table' ? 'table' : kind === 'tasklist' ? 'task list' : kind === 'poll' ? 'poll' : kind === 'form' ? 'form' : kind === 'linklist' ? 'link list' : kind === 'addressbook' ? 'address book' : kind === 'decisionlog' ? 'decision log' : kind === 'qa' ? 'Q and A board' : kind === 'meeting' ? 'meeting' : kind === 'file' ? 'file' : 'document';
 
   return (
     <div className="docs">
-      <nav className={`docs-list${dragging ? ' is-dropping' : ''}`} aria-label={kind === 'wiki' ? 'Wiki pages' : kind === 'whiteboard' ? 'Whiteboards' : kind === 'table' ? 'Tables' : kind === 'tasklist' ? 'Task lists' : kind === 'poll' ? 'Polls' : kind === 'form' ? 'Forms' : kind === 'linklist' ? 'Link lists' : kind === 'addressbook' ? 'Address books' : kind === 'decisionlog' ? 'Decision logs' : kind === 'meeting' ? 'Meetings' : kind === 'file' ? 'Files' : 'Documents'}
+      <nav className={`docs-list${dragging ? ' is-dropping' : ''}`} aria-label={kind === 'wiki' ? 'Wiki pages' : kind === 'whiteboard' ? 'Whiteboards' : kind === 'table' ? 'Tables' : kind === 'tasklist' ? 'Task lists' : kind === 'poll' ? 'Polls' : kind === 'form' ? 'Forms' : kind === 'linklist' ? 'Link lists' : kind === 'addressbook' ? 'Address books' : kind === 'decisionlog' ? 'Decision logs' : kind === 'qa' ? 'Q and A boards' : kind === 'meeting' ? 'Meetings' : kind === 'file' ? 'Files' : 'Documents'}
         onDragOver={kind === 'file' ? (e) => { e.preventDefault(); setDragging(true); } : undefined}
         onDragLeave={kind === 'file' ? () => setDragging(false) : undefined}
         onDrop={kind === 'file' ? (e) => { e.preventDefault(); setDragging(false); upload(e.dataTransfer.files); } : undefined}>
@@ -243,6 +244,8 @@ export default function Docs({ kind, view, me, members, openId, setOpenId, notic
               ? <div className="docs-links"><ContactList key={current.id} item={current} editable={canEditIn(current.space_id)} notice={notice} /></div>
               : kind === 'decisionlog'
               ? <div className="docs-links"><DecisionLog key={current.id} item={current} editable={canEditIn(current.space_id)} notice={notice} /></div>
+              : kind === 'qa'
+              ? <div className="docs-links"><QandA key={current.id} item={current} me={me} editable={canEditIn(current.space_id)} owner={myRole(current.space_id) === 'owner'} notice={notice} /></div>
               : kind === 'meeting'
               ? <div className="docs-meeting"><Meeting key={current.id} item={current} me={me} members={members} editable={canEditIn(current.space_id)} notice={notice} onOpenEvent={onOpenEvent} onOpenItem={onOpenItem} /></div>
               : kind === 'poll'
@@ -260,7 +263,7 @@ export default function Docs({ kind, view, me, members, openId, setOpenId, notic
         ) : missing ? (
           <div className="empty"><h2>You don't have access to this {noun}</h2><p>It belongs to a space you're not in, or it was deleted. Ask someone in that space to add you.</p></div>
         ) : (
-          <div className="empty"><h2>{kind === 'wiki' ? 'Pick a page' : kind === 'whiteboard' ? 'Pick a whiteboard' : kind === 'table' ? 'Pick a table' : kind === 'tasklist' ? (view === 'board' ? 'Pick a task list to see it as a board' : 'Pick a task list') : kind === 'poll' ? 'Pick a poll' : kind === 'form' ? 'Pick a form' : kind === 'linklist' ? 'Pick a link list' : kind === 'addressbook' ? 'Pick an address book' : kind === 'decisionlog' ? 'Pick a decision log' : kind === 'meeting' ? 'Pick a meeting' : kind === 'file' ? 'Pick a file' : 'Pick a document'}</h2><p>Everything here is saved in Weft, and the assistant can answer from it for anyone who can open it.</p></div>
+          <div className="empty"><h2>{kind === 'wiki' ? 'Pick a page' : kind === 'whiteboard' ? 'Pick a whiteboard' : kind === 'table' ? 'Pick a table' : kind === 'tasklist' ? (view === 'board' ? 'Pick a task list to see it as a board' : 'Pick a task list') : kind === 'poll' ? 'Pick a poll' : kind === 'form' ? 'Pick a form' : kind === 'linklist' ? 'Pick a link list' : kind === 'addressbook' ? 'Pick an address book' : kind === 'decisionlog' ? 'Pick a decision log' : kind === 'qa' ? 'Pick a Q and A board' : kind === 'meeting' ? 'Pick a meeting' : kind === 'file' ? 'Pick a file' : 'Pick a document'}</h2><p>Everything here is saved in Weft, and the assistant can answer from it for anyone who can open it.</p></div>
         )}
       </section>
     </div>
