@@ -1,7 +1,7 @@
 # Weft
 
 A small, self-hosted collaboration suite in one browser tab: chat, documents, a wiki, whiteboards,
-tables, task lists, polls, forms, link lists, announcements, files and a calendar, opened as tabs from an iPad-like home screen, with a Teams-like chat rail and an
+tables, task lists and boards, polls, forms, link lists, announcements, files and a calendar, opened as tabs from an iPad-like home screen, with a Teams-like chat rail and an
 AI assistant that answers only from what the person asking is allowed to see, with links to where
 each answer came from.
 
@@ -69,7 +69,7 @@ Operations page has the details.
 ## Tests
 
 ```sh
-tests/run.sh          # builds a separate test stack, runs seven suites (708 checks), removes it
+tests/run.sh          # builds a separate test stack, runs seven suites (742 checks), removes it
 tests/run.sh --keep   # leaves the test stack up for the browser checks in tests/*.cjs
 ```
 
