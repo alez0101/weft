@@ -3199,6 +3199,217 @@ def time_off():
     call("DELETE", f"/time_off?id=eq.{org}", olive)
 
 
+def retros():
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, V, O, A = uid("user", "u-pub"), uid("user", "u-vol"), uid("user", "u-org"), uid("user", "u-alex")
+    oq = lambda sql: owner_sql(sql)
+    COLS = "id,retro_id,kind,body,anonymous,author_id,task_id,created_at,updated_at"
+    note = lambda tok, retro, kind, body, anon=False: call("POST", f"/retro_notes?select={COLS}", tok, {"retro_id": retro, "kind": kind, "body": body, "anonymous": anon})
+    st, rows = call("POST", "/items", olive, {"space_id": SID["organizers"], "kind": "retro", "title": "Org retro"})
+    org = rows[0]["id"] if st == 201 else None
+    st2, rows = call("POST", "/items", olive, {"space_id": SID["festival"], "kind": "retro", "title": "Festival retro"})
+    fest = rows[0]["id"] if st2 == 201 else None
+    check("Retros: Olive (editor) makes retros in Organizers and #festival; each gets its row", org and fest
+          and oq(f"select count(*) from weft.retros where id in ('{org}', '{fest}')") == "2", f"{st} {st2}")
+    st, _ = call("POST", "/items", pat, {"space_id": SID["festival"], "kind": "retro", "title": "x"})
+    check("Retros: Pat (viewer) cannot make a retro in #festival", refused(st), str(st))
+    st, _ = call("POST", "/retros", olive, {"id": fest})
+    check("Retros: nobody inserts a retro row by hand", refused(st), str(st))
+    # Notes: every member adds them, viewers included; the database sets the author.
+    st, rows = note(olive, org, "to_improve", "  ORG-RETRO-SECRET budget overrun ")
+    on = rows[0]["id"] if st == 201 else None
+    check("Retros: Olive adds a note in Organizers (positive control); author set by the database, text trimmed",
+          on and rows[0]["author_id"] == O and rows[0]["body"] == "ORG-RETRO-SECRET budget overrun" and rows[0]["anonymous"] is False, f"{st} {rows}")
+    st, rows = note(pat, fest, "to_improve", "The queue at the gate was too long", True)
+    pn = rows[0]["id"] if st == 201 else None
+    check("Retros: Pat (viewer in #festival) adds an anonymous note there (positive control); no author shown",
+          pn and rows[0]["author_id"] is None and rows[0]["anonymous"] is True and oq(f"select created_by from weft.retro_notes where id = '{pn}'") == P, f"{st} {rows}")
+    st, rows = note(vic, fest, "went_well", "Great volunteers")
+    vn = rows[0]["id"] if st == 201 else None
+    check("Retros: Vic (viewer in #festival) adds a named note; his name is shown", vn and rows[0]["author_id"] == V, f"{st} {rows}")
+    st, rows = note(olive, fest, "action", "Open a second gate next year")
+    act = rows[0]["id"] if st == 201 else None
+    st2, rows2 = note(olive, fest, "action", "Order more bins")
+    act2 = rows2[0]["id"] if st2 == 201 else None
+    check("Retros: Olive adds actions in #festival (positive control)", act and act2, f"{st} {st2}")
+    st, _ = note(pat, org, "went_well", "x")
+    st2, _ = note(vic, org, "went_well", "x")
+    check("Retros: Pat and Vic cannot add notes to the Organizers retro", refused(st) and refused(st2), f"{st} {st2}")
+    st, _ = note(pat, uid("item", "porches"), "went_well", "on a table")
+    check("Retros: a note cannot hang off an item that is not a retro", refused(st), str(st))
+    for bad, why in (({"kind": "went_well", "body": "   "}, "an empty note"), ({"kind": "went_well", "body": "x" * 1001}, "a note over 1000 characters"),
+                     ({"kind": "gripes", "body": "x"}, "a column that does not exist")):
+        st, _ = call("POST", "/retro_notes?select=id", olive, {"retro_id": fest, **bad})
+        check(f"Retros: {why} is refused", st == 400, str(st))
+    # Outsiders see nothing, not by id and not by filtering.
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = call("GET", f"/retro_notes?retro_id=eq.{org}&select=id", tok)
+        st2, rows2 = call("GET", f"/retros?id=eq.{org}", tok)
+        st3, rows3 = call("GET", f"/items?id=eq.{org}&select=body_text", tok)
+        check(f"Retros: {who} gets no Organizers retro, notes or summary", st == 200 and rows == [] and rows2 == [] and rows3 == [], f"{rows} {rows2} {rows3}")
+    st, rows = call("GET", "/retro_notes?select=id&body=like.*ORG-RETRO*", pat)
+    check("Retros: nor finds Organizers notes by filtering every note", st == 200 and rows == [], str(rows))
+    st, rows = call("GET", f"/retro_notes?retro_id=eq.{fest}&select=id", pat)
+    check("Retros: Pat reads the #festival notes (positive control)", st == 200 and len(rows) == 4, str(rows))
+    # Anonymous: nobody reads who wrote a note, not the owner, an editor or the assistant, in any way.
+    helper = mint("u-alex", assistant=True)
+    for who, tok in (("Alex (owner)", alex), ("Olive (editor)", olive), ("the assistant", helper)):
+        tries = [call("GET", f"/retro_notes?id=eq.{pn}", tok), call("GET", f"/retro_notes?id=eq.{pn}&select=created_by", tok),
+                 call("GET", f"/retro_notes?select=id&created_by=eq.{P}", tok), call("GET", f"/retro_notes?select=id&retro_id=eq.{fest}&order=created_by", tok),
+                 call("GET", f"/retro_notes?id=eq.{pn}&select=id,who:users!retro_notes_created_by_fkey(display_name)", tok),
+                 call("GET", f"/users?id=eq.{P}&select=id,notes:retro_notes!retro_notes_created_by_fkey(id)", tok)]
+        check(f"Retros: {who} cannot read, filter, order or embed by who wrote a note", all(refused(s) for s, _ in tries), str([s for s, _ in tries]))
+    st, rows = call("GET", f"/retro_notes?id=eq.{pn}&select=id,author_id,anonymous", alex)
+    check("Retros: Alex (owner) sees the anonymous note with no author (positive control: the note is readable)",
+          st == 200 and len(rows) == 1 and rows[0]["author_id"] is None, str(rows))
+    st, rows = call("POST", "/rpc/my_retro_notes", pat, {"p_retro": fest})
+    st2, rows2 = call("POST", "/rpc/my_retro_notes", olive, {"p_retro": fest})
+    st3, rows3 = call("POST", "/rpc/my_retro_notes", alex, {"p_retro": fest})
+    check("Retros: my_retro_notes tells Pat her note is hers, and tells Olive and Alex only about their own",
+          st == 200 and rows == [pn] and st2 == 200 and set(rows2) == {act, act2} and st3 == 200 and rows3 == [], f"{rows} {rows2} {rows3}")
+    st, rows = call("POST", "/rpc/my_retro_notes", vic, {"p_retro": org})
+    st2, _ = call("POST", "/rpc/my_retro_notes", helper, {"p_retro": fest})
+    check("Retros: nor anything about a retro you cannot see; the assistant cannot ask", st == 200 and rows == [] and refused(st2), f"{rows} {st2}")
+    # Authorship and the anonymous choice cannot be forged or changed.
+    st, _ = call("POST", "/retro_notes?select=id", pat, {"retro_id": fest, "kind": "went_well", "body": "forged", "created_by": V})
+    st2, _ = call("POST", "/retro_notes?select=id", pat, {"retro_id": fest, "kind": "went_well", "body": "forged", "author_id": V})
+    st3, _ = call("POST", "/retro_notes?select=id", olive, {"retro_id": fest, "kind": "action", "body": "forged", "task_id": uid("item", "x")})
+    check("Retros: the author (hidden or shown) cannot be forged, nor a task set on insert", refused(st) and refused(st2) and refused(st3), f"{st} {st2} {st3}")
+    st, _ = call("PATCH", f"/retro_notes?id=eq.{pn}", pat, {"anonymous": False}, prefer="return=minimal")
+    st2, _ = call("PATCH", f"/retro_notes?id=eq.{vn}", vic, {"author_id": P}, prefer="return=minimal")
+    st3, _ = call("PATCH", f"/retro_notes?id=eq.{vn}", vic, {"kind": "to_improve"}, prefer="return=minimal")
+    st4, _ = call("PATCH", f"/retro_notes?id=eq.{vn}", vic, {"retro_id": org}, prefer="return=minimal")
+    check("Retros: a note's anonymity, author, column and retro cannot be changed", all(refused(s) for s in (st, st2, st3, st4))
+          and oq(f"select anonymous::text || author_id::text || kind || retro_id from weft.retro_notes where id = '{vn}'") == f"false{V}went_well{fest}", f"{st} {st2} {st3} {st4}")
+    # Your own note only; editors and owners tidy up by deleting.
+    st, rows = call("PATCH", f"/retro_notes?id=eq.{pn}", vic, {"body": "pwned"}, prefer="return=minimal")
+    st2, _ = call("PATCH", f"/retro_notes?id=eq.{pn}", olive, {"body": "pwned"}, prefer="return=minimal")
+    st3, _ = call("DELETE", f"/retro_notes?id=eq.{vn}", pat, prefer="return=minimal")
+    check("Retros: Vic and Olive cannot change Pat's note; Pat cannot delete Vic's", refused(st2) and st3 in (200, 204)
+          and oq(f"select body from weft.retro_notes where id = '{pn}'") == "The queue at the gate was too long" and oq(f"select count(*) from weft.retro_notes where id = '{vn}'") == "1", f"{st} {st2} {st3}")
+    st, rows = call("PATCH", f"/retro_notes?id=eq.{pn}&select=id,body,updated_at,created_at", pat, {"body": " The queue at the gate was far too long "})
+    check("Retros: Pat changes her own anonymous note (positive control)", st == 200 and rows and rows[0]["body"] == "The queue at the gate was far too long", f"{st} {rows}")
+    st, rows = call("GET", f"/audit?table_name=eq.retro_notes&row_id=eq.{pn}&select=actor_id,old_row", olive)
+    check("Retros: the audit row of an anonymous note names no actor and carries no created_by",
+          st == 200 and len(rows) == 1 and rows[0]["actor_id"] is None and "created_by" not in rows[0]["old_row"] and rows[0]["old_row"]["author_id"] is None, str(rows))
+    st, rows = call("PATCH", f"/retro_notes?id=eq.{vn}&select=id", vic, {"body": "Great volunteers, again"})
+    st2, rows2 = call("GET", f"/audit?table_name=eq.retro_notes&row_id=eq.{vn}&select=actor_id,old_row", pat)
+    check("Retros: a named note's audit row names the actor, still without created_by (positive control)",
+          st == 200 and len(rows2) == 1 and rows2[0]["actor_id"] == V and "created_by" not in rows2[0]["old_row"], f"{st} {rows2}")
+    st, rows = call("GET", f"/items?id=eq.{fest}&select=body_text", pat)
+    body = (rows[0]["body_text"] if rows else "") or ""
+    check("Retros: the summary carries the notes by column and names no one",
+          "To improve:\n- The queue at the gate was far too long" in body and "Went well:\n- Great volunteers, again" in body and "Actions:\n- Open a second gate next year" in body
+          and not any(n in body for n in ("Pat", "Vic", "Olive")), body)
+    # Period and task list: editors and owners only, the list in the retro's own space.
+    st, rows = call("POST", "/items", olive, {"space_id": SID["festival"], "kind": "tasklist", "title": "Festival follow-ups"})
+    flist = rows[0]["id"] if st == 201 else None
+    st, rows = call("POST", "/items", olive, {"space_id": SID["organizers"], "kind": "tasklist", "title": "Org follow-ups"})
+    olist = rows[0]["id"] if st == 201 else None
+    st, rows = call("PATCH", f"/retros?id=eq.{fest}", pat, {"period_from": "2026-10-01"})
+    check("Retros: Pat (viewer) cannot set the period", st == 200 and rows == [] and oq(f"select coalesce(period_from::text, '') from weft.retros where id = '{fest}'") == "", f"{st} {rows}")
+    st, _ = call("PATCH", f"/retros?id=eq.{fest}", olive, {"task_list_id": olist})
+    st2, _ = call("PATCH", f"/retros?id=eq.{fest}", olive, {"task_list_id": HOST_CONTACTS})
+    check("Retros: the task list must be a task list in the retro's own space", st == 400 and st2 == 400, f"{st} {st2}")
+    st, _ = call("PATCH", f"/retros?id=eq.{fest}", olive, {"period_from": "2026-10-10", "period_to": "2026-10-01"})
+    check("Retros: a period that ends before it starts is refused", st == 400, str(st))
+    st, rows = call("PATCH", f"/retros?id=eq.{fest}", olive, {"period_from": "2026-10-01", "period_to": "2026-10-31", "task_list_id": flist})
+    check("Retros: Olive sets the period and the task list (positive control)", st == 200 and rows and rows[0]["task_list_id"] == flist and rows[0]["period_to"] == "2026-10-31", f"{st} {rows}")
+    st, rows = call("PATCH", f"/retros?id=eq.{org}", olive, {"task_list_id": olist})
+    # Actions become tasks.
+    st, _ = call("POST", "/rpc/retro_action_to_task", pat, {"p_note": act})
+    st2, _ = call("POST", "/rpc/retro_action_to_task", vic, {"p_note": act})
+    check("Retros: Pat and Vic (viewers) cannot turn an action into a task; no task is made", refused(st) and refused(st2)
+          and oq(f"select count(*) from weft.tasks where list_id = '{flist}'") == "0" and oq(f"select coalesce(task_id::text, '') from weft.retro_notes where id = '{act}'") == "", f"{st} {st2}")
+    st, rows = call("POST", "/rpc/retro_action_to_task", olive, {"p_note": act, "p_assignee": V, "p_due": "2027-03-01"})
+    task = rows["id"] if st == 200 and isinstance(rows, dict) else None
+    check("Retros: Olive turns an action into a task (positive control): a real task in the list, linked to the note",
+          task and rows["list_id"] == flist and rows["title"] == "Open a second gate next year" and rows["assignee_id"] == V
+          and oq(f"select task_id from weft.retro_notes where id = '{act}'") == task, f"{st} {rows}")
+    st, _ = call("POST", "/rpc/retro_action_to_task", olive, {"p_note": act})
+    st2, _ = call("POST", "/rpc/retro_action_to_task", olive, {"p_note": pn})
+    st3, _ = call("POST", "/rpc/retro_action_to_task", olive, {"p_note": on, "p_assignee": None})
+    check("Retros: an action that is already a task, or a note that is not an action, does not become one",
+          st == 400 and st2 == 400 and oq(f"select count(*) from weft.tasks where list_id = '{flist}'") == "1", f"{st} {st2} {st3}")
+    st, rows = call("POST", "/tasks", olive, {"list_id": olist, "title": "Org task"})
+    otask = rows[0]["id"] if st == 201 else None
+    st, _ = call("PATCH", f"/retro_notes?id=eq.{act2}", olive, {"task_id": otask}, prefer="return=minimal")
+    st2, _ = call("PATCH", f"/retro_notes?id=eq.{pn}", pat, {"task_id": task}, prefer="return=minimal")
+    check("Retros: an action cannot link to a task in another space; a viewer cannot link even her own note",
+          st == 400 and refused(st2) and oq(f"select coalesce(task_id::text, '') from weft.retro_notes where id = '{act2}'") == "", f"{st} {st2}")
+    st, _ = call("PATCH", f"/tasks?id=eq.{task}", vic, {"done": True}, prefer="return=minimal")
+    body = oq(f"select body_text from weft.items where id = '{fest}'") or ""
+    check("Retros: the assignee ticks the task off (the Tasks rule) and the retro's summary follows", "Open a second gate next year (task, done)" in body, body)
+    # Channel scope and the assistant.
+    scoped = mint("u-org", scope="festival")
+    st, rows = call("GET", f"/retro_notes?retro_id=in.({org},{fest})&select=retro_id", scoped)
+    st2, _ = note(scoped, org, "went_well", "scoped")
+    st3, _ = call("POST", "/rpc/retro_action_to_task", scoped, {"p_note": on})
+    check("Retros: a #festival-scoped token sees only #festival notes and writes nothing in Organizers",
+          st == 200 and rows and {r["retro_id"] for r in rows} == {fest} and refused(st2) and refused(st3), f"{rows} {st2} {st3}")
+    helper = mint("u-org", assistant=True)
+    st, rows = call("GET", f"/retro_notes?retro_id=eq.{org}&select=id,body", helper)
+    check("Retros: the assistant (for Olive) reads Organizers notes (positive control)", st == 200 and len(rows) == 1, str(rows))
+    st, _ = call("DELETE", f"/retro_notes?id=eq.{on}", helper, prefer="return=minimal")
+    st2, _ = call("PATCH", f"/retro_notes?id=eq.{on}", helper, {"body": "by the assistant"}, prefer="return=minimal")
+    st3, _ = note(helper, org, "went_well", "by the assistant")
+    st4, _ = call("PATCH", f"/retros?id=eq.{org}", helper, {"period_from": "2026-01-01"}, prefer="return=minimal")
+    st5, _ = call("POST", "/rpc/retro_action_to_task", helper, {"p_note": act2})
+    check("Retros: the assistant cannot delete, change or add notes, change a retro or make tasks", all(refused(s) for s in (st, st2, st3, st4, st5))
+          and oq(f"select body from weft.retro_notes where id = '{on}'") == "ORG-RETRO-SECRET budget overrun", f"{st} {st2} {st3} {st4} {st5}")
+    # Audit under the retro's space; search.
+    call("PATCH", f"/retro_notes?id=eq.{on}", olive, {"body": "ORG-RETRO-SECRET budget overrun, again"}, prefer="return=minimal")
+    st, rows = call("GET", f"/audit?row_id=eq.{on}&select=op", olive)
+    st2, rows2 = call("GET", f"/audit?row_id=eq.{on}&select=op", pat)
+    check("Retros: an Organizers note change is in the audit log for Organizers members only", len(rows or []) >= 1 and rows2 == [], f"{rows} {rows2}")
+    st, rows = call("POST", "/rpc/search", olive, {"p_q": "ORG-RETRO-SECRET"})
+    st2, rows2 = call("POST", "/rpc/search", pat, {"p_q": "ORG-RETRO-SECRET"})
+    check("Retros: search finds the retro for Olive, not for Pat", any(r["id"] == org and r["kind"] == "retro" for r in rows or []) and rows2 == [], f"{rows} {rows2}")
+    # Deletes: your own; editors and owners any; a deleted task unlinks its action.
+    st, _ = call("DELETE", f"/retro_notes?id=eq.{pn}", pat, prefer="return=minimal")
+    check("Retros: Pat deletes her own anonymous note (positive control)", st in (200, 204) and oq(f"select count(*) from weft.retro_notes where id = '{pn}'") == "0", str(st))
+    st, _ = call("DELETE", f"/retro_notes?id=eq.{vn}", olive, prefer="return=minimal")
+    check("Retros: Olive (editor) deletes Vic's note (tidying up)", st in (200, 204) and oq(f"select count(*) from weft.retro_notes where id = '{vn}'") == "0", str(st))
+    st, rows = call("POST", "/rpc/retro_action_to_task", olive, {"p_note": act2})
+    task2 = rows["id"] if st == 200 and isinstance(rows, dict) else None
+    call("DELETE", f"/tasks?id=eq.{task2}", olive)
+    check("Retros: deleting a task keeps the action and clears its link", task2 and oq(f"select coalesce(task_id::text, 'none') from weft.retro_notes where id = '{act2}'") == "none", str(st))
+    # Moves follow the space. An Organizers retro with an Organizers list and task moves to #festival: Pat
+    # sees no trace of them, and Organizers members still see the clean-up in the audit log.
+    st, rows = note(olive, org, "action", "Renegotiate the venue")
+    oact = rows[0]["id"] if st == 201 else None
+    call("POST", "/rpc/retro_action_to_task", olive, {"p_note": oact})
+    st, _ = call("PATCH", f"/items?id=eq.{org}", olive, {"space_id": SID["festival"]})
+    st2, rows = call("GET", f"/retros?id=eq.{org}&select=task_list_id", pat)
+    st3, rows3 = call("GET", f"/retro_notes?id=eq.{oact}&select=task_id", pat)
+    st4, rows4 = call("GET", f"/audit?or=(row_id.eq.{org},row_id.eq.{oact})&table_name=in.(retros,retro_notes)&select=old_row", pat)
+    st5, rows5 = call("GET", f"/audit?or=(row_id.eq.{org},row_id.eq.{oact})&table_name=in.(retros,retro_notes)&select=space_id", olive)
+    body = oq(f"select body_text from weft.items where id = '{org}'") or ""
+    check("Retros: a retro moved into #festival drops its Organizers list and task links; Pat sees no trace of them",
+          st == 200 and rows == [{"task_list_id": None}] and rows3 == [{"task_id": None}] and rows4 == [] and "(task" not in body
+          and olist not in json.dumps(rows4), f"{st} {rows} {rows3} {rows4} {body}")
+    check("Retros: Organizers members still see the clean-up in the audit log, under Organizers",
+          len(rows5 or []) >= 2 and {r["space_id"] for r in rows5} == {SID["organizers"]}, str(rows5))
+    st, rows = call("GET", f"/retro_notes?retro_id=eq.{org}&select=id", pat)
+    check("Retros: the moved retro's notes are now readable to Pat (positive control)", st == 200 and len(rows) == 2, str(rows))
+    st, _ = call("PATCH", f"/items?id=eq.{flist}", olive, {"space_id": SID["volunteers"]})
+    check("Retros: a task list moved to Volunteers stops being the #festival retro's list, and its tasks unlink",
+          oq(f"select coalesce(task_list_id::text, 'none') from weft.retros where id = '{fest}'") == "none"
+          and oq(f"select coalesce(task_id::text, 'none') from weft.retro_notes where id = '{act}'") == "none"
+          and oq(f"select count(*) from weft.tasks where id = '{task}'") == "1", str(st))
+    st, _ = call("PATCH", f"/items?id=eq.{fest}", olive, {"space_id": SID["volunteers"]})
+    st2, rows = call("GET", f"/retro_notes?retro_id=eq.{fest}&select=id", pat)
+    check("Retros: a retro moved to Volunteers takes its notes out of Pat's sight", st == 200 and rows == [], f"{st} {rows}")
+    st, _ = call("DELETE", f"/items?id=eq.{org}", pat)
+    check("Retros: Pat cannot delete a retro", oq(f"select count(*) from weft.items where id = '{org}'") == "1", str(st))
+    st, _ = call("DELETE", f"/items?id=eq.{org}", olive)
+    check("Retros: deleting a retro deletes its notes and row; tasks made from it stay", st in (200, 204)
+          and oq(f"select count(*) from weft.retro_notes where retro_id = '{org}'") == "0" and oq(f"select count(*) from weft.retros where id = '{org}'") == "0"
+          and oq(f"select count(*) from weft.tasks where list_id = '{olist}' and title = 'Renegotiate the venue'") == "1", str(st))
+    for i in (fest, flist, olist):
+        call("DELETE", f"/items?id=eq.{i}", olive)
+
+
 def teeth():
     """Loosen one policy on purpose and confirm the suite would catch it, then restore it."""
     owner_sql("create policy teeth_leak on weft.items for select to weft_user using (true)")
@@ -3237,6 +3448,7 @@ if __name__ == "__main__":
     bookings()
     shifts()
     time_off()
+    retros()
     profiles()
     people()
     trees()

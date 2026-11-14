@@ -174,6 +174,9 @@ check('Nor an inventory (its text is its things and who has them)', inv.failed &
 const [goalItem] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'goalset', title: 'Collab goals' } })).rows;
 const gs = await open(olive.token, goalItem.id);
 check('Nor a goal set (its text is its goals and key results)', gs.failed && !gs.scope, `${gs.failed} ${gs.scope}`); close(gs);
+const [retroItem] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'retro', title: 'Collab retro' } })).rows;
+const rs = await open(olive.token, retroItem.id);
+check('Nor a retro (its text is its notes)', rs.failed && !rs.scope, `${rs.failed} ${rs.scope}`); close(rs);
 
 // ---------------- moving or deleting a document closes its sessions
 const [mv] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'document', title: 'Move test' } })).rows;
