@@ -501,6 +501,124 @@ def links():
     call("DELETE", f"/items?id=eq.{fest}", olive)
 
 
+def announcements():
+    pat, vic, olive = mint("u-pub"), mint("u-vol"), mint("u-org")
+    P, O, A = uid("user", "u-pub"), uid("user", "u-org"), uid("user", "u-alex")
+    oq = lambda sql: owner_sql(sql)
+    soon = oq("select to_char(now() + interval '3 days', 'YYYY-MM-DD\"T\"HH24:MI:SSOF')")
+    later = oq("select to_char(now() + interval '10 days', 'YYYY-MM-DD\"T\"HH24:MI:SSOF')")
+    past = oq("select to_char(now() - interval '1 hour', 'YYYY-MM-DD\"T\"HH24:MI:SSOF')")
+    too_far = oq("select to_char(now() + interval '400 days', 'YYYY-MM-DD\"T\"HH24:MI:SSOF')")
+    st, rows = call("POST", "/announcements", olive, {"space_id": SID["organizers"], "title": "  ORG-NOTICE-SECRET budget freeze ", "body": "No new spending", "expires_at": soon})
+    org = rows[0]["id"] if st == 201 else None
+    check("Announcements: Olive (editor) posts in Organizers (positive control), created_by set by the database, title trimmed",
+          org and rows[0]["created_by"] == O and rows[0]["title"] == "ORG-NOTICE-SECRET budget freeze", f"{st} {rows}")
+    st, rows = call("POST", "/announcements", olive, {"space_id": SID["festival"], "title": "Gates open at 10", "expires_at": soon})
+    fest = rows[0]["id"] if st == 201 else None
+    check("Announcements: Olive posts in #festival", fest is not None, f"{st} {rows}")
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = call("GET", f"/announcements?space_id=eq.{SID['organizers']}&select=id", tok)
+        st2, rows2 = call("GET", "/announcements?title=like.*ORG-NOTICE*&select=id", tok)
+        check(f"Announcements: {who} gets no Organizers notices, by space or by title", st == 200 and rows == [] and st2 == 200 and rows2 == [], f"{rows} {rows2}")
+    st, rows = call("GET", f"/announcements?id=eq.{fest}&select=id,title", pat)
+    check("Announcements: Pat (viewer) reads the #festival notice (positive control)", st == 200 and len(rows) == 1, str(rows))
+    st, _ = call("POST", "/announcements", pat, {"space_id": SID["festival"], "title": "pwned", "expires_at": soon})
+    check("Announcements: Pat (viewer) cannot post in #festival", refused(st), str(st))
+    st, rows = call("PATCH", f"/announcements?id=eq.{fest}", pat, {"title": "pwned"})
+    st2, rows2 = call("PATCH", f"/announcements?id=eq.{fest}", pat, {"expires_at": past})
+    st3, rows3 = call("DELETE", f"/announcements?id=eq.{fest}", pat)
+    check("Announcements: Pat cannot change, end or delete the #festival notice", rows == [] and rows2 == [] and rows3 == []
+          and oq(f"select title || (expires_at > now())::text from weft.announcements where id = '{fest}'") == "Gates open at 10true", f"{st} {st2} {st3}")
+    st, _ = call("POST", "/announcements", pat, {"space_id": SID["organizers"], "title": "pwned", "expires_at": soon})
+    st2, _ = call("POST", "/announcements", vic, {"space_id": SID["organizers"], "title": "pwned", "expires_at": soon})
+    check("Announcements: Pat and Vic cannot post in Organizers", refused(st) and refused(st2), f"{st} {st2}")
+    st, rows = call("PATCH", f"/announcements?id=eq.{org}", vic, {"title": "pwned"})
+    st2, rows2 = call("DELETE", f"/announcements?space_id=eq.{SID['organizers']}", vic)
+    check("Announcements: Vic changes and deletes nothing in Organizers", rows == [] and rows2 == []
+          and oq(f"select count(*) from weft.announcements where space_id = '{SID['organizers']}'") == "1", f"{st} {st2}")
+    st, rows = call("PATCH", f"/announcements?id=eq.{fest}", olive, {"title": "Gates open at 9", "body": " Bring your badge ", "expires_at": later})
+    check("Announcements: Olive changes a notice and its end (positive control)", st == 200 and rows and rows[0]["title"] == "Gates open at 9"
+          and rows[0]["body"] == "Bring your badge" and rows[0]["created_by"] == O, f"{st} {rows}")
+    # Only channels.
+    for key in ("personal-u-org", "dm-alex-olive", "assistant-u-org"):
+        st, body = call("POST", "/announcements", olive, {"space_id": SID[key], "title": "not a channel", "expires_at": soon})
+        check(f"Announcements: only channels have them ({key.split('-')[0]} refused)", st == 400 and "channel" in json.dumps(body), f"{st} {body}")
+    # Sensible content and end times.
+    st, _ = call("POST", "/announcements", olive, {"space_id": SID["festival"], "title": "ended already", "expires_at": past})
+    st2, _ = call("POST", "/announcements", olive, {"space_id": SID["festival"], "title": "forever", "expires_at": too_far})
+    st3, _ = call("POST", "/announcements", olive, {"space_id": SID["festival"], "title": "   ", "expires_at": soon})
+    st4, _ = call("POST", "/announcements", olive, {"space_id": SID["festival"], "title": "x" * 121, "expires_at": soon})
+    st5, _ = call("POST", "/announcements", olive, {"space_id": SID["festival"], "title": "long", "body": "x" * 1001, "expires_at": soon})
+    check("Announcements: an end in the past or over a year ahead, an empty or long title, or long text are refused",
+          all(x == 400 for x in (st, st2, st3, st4, st5)), f"{st} {st2} {st3} {st4} {st5}")
+    st, rows = call("POST", "/announcements", olive, {"space_id": SID["festival"], "title": "Default end"})
+    days = oq(f"select round(extract(epoch from expires_at - created_at) / 86400) from weft.announcements where id = '{rows[0]['id']}'") if st == 201 else None
+    check("Announcements: without an end, a notice shows for a week", days == "7", f"{st} {days}")
+    if st == 201:
+        call("DELETE", f"/announcements?id=eq.{rows[0]['id']}", olive)
+    st, _ = call("PATCH", f"/announcements?id=eq.{fest}", olive, {"expires_at": too_far})
+    st2, _ = call("PATCH", f"/announcements?id=eq.{fest}", olive, {"expires_at": "2020-01-01T00:00:00Z"})
+    check("Announcements: nor can a notice be changed to end over a year ahead, or before it was posted", st == 400 and st2 == 400, f"{st} {st2}")
+    # Authorship and the channel are fixed.
+    st, _ = call("POST", "/announcements", olive, {"space_id": SID["festival"], "title": "forged", "expires_at": soon, "created_by": A})
+    check("Announcements: authorship cannot be forged", refused(st), str(st))
+    st, _ = call("PATCH", f"/announcements?id=eq.{fest}", olive, {"created_by": A})
+    st2, _ = call("PATCH", f"/announcements?id=eq.{fest}", olive, {"created_at": "2020-01-01T00:00:00Z"})
+    check("Announcements: nor changed afterwards, nor the time it was posted", refused(st) and refused(st2)
+          and oq(f"select created_by from weft.announcements where id = '{fest}'") == O, f"{st} {st2}")
+    st, _ = call("PATCH", f"/announcements?id=eq.{fest}", olive, {"space_id": SID["organizers"]})
+    check("Announcements: a notice cannot be moved to another channel", refused(st)
+          and oq(f"select space_id from weft.announcements where id = '{fest}'") == SID["festival"], str(st))
+    # Channel scope and the assistant.
+    scoped = mint("u-org", scope="festival")
+    st, rows = call("GET", f"/announcements?id=in.({org},{fest})&select=space_id", scoped)
+    check("Announcements: a #festival-scoped token sees only #festival notices", st == 200 and rows and {r["space_id"] for r in rows} == {SID["festival"]}, str(rows))
+    st, _ = call("POST", "/announcements", scoped, {"space_id": SID["organizers"], "title": "scoped", "expires_at": soon})
+    check("Announcements: nor posts in Organizers", refused(st), str(st))
+    helper = mint("u-org", assistant=True)
+    st, rows = call("GET", f"/announcements?id=eq.{org}&select=id", helper)
+    check("Announcements: the assistant (for Olive) reads Organizers notices (positive control)", st == 200 and len(rows) == 1, str(rows))
+    st, _ = call("DELETE", f"/announcements?id=eq.{org}", helper)
+    st2, _ = call("PATCH", f"/announcements?id=eq.{org}", helper, {"title": "by the assistant"})
+    st3, _ = call("POST", "/announcements", helper, {"space_id": SID["organizers"], "title": "by the assistant", "expires_at": soon})
+    check("Announcements: the assistant cannot delete, change or post notices", refused(st) and refused(st2) and refused(st3)
+          and oq(f"select title from weft.announcements where id = '{org}'") == "ORG-NOTICE-SECRET budget freeze", f"{st} {st2} {st3}")
+    st, rows = call("GET", f"/announcements?id=eq.{org}&select=id", mint("u-pub", assistant=True))
+    check("Announcements: the assistant for Pat reads no Organizers notices", st == 200 and rows == [], str(rows))
+    # Audit.
+    st, rows = call("GET", f"/audit?row_id=eq.{fest}&select=op", vic)
+    check("Announcements: #festival changes are in the audit log, readable by its members, Vic included (positive control)", len(rows or []) >= 1, str(rows))
+    call("PATCH", f"/announcements?id=eq.{org}", olive, {"body": "No new spending until Friday"})
+    st, rows = call("GET", f"/audit?row_id=eq.{org}&select=op", olive)
+    st2, rows2 = call("GET", f"/audit?row_id=eq.{org}&select=op", pat)
+    check("Announcements: an Organizers change is in the audit log for Organizers members only", len(rows or []) >= 1 and rows2 == [], f"{rows} {rows2}")
+    # Ending early keeps the notice (members still read it, the app lists it as ended).
+    st, rows = call("PATCH", f"/announcements?id=eq.{fest}", olive, {"expires_at": oq("select to_char(now(), 'YYYY-MM-DD\"T\"HH24:MI:SS.USOF')")})
+    st2, rows2 = call("GET", f"/announcements?id=eq.{fest}&expires_at=gt.now&select=id", pat)
+    st3, rows3 = call("GET", f"/announcements?id=eq.{fest}&select=id", pat)
+    check("Announcements: Olive ends a notice early; Pat no longer sees it as current, but can still read it", st == 200 and rows and rows2 == [] and len(rows3 or []) == 1, f"{st} {rows2} {rows3}")
+    # Notices follow the channel: membership decides, and deleting the channel deletes them.
+    st, ch = call("POST", "/rpc/create_channel", olive, {"p_name": "notice test"})
+    st, rows = call("POST", "/announcements", olive, {"space_id": ch, "title": "Channel notice", "expires_at": soon})
+    cn = rows[0]["id"] if st == 201 else None
+    st, rows = call("GET", f"/announcements?id=eq.{cn}&select=id", pat)
+    check("Announcements: Pat cannot read a notice in a channel she is not in", cn and st == 200 and rows == [], f"{st} {rows}")
+    call("POST", "/members", olive, {"space_id": ch, "user_id": P, "role": "viewer"}, prefer="return=minimal")
+    st, rows = call("GET", f"/announcements?id=eq.{cn}&select=id", pat)
+    st2, _ = call("POST", "/announcements", pat, {"space_id": ch, "title": "x", "expires_at": soon})
+    check("Announcements: added as a viewer, she reads it (positive control) and still cannot post", len(rows or []) == 1 and refused(st2), f"{rows} {st2}")
+    call("DELETE", f"/members?space_id=eq.{ch}&user_id=eq.{P}", olive)
+    st, rows = call("GET", f"/announcements?id=eq.{cn}&select=id", pat)
+    check("Announcements: removed from the channel, she reads it no more", st == 200 and rows == [], str(rows))
+    st, _ = call("DELETE", f"/spaces?id=eq.{ch}", pat)
+    check("Announcements: Pat cannot delete the channel or its notices", oq(f"select count(*) from weft.announcements where id = '{cn}'") == "1", str(st))
+    st, _ = call("DELETE", f"/spaces?id=eq.{ch}", olive)
+    check("Announcements: deleting the channel deletes its notices", st in (200, 204) and oq(f"select count(*) from weft.announcements where id = '{cn}'") == "0", str(st))
+    st, _ = call("DELETE", f"/announcements?id=eq.{org}", olive)
+    check("Announcements: Olive deletes a notice (positive control)", st in (200, 204) and oq(f"select count(*) from weft.announcements where id = '{org}'") == "0", str(st))
+    call("DELETE", f"/announcements?id=eq.{fest}", olive)
+
+
 # ---------------------------------------------------------------- polls
 def polls():
     pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
@@ -1103,6 +1221,7 @@ if __name__ == "__main__":
     polls()
     forms()
     links()
+    announcements()
     people()
     trees()
     prefs_and_files()

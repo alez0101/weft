@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, assistant } from './api.js';
 import { dueLabel, today } from './TaskList.jsx';
+import { until, useNow } from './Announcements.jsx';
 
 const WIDGETS = {
+  announcements: 'Announcements',
   upcoming: 'Coming up',
   tasks: 'Tasks due soon',
   polls: 'Polls to vote in',
@@ -15,7 +17,7 @@ const WIDGETS = {
   files: 'Recent files',
   ask: 'Ask Weft',
 };
-const DEFAULT = ['upcoming', 'tasks', 'polls', 'forms', 'unread', 'recent', 'ask'];
+const DEFAULT = ['announcements', 'upcoming', 'tasks', 'polls', 'forms', 'unread', 'recent', 'ask'];
 const KIND = { document: 'Document', wiki: 'Wiki page', whiteboard: 'Whiteboard', table: 'Table', tasklist: 'Task list', poll: 'Poll', form: 'Form', linklist: 'Link list', file: 'File' };
 const where = (s) => (s?.kind === 'channel' ? `#${s.name}` : s?.kind === 'personal' ? 'Personal' : s?.name || '');
 const when = (iso) => new Date(iso).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -64,6 +66,18 @@ function NewLinks({ data, onOpenItem }) {
       <span className="widget-main">{l.title}</span><span className="widget-sub">{l.list?.title} in {where(l.list?.space)}, {ago(l.created_at)}</span>
     </button></li>))}</ul>;
 }
+// Current announcements in every channel the person is in, newest first. A row opens Announcements there.
+function Notices({ data, onOpenNotices }) {
+  const now = useNow();
+  const rows = data.filter((a) => new Date(a.expires_at).getTime() > now);
+  if (!rows.length) return <p className="widget-empty">No announcements right now.</p>;
+  return <ul className="widget-list">{rows.map((a) => (
+    <li key={a.id}><button type="button" className="widget-row" onClick={() => onOpenNotices(a.space_id)}>
+      <span className="widget-main">{a.title}</span>
+      {a.body && <span className="widget-note">{a.body}</span>}
+      <span className="widget-sub">{where(a.space)}, until {until(a.expires_at)}</span>
+    </button></li>))}</ul>;
+}
 function Unread({ unread, spaces, onOpenConvo }) {
   const rows = unread.filter((u) => u.unread > 0).map((u) => ({ ...u, space: spaces.find((s) => s.id === u.space_id) })).filter((u) => u.space);
   if (!rows.length) return <p className="widget-empty">You're all caught up.</p>;
@@ -105,10 +119,10 @@ function Ask({ assistantSpace, onAsked }) {
   );
 }
 
-export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpenEvent, onOpenConvo }) {
+export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpenEvent, onOpenNotices, onOpenConvo }) {
   const [order, setOrder] = useState(null);
   const [editing, setEditing] = useState(false);
-  const [data, setData] = useState({ upcoming: [], tasks: [], polls: [], forms: [], links: [], recent: [], files: [] });
+  const [data, setData] = useState({ announcements: [], upcoming: [], tasks: [], polls: [], forms: [], links: [], recent: [], files: [] });
   const [error, setError] = useState('');
   const timer = useRef(null);
 
@@ -128,7 +142,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
     const now = new Date(); const soon = new Date(now.getTime() + 14 * 86400000);
     try {
       const week = new Date(Date.now() + 7 * 86400000); week.setMinutes(week.getMinutes() - week.getTimezoneOffset());
-      const [upcoming, recent, files, due, open, openForms, links] = await Promise.all([
+      const [upcoming, recent, files, due, open, openForms, links, announcements] = await Promise.all([
         api(`/events?ends_at=gte.${now.toISOString()}&starts_at=lte.${soon.toISOString()}&select=id,title,starts_at,location,space:spaces(name,kind)&order=starts_at&limit=5`),
         api('/items?select=id,title,kind,updated_at,space:spaces(name,kind)&order=updated_at.desc&limit=6'),
         api('/items?kind=eq.file&select=id,title,kind,updated_at,space:spaces(name,kind)&order=updated_at.desc&limit=5'),
@@ -136,24 +150,26 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
         api(`/items?kind=eq.poll&select=id,title,updated_at,space:spaces(name,kind),state:polls(closed),mine:poll_votes(voter_id)&mine.voter_id=eq.${me.id}&order=updated_at.desc&limit=40`),
         api(`/items?kind=eq.form&select=id,title,updated_at,space:spaces(name,kind),state:forms(closed),mine:form_responses(respondent_id)&mine.respondent_id=eq.${me.id}&order=updated_at.desc&limit=40`),
         api('/links?select=id,title,list_id,created_at,list:items(title,space:spaces(name,kind))&order=created_at.desc&limit=5'),
+        api('/announcements?expires_at=gt.now&select=id,space_id,title,body,expires_at,space:spaces(name,kind)&order=created_at.desc&limit=6'),
       ]);
       const tasks = [...due.filter((t) => t.assignee_id === me.id), ...due.filter((t) => t.assignee_id !== me.id)].slice(0, 6);
       const isClosed = (p) => (Array.isArray(p.state) ? p.state[0]?.closed : p.state?.closed);
       const polls = open.filter((p) => !isClosed(p) && !p.mine?.length).slice(0, 5);
       const forms = openForms.filter((f) => !isClosed(f) && !f.mine?.length).slice(0, 5);
-      setData({ upcoming, tasks, polls, forms, links, recent, files }); setError('');
+      setData({ announcements, upcoming, tasks, polls, forms, links, recent, files }); setError('');
     } catch (e) { setError(`Widgets could not load: ${e.message}`); }
   }, [me.id]);
   useEffect(() => { load(); }, [load]);
   // Live: refresh shortly after anything they show changes (several notices in a row refresh once).
   useEffect(() => {
-    if (!notice || !['events', 'items', 'members', 'tasks', 'polls', 'forms', 'links'].includes(notice.t)) return;
+    if (!notice || !['events', 'items', 'members', 'tasks', 'polls', 'forms', 'links', 'announcements'].includes(notice.t)) return;
     clearTimeout(timer.current); timer.current = setTimeout(load, 400);
   }, [notice, load]);
 
   if (!order) return null;
   const assistantSpace = spaces.find((s) => s.kind === 'assistant');
-  const body = (k) => (k === 'upcoming' ? <Upcoming data={data.upcoming} onOpenEvent={onOpenEvent} />
+  const body = (k) => (k === 'announcements' ? <Notices data={data.announcements} onOpenNotices={onOpenNotices} />
+    : k === 'upcoming' ? <Upcoming data={data.upcoming} onOpenEvent={onOpenEvent} />
     : k === 'tasks' ? <TasksDue data={data.tasks} me={me} onOpenItem={onOpenItem} />
     : k === 'polls' ? <PollsToVote data={data.polls} onOpenItem={onOpenItem} />
     : k === 'forms' ? <FormsToFill data={data.forms} onOpenItem={onOpenItem} />
