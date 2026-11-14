@@ -1013,6 +1013,172 @@ def qa():
     call("DELETE", f"/items?id=eq.{fest}", olive)
 
 
+def checklists():
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    O, A = uid("user", "u-org"), uid("user", "u-alex")
+    oq = lambda sql: owner_sql(sql)
+    st, rows = call("POST", "/items", olive, {"space_id": SID["organizers"], "kind": "checklist", "title": "Org packing"})
+    org = rows[0]["id"] if st == 201 else None
+    st2, rows = call("POST", "/items", olive, {"space_id": SID["festival"], "kind": "checklist", "title": "Opening up"})
+    fest = rows[0]["id"] if st2 == 201 else None
+    check("Checklists: Olive (editor) makes checklists in Organizers and #festival", org and fest, f"{st} {st2}")
+    st, _ = call("POST", "/items", pat, {"space_id": SID["festival"], "kind": "checklist", "title": "x"})
+    check("Checklists: Pat (viewer) cannot make a checklist in #festival", refused(st), str(st))
+    # A template with no steps cannot be run (a plain answer, for editors only).
+    st, rows = call("POST", "/checklist_runs", olive, {"checklist_id": fest})
+    check("Checklists: a checklist with no steps cannot be run", st == 400 and "add a step" in json.dumps(rows), f"{st} {rows}")
+    st, rows = call("POST", "/checklist_runs", pat, {"checklist_id": fest})
+    check("Checklists: Pat gets a refusal, not that answer", refused(st) and "add a step" not in json.dumps(rows), f"{st} {rows}")
+    st, rows = call("POST", "/checklist_steps", olive, {"checklist_id": org, "label": "  Pack the ORG-CHECKLIST-SECRET cash box  ", "position": 0})
+    os1 = rows[0]["id"] if st == 201 else None
+    check("Checklists: Olive adds a step in Organizers (positive control), created_by set by the database, label trimmed",
+          os1 and rows[0]["created_by"] == O and rows[0]["label"] == "Pack the ORG-CHECKLIST-SECRET cash box", f"{st} {rows}")
+    fs = []
+    for i, label in enumerate(["Unlock the side gate", "Lights on", "Float in the till"]):
+        st, rows = call("POST", "/checklist_steps", olive, {"checklist_id": fest, "label": label, "position": i})
+        fs.append(rows[0]["id"] if st == 201 else None)
+    check("Checklists: Olive adds three steps in #festival", all(fs), str(fs))
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = call("GET", f"/checklist_steps?checklist_id=eq.{org}&select=id", tok)
+        check(f"Checklists: {who} gets no Organizers steps", st == 200 and rows == [], str(rows))
+    st, rows = call("GET", "/checklist_steps?select=label&label=like.*ORG-CHECKLIST*", pat)
+    check("Checklists: nor finds them by filtering every step", st == 200 and rows == [], str(rows))
+    st, rows = call("GET", f"/checklist_steps?checklist_id=eq.{fest}&select=id", pat)
+    check("Checklists: Pat reads the #festival steps (positive control)", st == 200 and len(rows) == 3, str(rows))
+    st, _ = call("POST", "/checklist_steps", pat, {"checklist_id": fest, "label": "pwned"})
+    st2, rows2 = call("PATCH", f"/checklist_steps?id=eq.{fs[0]}", pat, {"label": "pwned"})
+    st3, rows3 = call("DELETE", f"/checklist_steps?id=eq.{fs[0]}", pat)
+    check("Checklists: Pat cannot add, change or delete #festival steps", refused(st) and rows2 == [] and rows3 == []
+          and oq(f"select label from weft.checklist_steps where id = '{fs[0]}'") == "Unlock the side gate", f"{st} {st2} {st3}")
+    st, rows = call("PATCH", f"/checklist_steps?id=eq.{os1}", vic, {"label": "pwned"})
+    st2, rows2 = call("DELETE", f"/checklist_steps?checklist_id=eq.{org}", vic)
+    check("Checklists: Vic changes and deletes nothing in Organizers", rows == [] and rows2 == [] and oq(f"select count(*) from weft.checklist_steps where checklist_id = '{org}'") == "1", f"{st} {st2}")
+    for bad, why in (({"label": "   "}, "an empty step"), ({"label": "x" * 201}, "a step over 200 characters")):
+        st, _ = call("POST", "/checklist_steps", olive, {"checklist_id": fest, **bad})
+        check(f"Checklists: {why} is refused", st == 400, str(st))
+    st, _ = call("POST", "/checklist_steps", olive, {"checklist_id": fest, "label": "forged", "created_by": A})
+    check("Checklists: authorship of a step cannot be forged", refused(st), str(st))
+    st, _ = call("PATCH", f"/checklist_steps?id=eq.{fs[0]}", olive, {"checklist_id": org})
+    check("Checklists: a step cannot be moved into another checklist", refused(st) and oq(f"select checklist_id from weft.checklist_steps where id = '{fs[0]}'") == fest, str(st))
+    st, _ = call("POST", "/checklist_steps", olive, {"checklist_id": uid("item", "porches"), "label": "on a table"})
+    check("Checklists: a step cannot hang off an item that is not a checklist", refused(st), str(st))
+
+    # Runs: a fresh copy of the steps, made by the database.
+    st, rows = call("POST", "/checklist_runs", olive, {"checklist_id": fest, "label": " Saturday "})
+    r1 = rows[0]["id"] if st == 201 else None
+    check("Checklists: Olive starts a run (positive control), started_by set by the database", r1 and rows[0]["started_by"] == O and rows[0]["label"] == "Saturday"
+          and rows[0]["finished"] is False, f"{st} {rows}")
+    st, rows = call("GET", f"/checklist_run_steps?run_id=eq.{r1}&select=id,label,position,done&order=position", pat)
+    rs = [r["id"] for r in rows or []]
+    check("Checklists: the run is a copy of the steps, in order, and Pat reads it", st == 200 and [r["label"] for r in rows] == ["Unlock the side gate", "Lights on", "Float in the till"]
+          and not any(r["done"] for r in rows), str(rows))
+    st, _ = call("POST", "/checklist_runs", olive, {"checklist_id": fest, "started_by": A})
+    st2, _ = call("POST", "/checklist_runs", olive, {"checklist_id": fest, "finished": True})
+    check("Checklists: who started a run cannot be forged, nor a run started finished", refused(st) and refused(st2), f"{st} {st2}")
+    st, _ = call("POST", "/checklist_runs", pat, {"checklist_id": fest})
+    check("Checklists: Pat (viewer) cannot start a run in #festival", refused(st), str(st))
+    st, rows = call("PATCH", f"/checklist_run_steps?id=eq.{rs[0]}", pat, {"done": True})
+    check("Checklists: Pat cannot tick a #festival step", rows == [] and oq(f"select done from weft.checklist_run_steps where id = '{rs[0]}'") == "f", f"{st} {rows}")
+    st, rows = call("PATCH", f"/checklist_run_steps?id=eq.{rs[0]}", olive, {"done": True})
+    check("Checklists: Olive ticks a step (positive control); who and when are set by the database", st == 200 and rows and rows[0]["done"] is True
+          and rows[0]["done_by"] == O and rows[0]["done_at"], f"{st} {rows}")
+    st, _ = call("PATCH", f"/checklist_run_steps?id=eq.{rs[1]}", olive, {"done_by": A})
+    st2, _ = call("PATCH", f"/checklist_run_steps?id=eq.{rs[1]}", olive, {"label": "rewritten"})
+    st3, _ = call("PATCH", f"/checklist_run_steps?id=eq.{rs[1]}", olive, {"run_id": r1})
+    check("Checklists: nobody sets who ticked, rewrites a run's step or moves it", refused(st) and refused(st2) and refused(st3)
+          and oq(f"select label from weft.checklist_run_steps where id = '{rs[1]}'") == "Lights on", f"{st} {st2} {st3}")
+    st, _ = call("POST", "/checklist_run_steps", olive, {"run_id": r1, "label": "extra", "position": 9})
+    st2, _ = call("DELETE", f"/checklist_run_steps?id=eq.{rs[2]}", olive)
+    check("Checklists: a run's steps are never added or removed by hand", refused(st) and refused(st2)
+          and oq(f"select count(*) from weft.checklist_run_steps where run_id = '{r1}'") == "3", f"{st} {st2}")
+    # Changing the template never rewrites a run.
+    call("PATCH", f"/checklist_steps?id=eq.{fs[1]}", olive, {"label": "All lights on"})
+    st, _ = call("DELETE", f"/checklist_steps?id=eq.{fs[2]}", olive)
+    check("Checklists: changing and removing template steps leaves the run as it was",
+          oq(f"select string_agg(label, '|' order by position) from weft.checklist_run_steps where run_id = '{r1}'") == "Unlock the side gate|Lights on|Float in the till", str(st))
+    st, rows = call("PATCH", f"/checklist_runs?id=eq.{r1}", alex, {"finished": True})
+    check("Checklists: Alex (owner) finishes the run; who and when are set by the database", st == 200 and rows and rows[0]["finished"] is True
+          and rows[0]["finished_by"] == A and rows[0]["finished_at"], f"{st} {rows}")
+    st, rows = call("PATCH", f"/checklist_run_steps?id=eq.{rs[1]}", olive, {"done": True})
+    check("Checklists: a finished run's ticks are fixed, with the database's answer", st == 400 and "finished" in json.dumps(rows)
+          and oq(f"select done from weft.checklist_run_steps where id = '{rs[1]}'") == "f", f"{st} {rows}")
+    st, _ = call("PATCH", f"/checklist_runs?id=eq.{r1}", olive, {"finished_by": O})
+    st2, _ = call("PATCH", f"/checklist_runs?id=eq.{r1}", olive, {"checklist_id": org})
+    check("Checklists: who finished a run cannot be forged, nor a run moved to another checklist", refused(st) and refused(st2)
+          and oq(f"select finished_by from weft.checklist_runs where id = '{r1}'") == A, f"{st} {st2}")
+    st, rows = call("PATCH", f"/checklist_runs?id=eq.{r1}", pat, {"finished": False})
+    check("Checklists: Pat cannot reopen it", rows == [] and oq(f"select finished from weft.checklist_runs where id = '{r1}'") == "t", f"{st} {rows}")
+    st, rows = call("PATCH", f"/checklist_runs?id=eq.{r1}", olive, {"finished": False})
+    st2, rows2 = call("PATCH", f"/checklist_run_steps?id=eq.{rs[1]}", olive, {"done": True})
+    check("Checklists: Olive reopens it and ticks again (positive control)", st == 200 and rows[0]["finished_at"] is None and st2 == 200 and rows2[0]["done"] is True, f"{st} {st2}")
+    st, rows = call("GET", f"/items?id=eq.{fest}&select=body_text", pat)
+    body = (rows[0]["body_text"] if rows else "") or ""
+    check("Checklists: the #festival summary lists the steps and the run, and Pat reads it",
+          "1. Unlock the side gate" in body and "2. All lights on" in body and "Saturday, started" in body and "2 of 3 done, in progress" in body and "Not done: Float in the till" in body, body)
+    # Outsiders, scoped tokens and the assistant.
+    st, rows = call("POST", "/checklist_runs", olive, {"checklist_id": org, "label": "Org run"})
+    r2 = rows[0]["id"] if st == 201 else None
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = call("GET", f"/checklist_runs?checklist_id=eq.{org}&select=id", tok)
+        st2, rows2 = call("GET", f"/checklist_run_steps?run_id=eq.{r2}&select=id", tok)
+        check(f"Checklists: {who} sees no Organizers runs or their steps", rows == [] and rows2 == [], f"{rows} {rows2}")
+    st, rows = call("GET", "/checklist_run_steps?select=label&label=like.*ORG-CHECKLIST*", vic)
+    check("Checklists: nor finds an Organizers run's steps by filtering", st == 200 and rows == [], str(rows))
+    st, rows = call("GET", f"/items?id=eq.{org}&select=body_text", pat)
+    check("Checklists: Pat cannot read the Organizers summary", st == 200 and rows == [], str(rows))
+    st, rows = call("POST", "/checklist_runs", pat, {"checklist_id": org})
+    check("Checklists: nor start a run there", refused(st), str(st))
+    scoped = mint("u-org", scope="festival")
+    st, rows = call("GET", f"/checklist_runs?checklist_id=in.({org},{fest})&select=checklist_id", scoped)
+    st2, rows2 = call("GET", f"/checklist_steps?checklist_id=in.({org},{fest})&select=checklist_id", scoped)
+    check("Checklists: a #festival-scoped token sees only #festival runs and steps", rows and {r["checklist_id"] for r in rows} == {fest}
+          and rows2 and {r["checklist_id"] for r in rows2} == {fest}, f"{rows} {rows2}")
+    st, _ = call("POST", "/checklist_runs", scoped, {"checklist_id": org})
+    st2, rows2 = call("PATCH", f"/checklist_runs?id=eq.{r2}", scoped, {"finished": True})
+    check("Checklists: nor starts or finishes runs in Organizers", refused(st) and rows2 == [], f"{st} {rows2}")
+    helper = mint("u-org", assistant=True)
+    st, rows = call("GET", f"/checklist_run_steps?run_id=eq.{r2}&select=id", helper)
+    check("Checklists: the assistant (for Olive) can read Organizers runs (positive control)", st == 200 and len(rows) == 1, str(rows))
+    st, _ = call("DELETE", f"/checklist_runs?id=eq.{r2}", helper)
+    st2, _ = call("DELETE", f"/checklist_steps?id=eq.{os1}", helper)
+    st3, _ = call("PATCH", f"/checklist_run_steps?run_id=eq.{r2}", helper, {"done": True})
+    st4, _ = call("POST", "/checklist_runs", helper, {"checklist_id": org})
+    check("Checklists: the assistant cannot delete, tick or start anything", refused(st) and refused(st2) and refused(st3) and refused(st4)
+          and oq(f"select count(*) from weft.checklist_runs where checklist_id = '{org}'") == "1", f"{st} {st2} {st3} {st4}")
+    # Audit and search follow the space.
+    st, rows = call("GET", f"/audit?row_id=eq.{rs[0]}&select=op", vic)
+    check("Checklists: #festival ticks are in the audit log, readable by its members (positive control)", len(rows or []) >= 1, str(rows))
+    call("PATCH", f"/checklist_runs?id=eq.{r2}", olive, {"label": "Org run, renamed"})
+    st, rows = call("GET", f"/audit?row_id=eq.{r2}&select=op", olive)
+    st2, rows2 = call("GET", f"/audit?row_id=eq.{r2}&select=op", pat)
+    check("Checklists: an Organizers change is in the audit log for Organizers members only", len(rows or []) >= 1 and rows2 == [], f"{rows} {rows2}")
+    st, rows = call("POST", "/rpc/search", olive, {"p_q": "ORG-CHECKLIST-SECRET"})
+    st2, rows2 = call("POST", "/rpc/search", pat, {"p_q": "ORG-CHECKLIST-SECRET"})
+    check("Checklists: search finds the checklist for Olive, not for Pat", any(r["id"] == org and r["kind"] == "checklist" for r in rows or []) and rows2 == [], f"{rows} {rows2}")
+    # Deletes and moves follow the checklist.
+    st, rows = call("DELETE", f"/checklist_runs?id=eq.{r1}", pat)
+    check("Checklists: Pat cannot delete a run", rows == [] and oq(f"select count(*) from weft.checklist_runs where id = '{r1}'") == "1", str(st))
+    st, _ = call("DELETE", f"/checklist_runs?id=eq.{r1}", olive)
+    check("Checklists: Olive deletes a run and its ticks go with it (positive control)", st in (200, 204)
+          and oq(f"select count(*) from weft.checklist_run_steps where run_id = '{r1}'") == "0", str(st))
+    st, _ = call("PATCH", f"/items?id=eq.{org}", olive, {"space_id": SID["festival"]})
+    st2, rows = call("GET", f"/checklist_runs?checklist_id=eq.{org}&select=id,steps:checklist_run_steps(id)", pat)
+    check("Checklists: a checklist moved into #festival takes its runs with it, readable to Pat", st == 200 and len(rows) == 1 and len(rows[0]["steps"]) == 1, f"{st} {rows}")
+    st, rows = call("PATCH", f"/checklist_run_steps?run_id=eq.{r2}", pat, {"done": True})
+    check("Checklists: still read-only for Pat", rows == [], str(rows))
+    st, _ = call("PATCH", f"/items?id=eq.{fest}", olive, {"space_id": SID["organizers"]})
+    st2, rows = call("GET", f"/checklist_steps?checklist_id=eq.{fest}&select=id", pat)
+    check("Checklists: a checklist moved to Organizers takes its steps out of Pat's sight", st == 200 and rows == [], f"{st} {rows}")
+    st, _ = call("DELETE", f"/items?id=eq.{org}", pat)
+    check("Checklists: Pat cannot delete a checklist", oq(f"select count(*) from weft.items where id = '{org}'") == "1", str(st))
+    st, _ = call("DELETE", f"/items?id=eq.{org}", olive)
+    check("Checklists: deleting a checklist deletes its steps, runs and ticks", st in (200, 204)
+          and oq(f"select count(*) from weft.checklist_steps where checklist_id = '{org}'") == "0"
+          and oq(f"select count(*) from weft.checklist_runs where checklist_id = '{org}'") == "0"
+          and oq(f"select count(*) from weft.checklist_run_steps where run_id = '{r2}'") == "0", str(st))
+    call("DELETE", f"/items?id=eq.{fest}", olive)
+
+
 def announcements():
     pat, vic, olive = mint("u-pub"), mint("u-vol"), mint("u-org")
     P, O, A = uid("user", "u-pub"), uid("user", "u-org"), uid("user", "u-alex")
@@ -2468,6 +2634,7 @@ if __name__ == "__main__":
     contacts()
     decisions()
     qa()
+    checklists()
     announcements()
     meetings()
     rsvps()
