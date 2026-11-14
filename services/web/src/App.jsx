@@ -31,6 +31,7 @@ const APPS = [
   { id: 'links', label: 'Links', tint: '--p-fri', real: true, glyph: <><path d="M17.5 22.5a6 6 0 0 0 8.5 0l5-5a6 6 0 0 0-8.5-8.5l-2.5 2.5" /><path d="M22.5 17.5a6 6 0 0 0-8.5 0l-5 5a6 6 0 0 0 8.5 8.5l2.5-2.5" /></> },
   { id: 'contacts', label: 'Contacts', tint: '--p-mon', real: true, glyph: <><rect x="8" y="6" width="23" height="28" rx="2" /><path d="M31 11h3M31 18h3M31 25h3" /><circle cx="19.5" cy="17" r="4.5" /><path d="M12.5 29c1-4 4-6 7-6s6 2 7 6" /></> },
   { id: 'profiles', label: 'Profiles', tint: '--p-thu', real: true, glyph: <><rect x="6" y="9" width="28" height="22" rx="2" /><circle cx="15" cy="18" r="3.5" /><path d="M9.5 27c1-3 3-4.5 5.5-4.5s4.5 1.5 5.5 4.5M23 17h7M23 21h7M23 25h4" /></> },
+  { id: 'decisions', label: 'Decisions', tint: '--p-wed', real: true, glyph: <><path d="M20 6v28M12 34h16" /><path d="M9 11h22" /><path d="M9 11l-4 10a4 4 0 0 0 8 0zM31 11l-4 10a4 4 0 0 0 8 0z" /></> },
   { id: 'meetings', label: 'Meetings', tint: '--p-sat', real: true, glyph: <><rect x="9" y="8" width="22" height="26" rx="2" /><path d="M15 5.5h10v5H15zM14 17h12M14 22h12M14 27h6" /><path d="M23 27.5l1.8 1.8L28 26" /></> },
   { id: 'announcements', label: 'Announcements', tint: '--p-mon', real: true, glyph: <><path d="M7 17v7l17 7V10z" /><path d="M24 15h3a5 5 0 0 1 0 10h-3M11 25.5l2 7.5h4l-1.8-6" /></> },
   { id: 'files', label: 'Files', tint: '--p-sat', real: true, glyph: <path d="M6 12h10l3 3h15v17H6z" /> },
@@ -51,7 +52,7 @@ const readHash = () => {
   return {
     tabs, active: active === 'home' || tabs.includes(active) ? active : 'home',
     convo: h.get('convo') || 'weft', rail: RAILS.includes(h.get('chat')) ? h.get('chat') : 'normal',
-    doc: h.get('doc') || null, page: h.get('page') || null, event: h.get('event') || null, board: h.get('board') || null, sheet: h.get('sheet') || null, list: h.get('list') || null, kanban: h.get('kanban') || null, poll: h.get('poll') || null, form: h.get('form') || null, links: h.get('links') || null, book: h.get('book') || null, meeting: h.get('meeting') || null, notices: h.get('notices') || null, booking: h.get('booking') || null, file: h.get('file') || null,
+    doc: h.get('doc') || null, page: h.get('page') || null, event: h.get('event') || null, board: h.get('board') || null, sheet: h.get('sheet') || null, list: h.get('list') || null, kanban: h.get('kanban') || null, poll: h.get('poll') || null, form: h.get('form') || null, links: h.get('links') || null, book: h.get('book') || null, log: h.get('log') || null, meeting: h.get('meeting') || null, notices: h.get('notices') || null, booking: h.get('booking') || null, file: h.get('file') || null,
   };
 };
 
@@ -244,6 +245,7 @@ export default function App() {
     if (ui.form) h.set('form', ui.form);
     if (ui.links) h.set('links', ui.links);
     if (ui.book) h.set('book', ui.book);
+    if (ui.log) h.set('log', ui.log);
     if (ui.meeting) h.set('meeting', ui.meeting);
     if (ui.notices) h.set('notices', ui.notices);
     if (ui.booking) h.set('booking', ui.booking);
@@ -284,7 +286,7 @@ export default function App() {
   const openNotices = (spaceId) => openTab('announcements', spaceId ? { notices: spaceId } : {});
   const openItem = async (id) => {
     const r = await api(`/items?id=eq.${id}&select=kind`).catch(() => []);
-    if (r[0]?.kind === 'wiki') openTab('wiki', { page: id }); else if (r[0]?.kind === 'whiteboard') openTab('whiteboard', { board: id }); else if (r[0]?.kind === 'table') openTab('sheets', { sheet: id }); else if (r[0]?.kind === 'tasklist') openTab('tasks', { list: id }); else if (r[0]?.kind === 'poll') openTab('polls', { poll: id }); else if (r[0]?.kind === 'form') openTab('forms', { form: id }); else if (r[0]?.kind === 'linklist') openTab('links', { links: id }); else if (r[0]?.kind === 'addressbook') openTab('contacts', { book: id }); else if (r[0]?.kind === 'meeting') openTab('meetings', { meeting: id }); else if (r[0]?.kind === 'file') openTab('files', { file: id }); else openTab('documents', { doc: id });
+    if (r[0]?.kind === 'wiki') openTab('wiki', { page: id }); else if (r[0]?.kind === 'whiteboard') openTab('whiteboard', { board: id }); else if (r[0]?.kind === 'table') openTab('sheets', { sheet: id }); else if (r[0]?.kind === 'tasklist') openTab('tasks', { list: id }); else if (r[0]?.kind === 'poll') openTab('polls', { poll: id }); else if (r[0]?.kind === 'form') openTab('forms', { form: id }); else if (r[0]?.kind === 'linklist') openTab('links', { links: id }); else if (r[0]?.kind === 'addressbook') openTab('contacts', { book: id }); else if (r[0]?.kind === 'decisionlog') openTab('decisions', { log: id }); else if (r[0]?.kind === 'meeting') openTab('meetings', { meeting: id }); else if (r[0]?.kind === 'file') openTab('files', { file: id }); else openTab('documents', { doc: id });
   };
   const closeTab = (id) => setUi((u) => {
     const i = u.tabs.indexOf(id); const tabs = u.tabs.filter((t) => t !== id);
@@ -366,6 +368,7 @@ export default function App() {
             : ui.active === 'meetings' ? <Docs key="meetings" kind="meeting" me={me} members={members} notice={notice} onOpenEvent={openEvent} onOpenItem={openItem} openId={ui.meeting} setOpenId={(meeting) => setUi((u) => ({ ...u, meeting }))} />
             : ui.active === 'links' ? <Docs key="links" kind="linklist" me={me} members={members} notice={notice} openId={ui.links} setOpenId={(links) => setUi((u) => ({ ...u, links }))} />
             : ui.active === 'contacts' ? <Docs key="contacts" kind="addressbook" me={me} members={members} notice={notice} openId={ui.book} setOpenId={(book) => setUi((u) => ({ ...u, book }))} />
+            : ui.active === 'decisions' ? <Docs key="decisions" kind="decisionlog" me={me} members={members} notice={notice} openId={ui.log} setOpenId={(log) => setUi((u) => ({ ...u, log }))} />
             : ui.active === 'announcements' ? <Announcements me={me} spaces={spaces} members={members} notice={notice} openId={ui.notices} setOpenId={(notices) => setUi((u) => ({ ...u, notices }))} />
             : ui.active === 'files' ? <Docs key="files" kind="file" me={me} members={members} notice={notice} openId={ui.file} setOpenId={(file) => setUi((u) => ({ ...u, file }))} />
             : ui.active === 'bookings' ? <Bookings me={me} spaces={spaces} members={members} notice={notice} openId={ui.booking} setOpenId={(booking) => setUi((u) => ({ ...u, booking }))} />

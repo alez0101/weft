@@ -5,10 +5,10 @@ import { Fragment, useEffect, useId, useRef, useState } from 'react';
 import { api, assistant } from './api.js';
 
 const GROUPS = [
-  ['channel', 'Channels'], ['document', 'Documents'], ['wiki', 'Wiki pages'], ['table', 'Tables'], ['tasklist', 'Task lists'], ['poll', 'Polls'], ['form', 'Forms'], ['linklist', 'Link lists'], ['addressbook', 'Address books'], ['meeting', 'Meetings'],
+  ['channel', 'Channels'], ['document', 'Documents'], ['wiki', 'Wiki pages'], ['table', 'Tables'], ['tasklist', 'Task lists'], ['poll', 'Polls'], ['form', 'Forms'], ['linklist', 'Link lists'], ['addressbook', 'Address books'], ['decisionlog', 'Decision logs'], ['meeting', 'Meetings'],
   ['whiteboard', 'Whiteboards'], ['file', 'Files'], ['event', 'Events'], ['message', 'Messages'], ['related', 'Related by meaning'],
 ];
-const KIND = { document: 'Document', wiki: 'Wiki page', table: 'Table', tasklist: 'Task list', poll: 'Poll', form: 'Form', linklist: 'Link list', addressbook: 'Address book', meeting: 'Meeting', whiteboard: 'Whiteboard', file: 'File', event: 'Event', message: 'Message', channel: 'Channel' };
+const KIND = { document: 'Document', wiki: 'Wiki page', table: 'Table', tasklist: 'Task list', poll: 'Poll', form: 'Form', linklist: 'Link list', addressbook: 'Address book', decisionlog: 'Decision log', meeting: 'Meeting', whiteboard: 'Whiteboard', file: 'File', event: 'Event', message: 'Message', channel: 'Channel' };
 const where = (r) => (r.space_kind === 'channel' ? `#${r.space_name}` : r.space_kind === 'personal' ? 'Personal' : r.space_kind === 'dm' ? 'Direct message' : r.space_kind === 'assistant' ? 'Your Weft conversation' : '');
 const when = (iso) => (iso ? new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '');
 
