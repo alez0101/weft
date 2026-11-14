@@ -24,6 +24,7 @@ const WIDGETS = {
   questions: 'Open questions',
   checklists: 'Checklists in progress',
   balances: 'Your balances',
+  holding: 'Things you have',
   profile: 'Your profile',
   meetings: 'Recent meetings',
   unread: 'Unread',
@@ -32,7 +33,7 @@ const WIDGETS = {
   ask: 'Ask Weft',
 };
 const DEFAULT = ['announcements', 'upcoming', 'yeses', 'bookings', 'shifts', 'tasks', 'polls', 'forms', 'unread', 'recent', 'ask'];
-const KIND = { document: 'Document', wiki: 'Wiki page', whiteboard: 'Whiteboard', table: 'Table', tasklist: 'Task list', poll: 'Poll', form: 'Form', linklist: 'Link list', addressbook: 'Address book', decisionlog: 'Decision log', qa: 'Q and A board', checklist: 'Checklist', expenselist: 'Expense list', meeting: 'Meeting', file: 'File' };
+const KIND = { document: 'Document', wiki: 'Wiki page', whiteboard: 'Whiteboard', table: 'Table', tasklist: 'Task list', poll: 'Poll', form: 'Form', linklist: 'Link list', addressbook: 'Address book', decisionlog: 'Decision log', qa: 'Q and A board', checklist: 'Checklist', expenselist: 'Expense list', inventory: 'Inventory', meeting: 'Meeting', file: 'File' };
 const where = (s) => (s?.kind === 'channel' ? `#${s.name}` : s?.kind === 'personal' ? 'Personal' : s?.name || '');
 const when = (iso) => new Date(iso).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 const ago = (iso) => {
@@ -123,6 +124,14 @@ function MyBalances({ data, onOpenItem }) {
   return <ul className="widget-list">{data.map((b) => (
     <li key={b.list_id}><button type="button" className="widget-row" onClick={() => onOpenItem(b.list_id)}>
       <span className="widget-main">{b.net_cents > 0 ? `You are owed ${money(b.net_cents)}` : `You owe ${money(-b.net_cents)}`}</span><span className="widget-sub">{b.list?.title} in {where(b.list?.space)}</span>
+    </button></li>))}</ul>;
+}
+// Things checked out to the person, longest held first, with the inventory they belong to. A row opens it.
+function ThingsYouHave({ data, onOpenItem }) {
+  if (!data.length) return <p className="widget-empty">You have nothing checked out. Shared things are in Inventory.</p>;
+  return <ul className="widget-list">{data.map((t) => (
+    <li key={t.id}><button type="button" className="widget-row" onClick={() => onOpenItem(t.inventory_id)}>
+      <span className="widget-main">{t.name}</span><span className="widget-sub">since {new Date(t.held_since).toLocaleDateString([], { day: 'numeric', month: 'short' })}, {t.inventory?.title} in {where(t.inventory?.space)}</span>
     </button></li>))}</ul>;
 }
 // The most recently decided decisions in logs the person can see. A row opens the log.
@@ -226,7 +235,7 @@ function Ask({ assistantSpace, onAsked }) {
 export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpenEvent, onOpenNotices, onOpenBooking, onOpenShifts, onOpenProfiles, onOpenConvo }) {
   const [order, setOrder] = useState(null);
   const [editing, setEditing] = useState(false);
-  const [data, setData] = useState({ announcements: [], upcoming: [], yeses: [], bookings: [], shifts: [], tasks: [], polls: [], forms: [], links: [], contacts: [], decisions: [], questions: [], checklists: [], balances: [], profile: [], meetings: [], recent: [], files: [] });
+  const [data, setData] = useState({ announcements: [], upcoming: [], yeses: [], bookings: [], shifts: [], tasks: [], polls: [], forms: [], links: [], contacts: [], decisions: [], questions: [], checklists: [], balances: [], holding: [], profile: [], meetings: [], recent: [], files: [] });
   const [error, setError] = useState('');
   const timer = useRef(null);
 
@@ -246,7 +255,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
     const now = new Date(); const soon = new Date(now.getTime() + 14 * 86400000);
     try {
       const week = new Date(Date.now() + 7 * 86400000); week.setMinutes(week.getMinutes() - week.getTimezoneOffset());
-      const [upcoming, recent, files, due, open, openForms, links, announcements, meetings, yeses, bookings, onShifts, contacts, profile, decisions, questions, checklists, owed] = await Promise.all([
+      const [upcoming, recent, files, due, open, openForms, links, announcements, meetings, yeses, bookings, onShifts, contacts, profile, decisions, questions, checklists, owed, holding] = await Promise.all([
         api(`/events?ends_at=gte.${now.toISOString()}&starts_at=lte.${soon.toISOString()}&select=id,title,starts_at,location,space:spaces(name,kind)&order=starts_at&limit=5`),
         api('/items?select=id,title,kind,updated_at,space:spaces(name,kind)&order=updated_at.desc&limit=6'),
         api('/items?kind=eq.file&select=id,title,kind,updated_at,space:spaces(name,kind)&order=updated_at.desc&limit=5'),
@@ -265,6 +274,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
         api('/questions?accepted_id=is.null&select=id,title,board_id,board:items(title,space:spaces(name,kind)),answers:answers!answers_question_id_fkey(id)&order=created_at.desc&limit=5'),
         api('/checklist_runs?finished=is.false&select=id,label,started_at,checklist_id,checklist:items(title,space:spaces(name,kind)),steps:checklist_run_steps(done)&order=started_at.desc&limit=5'),
         api(`/expense_balances?user_id=eq.${me.id}&net_cents=neq.0&select=list_id,net_cents`),
+        api(`/inventory_things?holder_id=eq.${me.id}&select=id,name,held_since,inventory_id,inventory:items(title,space:spaces(name,kind))&order=held_since&limit=6`),
       ]);
       const lists = owed.length ? await api(`/items?id=in.(${owed.map((b) => b.list_id).join(',')})&select=id,title,updated_at,space:spaces(name,kind)&order=updated_at.desc`) : [];
       const balances = lists.slice(0, 5).map((l) => ({ ...owed.find((b) => b.list_id === l.id), list: l }));
@@ -273,13 +283,13 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
       const isClosed = (p) => (Array.isArray(p.state) ? p.state[0]?.closed : p.state?.closed);
       const polls = open.filter((p) => !isClosed(p) && !p.mine?.length).slice(0, 5);
       const forms = openForms.filter((f) => !isClosed(f) && !f.mine?.length).slice(0, 5);
-      setData({ announcements, upcoming, yeses, bookings, shifts, tasks, polls, forms, links, contacts, decisions, questions, checklists, balances, profile, meetings, recent, files }); setError('');
+      setData({ announcements, upcoming, yeses, bookings, shifts, tasks, polls, forms, links, contacts, decisions, questions, checklists, balances, holding, profile, meetings, recent, files }); setError('');
     } catch (e) { setError(`Widgets could not load: ${e.message}`); }
   }, [me.id]);
   useEffect(() => { load(); }, [load]);
   // Live: refresh shortly after anything they show changes (several notices in a row refresh once).
   useEffect(() => {
-    if (!notice || !['events', 'items', 'members', 'tasks', 'polls', 'forms', 'links', 'contacts', 'decisions', 'qa', 'checklists', 'expenses', 'announcements', 'meetings', 'rsvps', 'bookings', 'resources', 'shifts', 'shift_signups', 'profiles'].includes(notice.t)) return;
+    if (!notice || !['events', 'items', 'members', 'tasks', 'polls', 'forms', 'links', 'contacts', 'decisions', 'qa', 'checklists', 'expenses', 'inventory', 'announcements', 'meetings', 'rsvps', 'bookings', 'resources', 'shifts', 'shift_signups', 'profiles'].includes(notice.t)) return;
     clearTimeout(timer.current); timer.current = setTimeout(load, 400);
   }, [notice, load]);
 
@@ -299,6 +309,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
     : k === 'questions' ? <OpenQuestions data={data.questions} onOpenItem={onOpenItem} />
     : k === 'checklists' ? <ChecklistsInProgress data={data.checklists} onOpenItem={onOpenItem} />
     : k === 'balances' ? <MyBalances data={data.balances} onOpenItem={onOpenItem} />
+    : k === 'holding' ? <ThingsYouHave data={data.holding} onOpenItem={onOpenItem} />
     : k === 'profile' ? <MyProfile data={data.profile} onOpenProfiles={onOpenProfiles} />
     : k === 'meetings' ? <Meetings data={data.meetings} onOpenItem={onOpenItem} />
     : k === 'unread' ? <Unread unread={unread} spaces={spaces} onOpenConvo={onOpenConvo} />

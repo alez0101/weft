@@ -538,6 +538,31 @@
 .exp-settle strong { font-weight: 600; color: var(--color-ink); }
 .exp-settle .exp-sum { margin-left: auto; }
 .exp-balances .docs-hint { margin: 0; padding: 0; }
+/* Inventory: things grouped by where they are kept (uses the Links layout and the Checklists grid), each
+   in or with someone, with what is out and recent check outs beside the list. */
+.inv-place { display: grid; gap: var(--space-xs); }
+.inv-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2xs) var(--space-xs); }
+.inv-name { margin: 0; font-size: var(--text-md); font-weight: 600; color: var(--color-ink); overflow-wrap: anywhere; }
+.inv-state { font-size: var(--text-xs); line-height: 1; padding: var(--space-2xs) var(--space-xs); border-radius: var(--radius-pill);
+  background: var(--color-paper-3); color: var(--color-ink-2); }
+.inv-state.is-out { background: var(--p-sat); color: var(--color-ink); font-weight: 600; }
+.inv-thing.is-out { box-shadow: 0 0 0 1px var(--color-rule), inset 3px 0 0 var(--color-accent-deep); }
+.inv-meta { margin: 0; font-size: var(--text-sm); color: var(--color-ink-2); }
+.inv-meta strong { font-weight: 600; color: var(--color-ink); }
+.inv-lend { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-xs); }
+.inv-lend label { font-size: var(--text-sm); color: var(--color-ink-2); }
+.inv-history { flex-basis: 100%; font-size: var(--text-sm); color: var(--color-ink-2); }
+.inv-history summary { cursor: pointer; width: max-content; color: var(--color-muted); font-size: var(--text-xs); }
+.inv-history summary:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; border-radius: 3px; }
+.inv-history ul { list-style: none; margin: var(--space-2xs) 0 0; padding: 0 0 0 var(--space-sm); display: grid; gap: var(--space-3xs); border-left: 2px solid var(--color-rule); }
+.inv-history time, .inv-moves time { color: var(--color-muted); font-size: var(--text-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.inv-out, .inv-moves { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3xs); }
+.inv-out li, .inv-moves li { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--space-3xs) var(--space-xs);
+  padding: var(--space-2xs) var(--space-xs); border-radius: var(--radius-input); background: var(--color-paper); font-size: var(--text-sm); color: var(--color-ink-2); }
+.inv-out li { display: grid; gap: 0; }
+.inv-out strong, .inv-moves strong { font-weight: 600; color: var(--color-ink); overflow-wrap: anywhere; }
+.inv-move-what { min-width: 0; overflow-wrap: anywhere; }
+.inv-side .docs-hint { margin: 0; padding: 0; }
 /* Announcements: notices pinned to a channel, in the chat header, the app and the Home widget. */
 .pinned { display: grid; gap: var(--space-2xs); margin-top: var(--space-xs); }
 .pinned-note { display: grid; gap: 2px; padding: var(--space-xs) var(--space-sm); border-radius: var(--radius-card);

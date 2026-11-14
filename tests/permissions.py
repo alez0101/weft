@@ -1340,6 +1340,160 @@ def expenses():
     call("DELETE", f"/items?id=eq.{fest}", olive)
 
 
+def inventory():
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, V, O, A = uid("user", "u-pub"), uid("user", "u-vol"), uid("user", "u-org"), uid("user", "u-alex")
+    oq = lambda sql: owner_sql(sql)
+    things = lambda inv: oq(f"select count(*) from weft.inventory_things where inventory_id = '{inv}'")
+    holder = lambda t: oq(f"select coalesce(holder_id::text, '') from weft.inventory_things where id = '{t}'")
+    moves = lambda t: oq(f"select coalesce(string_agg(action || ':' || holder_id || ':' || coalesce(by_id::text, ''), ',' order by at), '') from weft.inventory_moves where thing_id = '{t}'")
+    st, rows = call("POST", "/items", olive, {"space_id": SID["organizers"], "kind": "inventory", "title": "Org gear"})
+    org = rows[0]["id"] if st == 201 else None
+    st2, rows = call("POST", "/items", olive, {"space_id": SID["festival"], "kind": "inventory", "title": "Festival gear"})
+    fest = rows[0]["id"] if st2 == 201 else None
+    check("Inventory: Olive (editor) makes inventories in Organizers and #festival", org and fest, f"{st} {st2}")
+    st, _ = call("POST", "/items", pat, {"space_id": SID["festival"], "kind": "inventory", "title": "x"})
+    check("Inventory: Pat (viewer) cannot make an inventory in #festival", refused(st), str(st))
+
+    st, rows = call("POST", "/inventory_things", olive, {"inventory_id": org, "name": "  ORG-THING-SECRET projector ", "location": " Office cupboard ", "note": "with HDMI"})
+    ot = rows[0]["id"] if st == 201 else None
+    check("Inventory: Olive adds an Organizers thing (positive control), tidied, created_by set by the database",
+          st == 201 and oq(f"select name || '|' || location || '|' || created_by from weft.inventory_things where id = '{ot}'") == f"ORG-THING-SECRET projector|Office cupboard|{O}", f"{st} {rows}")
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = call("GET", f"/inventory_things?inventory_id=eq.{org}&select=id", tok)
+        st2, rows2 = call("GET", f"/inventory_moves?inventory_id=eq.{org}&select=id", tok)
+        check(f"Inventory: {who} gets no Organizers things or record", rows == [] and rows2 == [], f"{rows} {rows2}")
+    st, rows = call("GET", "/inventory_things?select=name&name=like.*ORG-THING*", pat)
+    st2, rows2 = call("GET", f"/inventory_things?holder_id=is.null&select=id", pat)
+    check("Inventory: nor finds them by filtering every thing", rows == [] and st2 == 200 and ot not in [r["id"] for r in rows2 or []], f"{rows}")
+
+    st, rows = call("POST", "/inventory_things", olive, {"inventory_id": fest, "name": "Tent", "location": "Shed"})
+    tent = rows[0]["id"] if st == 201 else None
+    st2, rows = call("POST", "/inventory_things", alex, {"inventory_id": fest, "name": "Extension lead", "location": "Shed"})
+    lead = rows[0]["id"] if st2 == 201 else None
+    check("Inventory: Olive and Alex (owner) add things in #festival (positive control)", tent and lead, f"{st} {st2}")
+    st, rows = call("GET", f"/inventory_things?inventory_id=eq.{fest}&select=id", pat)
+    check("Inventory: Pat reads the #festival things (positive control)", st == 200 and len(rows) == 2, str(rows))
+    # Viewers do not add, change or delete things.
+    st, _ = call("POST", "/inventory_things", pat, {"inventory_id": fest, "name": "pwned"})
+    st2, rows2 = call("PATCH", f"/inventory_things?id=eq.{tent}", pat, {"name": "pwned"})
+    st3, rows3 = call("PATCH", f"/inventory_things?id=eq.{tent}", pat, {"location": "Pat's car"})
+    st4, rows4 = call("DELETE", f"/inventory_things?id=eq.{tent}", pat)
+    check("Inventory: Pat cannot add, rename, re-place or delete a #festival thing", refused(st) and not (st2 == 200 and rows2) and not (st3 == 200 and rows3) and rows4 == []
+          and things(fest) == "2" and oq(f"select name || '|' || location from weft.inventory_things where id = '{tent}'") == "Tent|Shed", f"{st} {st2} {rows2} {st3} {rows3} {st4}")
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{tent}", pat, {"holder_id": P, "note": "mine now"})
+    check("Inventory: Pat cannot change a note while checking out", st in (401, 403) and holder(tent) == "", f"{st} {rows}")
+    # Viewers check out to themselves and check in what they have.
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{tent}&holder_id=is.null", pat, {"holder_id": P})
+    check("Inventory: Pat (viewer) checks the tent out to herself (positive control), since set by the database", st == 200 and len(rows) == 1 and holder(tent) == P
+          and rows[0]["held_since"] and moves(tent) == f"out:{P}:{P}", f"{st} {rows} {moves(tent)}")
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{lead}", pat, {"holder_id": V})
+    check("Inventory: Pat cannot check out to someone else", refused(st) and holder(lead) == "", f"{st} {rows}")
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{tent}", pat, {"holder_id": V})
+    check("Inventory: nor hand what she has to someone else", refused(st) and holder(tent) == P, f"{st} {rows}")
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{tent}&holder_id=is.null", vic, {"holder_id": V})
+    st2, rows2 = call("PATCH", f"/inventory_things?id=eq.{tent}", vic, {"holder_id": None})
+    check("Inventory: Vic (viewer) cannot take or check in a thing Pat has", rows == [] and rows2 == [] and holder(tent) == P, f"{st} {rows} {st2} {rows2}")
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{tent}", pat, {"holder_id": None})
+    check("Inventory: Pat checks the tent back in (positive control)", st == 200 and len(rows) == 1 and holder(tent) == "" and rows[0]["held_since"] is None
+          and moves(tent) == f"out:{P}:{P},in:{P}:{P}", f"{st} {rows} {moves(tent)}")
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{ot}", pat, {"holder_id": P})
+    st2, rows2 = call("PATCH", f"/inventory_things?id=eq.{ot}", vic, {"holder_id": V})
+    check("Inventory: outsiders cannot check out an Organizers thing", rows == [] and rows2 == [] and holder(ot) == "", f"{st} {rows} {st2} {rows2}")
+    # Editors check out to anyone in the space and in from anyone; the holder must be a member.
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{lead}", olive, {"holder_id": V})
+    check("Inventory: Olive checks the lead out to Vic (positive control); the record says Olive did it", st == 200 and holder(lead) == V and moves(lead) == f"out:{V}:{O}", f"{st} {rows}")
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{lead}", olive, {"holder_id": P})
+    check("Inventory: Olive hands it from Vic to Pat; the record has both", st == 200 and holder(lead) == P and moves(lead) == f"out:{V}:{O},in:{V}:{O},out:{P}:{O}", f"{st} {moves(lead)}")
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{ot}", olive, {"holder_id": P})
+    check("Inventory: things can be checked out only to members of the space", st == 400 and "member" in json.dumps(rows) and holder(ot) == "", f"{st} {rows}")
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{ot}", pat, {"holder_id": V})
+    check("Inventory: Pat gets a refusal there, not that answer", "member" not in json.dumps(rows) and holder(ot) == "", f"{st} {rows}")
+    st, rows = call("POST", "/inventory_things", olive, {"inventory_id": fest, "name": "Radio", "holder_id": V})
+    radio = rows[0]["id"] if st == 201 else None
+    check("Inventory: a thing can be added already checked out, and that is in the record", radio and holder(radio) == V and moves(radio) == f"out:{V}:{O}", f"{st} {rows}")
+    # Authorship, times and links are fixed; the record is never written by hand.
+    st, _ = call("POST", "/inventory_things", olive, {"inventory_id": fest, "name": "forged", "created_by": A})
+    st2, _ = call("POST", "/inventory_things", olive, {"inventory_id": fest, "name": "forged", "held_since": "2020-01-01T00:00:00Z"})
+    st3, _ = call("PATCH", f"/inventory_things?id=eq.{lead}", olive, {"held_since": "2020-01-01T00:00:00Z"})
+    check("Inventory: authorship and since-when cannot be forged", refused(st) and refused(st2) and refused(st3)
+          and oq(f"select held_since > now() - interval '1 hour' from weft.inventory_things where id = '{lead}'") == "t", f"{st} {st2} {st3}")
+    st, _ = call("POST", "/inventory_moves", olive, {"thing_id": tent, "inventory_id": fest, "action": "out", "holder_id": A})
+    st2, _ = call("PATCH", f"/inventory_moves?thing_id=eq.{tent}", olive, {"holder_id": A})
+    st3, rows3 = call("DELETE", f"/inventory_moves?thing_id=eq.{tent}", alex)
+    check("Inventory: nobody writes, changes or deletes the record by hand, owners included", refused(st) and refused(st2) and refused(st3) and moves(tent) == f"out:{P}:{P},in:{P}:{P}", f"{st} {st2} {st3}")
+    st, _ = call("PATCH", f"/inventory_things?id=eq.{tent}", olive, {"inventory_id": org})
+    check("Inventory: a thing cannot jump inventories", refused(st) and oq(f"select inventory_id from weft.inventory_things where id = '{tent}'") == fest, str(st))
+    st, _ = call("POST", "/inventory_things", olive, {"inventory_id": uid("item", "porches"), "name": "on a table"})
+    check("Inventory: a thing cannot hang off an item that is not an inventory", refused(st), str(st))
+    for bad, why in (({"name": "   "}, "an empty name"), ({"name": "x" * 201}, "a name that is too long"), ({"name": "ok", "location": "x" * 201}, "a place that is too long")):
+        st, _ = call("POST", "/inventory_things", olive, {"inventory_id": fest, **bad})
+        check(f"Inventory: {why} is refused", st == 400, str(st))
+    # The summary for search and the assistant.
+    st, rows = call("GET", f"/items?id=eq.{fest}&select=body_text", pat)
+    body = (rows[0]["body_text"] if rows else "") or ""
+    check("Inventory: the #festival summary has each thing, where it is kept and who has it, and Pat reads it",
+          "Inventory, 3 things, 2 checked out" in body and "- Tent, kept in Shed, in its place" in body and "- Extension lead, kept in Shed, checked out to Pat Public since" in body
+          and "- Radio, checked out to Vic Volunteer" in body, body)
+    # Someone who leaves keeps what they have until it is checked in; an editor checks it in.
+    st, _ = call("POST", "/members", alex, {"space_id": SID["organizers"], "user_id": V, "role": "viewer"})
+    st2, _ = call("PATCH", f"/inventory_things?id=eq.{ot}&holder_id=is.null", vic, {"holder_id": V})
+    st3, _ = call("DELETE", f"/members?space_id=eq.{SID['organizers']}&user_id=eq.{V}", alex)
+    st4, rows4 = call("PATCH", f"/inventory_things?id=eq.{ot}", vic, {"holder_id": None})
+    check("Inventory: someone who left keeps the thing in the record, and can no longer check it in themselves", st == 201 and st2 == 200 and st3 in (200, 204)
+          and rows4 == [] and holder(ot) == V, f"{st} {st2} {st3} {st4} {rows4}")
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{ot}", olive, {"holder_id": None})
+    check("Inventory: an editor checks it in from someone who left (positive control)", st == 200 and holder(ot) == "", f"{st} {rows}")
+    # Scoped tokens and the assistant.
+    scoped = mint("u-org", scope="festival")
+    st, rows = call("GET", f"/inventory_things?inventory_id=in.({org},{fest})&select=inventory_id", scoped)
+    st2, rows2 = call("GET", f"/inventory_moves?inventory_id=in.({org},{fest})&select=inventory_id", scoped)
+    check("Inventory: a #festival-scoped token sees only #festival things and record", rows and {r["inventory_id"] for r in rows} == {fest}
+          and rows2 and {r["inventory_id"] for r in rows2} == {fest}, f"{rows} {rows2}")
+    st, _ = call("POST", "/inventory_things", scoped, {"inventory_id": org, "name": "x"})
+    st2, rows2 = call("PATCH", f"/inventory_things?id=eq.{ot}", scoped, {"holder_id": O})
+    st3, rows3 = call("DELETE", f"/inventory_things?id=eq.{ot}", scoped)
+    check("Inventory: nor adds, checks out or deletes in Organizers", refused(st) and rows2 == [] and rows3 == [] and holder(ot) == "", f"{st} {rows2} {rows3}")
+    helper = mint("u-org", assistant=True)
+    st, rows = call("GET", f"/inventory_moves?thing_id=eq.{ot}&select=action", helper)
+    check("Inventory: the assistant (for Olive) can read the Organizers record (positive control)", st == 200 and len(rows) == 2, str(rows))
+    st, _ = call("DELETE", f"/inventory_things?id=eq.{ot}", helper)
+    st2, _ = call("PATCH", f"/inventory_things?id=eq.{ot}", helper, {"holder_id": O})
+    st3, _ = call("POST", "/inventory_things", helper, {"inventory_id": org, "name": "x"})
+    check("Inventory: the assistant cannot delete, check out or add anything", refused(st) and refused(st2) and refused(st3) and things(org) == "1" and holder(ot) == "", f"{st} {st2} {st3}")
+    # Audit and search follow the space.
+    st, rows = call("GET", f"/audit?row_id=eq.{tent}&select=op", vic)
+    check("Inventory: #festival check outs are in the audit log, readable by its members (positive control)", len(rows or []) >= 2, str(rows))
+    st, rows = call("GET", f"/audit?row_id=eq.{ot}&select=op", olive)
+    st2, rows2 = call("GET", f"/audit?row_id=eq.{ot}&select=op", pat)
+    check("Inventory: an Organizers change is in the audit log for Organizers members only", len(rows or []) >= 1 and rows2 == [], f"{rows} {rows2}")
+    st, rows = call("POST", "/rpc/search", olive, {"p_q": "ORG-THING-SECRET"})
+    st2, rows2 = call("POST", "/rpc/search", pat, {"p_q": "ORG-THING-SECRET"})
+    check("Inventory: search finds the inventory for Olive, not for Pat", any(r["id"] == org and r["kind"] == "inventory" for r in rows or []) and rows2 == [], f"{rows} {rows2}")
+    # Deletes and moves follow the inventory.
+    st, _ = call("DELETE", f"/inventory_things?id=eq.{radio}", olive)
+    check("Inventory: Olive deletes a thing and its record goes with it (positive control)", st in (200, 204)
+          and oq(f"select count(*) from weft.inventory_moves where thing_id = '{radio}'") == "0", str(st))
+    st, _ = call("PATCH", f"/items?id=eq.{org}", olive, {"space_id": SID["festival"]})
+    st2, rows = call("GET", f"/inventory_things?inventory_id=eq.{org}&select=id", pat)
+    st3, rows3 = call("GET", f"/inventory_moves?inventory_id=eq.{org}&select=id", pat)
+    check("Inventory: an inventory moved into #festival takes its things and record with it, readable to Pat", st == 200 and len(rows) == 1 and len(rows3) == 2, f"{st} {rows} {rows3}")
+    st, rows = call("PATCH", f"/inventory_things?inventory_id=eq.{org}&holder_id=is.null", pat, {"holder_id": P})
+    check("Inventory: and Pat may now check it out to herself", st == 200 and holder(ot) == P, f"{st} {rows}")
+    st, _ = call("PATCH", f"/items?id=eq.{fest}", olive, {"space_id": SID["organizers"]})
+    st2, rows = call("GET", f"/inventory_things?inventory_id=eq.{fest}&select=id", pat)
+    st3, rows3 = call("GET", f"/inventory_things?holder_id=eq.{P}&select=id", pat)
+    check("Inventory: an inventory moved to Organizers takes its things out of Pat's sight, even the lead she has", st == 200 and rows == [] and lead not in [r["id"] for r in rows3 or []], f"{st} {rows} {rows3}")
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{lead}", pat, {"holder_id": None})
+    check("Inventory: and she cannot check it in there", rows == [] and holder(lead) == P, f"{st} {rows}")
+    st, _ = call("DELETE", f"/items?id=eq.{org}", pat)
+    check("Inventory: Pat cannot delete an inventory", oq(f"select count(*) from weft.items where id = '{org}'") == "1", str(st))
+    st, _ = call("DELETE", f"/items?id=eq.{org}", olive)
+    check("Inventory: deleting an inventory deletes its things and record", st in (200, 204) and things(org) == "0"
+          and oq(f"select count(*) from weft.inventory_moves where inventory_id = '{org}'") == "0", str(st))
+    call("DELETE", f"/items?id=eq.{fest}", olive)
+
+
 def announcements():
     pat, vic, olive = mint("u-pub"), mint("u-vol"), mint("u-org")
     P, O, A = uid("user", "u-pub"), uid("user", "u-org"), uid("user", "u-alex")
@@ -2797,6 +2951,7 @@ if __name__ == "__main__":
     qa()
     checklists()
     expenses()
+    inventory()
     announcements()
     meetings()
     rsvps()
