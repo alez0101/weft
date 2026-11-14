@@ -17,6 +17,7 @@ import TaskList from './TaskList.jsx';
 import Kanban from './Kanban.jsx';
 import Poll from './Poll.jsx';
 import LinkList from './LinkList.jsx';
+import Meeting from './Meeting.jsx';
 import Form from './Form.jsx';
 
 // Cursor colours come from the theme tokens (deeper tints so the name tags stay readable).
@@ -68,7 +69,7 @@ function SyncedEditor({ state, me, editable }) {
   return <BlockNoteView editor={editor} editable={editable} theme={appearance} />;
 }
 
-export default function Docs({ kind, view, me, members, openId, setOpenId, notice, onSwitch }) {
+export default function Docs({ kind, view, me, members, openId, setOpenId, notice, onSwitch, onOpenEvent, onOpenItem }) {
   const [spaces, setSpaces] = useState([]);
   const [items, setItems] = useState(null);
   const [error, setError] = useState('');
@@ -85,7 +86,7 @@ export default function Docs({ kind, view, me, members, openId, setOpenId, notic
     try {
       const [s, i] = await Promise.all([
         api('/spaces?kind=in.(channel,personal)&select=id,kind,name&order=kind.desc,name'),
-        api(`/items?kind=eq.${kind}&select=id,title,space_id,parent_id,updated_at,managed&order=title`),
+        api(`/items?kind=eq.${kind}&select=id,title,space_id,parent_id,updated_at,managed&order=${kind === 'meeting' ? 'created_at.desc' : 'title'}`),
       ]);
       setSpaces(s); setItems(i); setError('');
     } catch (e) { setError(e.message); }
@@ -117,7 +118,7 @@ export default function Docs({ kind, view, me, members, openId, setOpenId, notic
   async function create() {
     try {
       const parent = kind === 'wiki' && current && current.space_id === newSpace ? current.id : null;
-      const [row] = await api('/items', { method: 'POST', body: { space_id: newSpace, kind, title: kind === 'wiki' ? 'New page' : kind === 'whiteboard' ? 'Untitled whiteboard' : kind === 'table' ? 'Untitled table' : kind === 'tasklist' ? 'New task list' : kind === 'poll' ? 'New poll' : kind === 'form' ? 'New form' : kind === 'linklist' ? 'Useful links' : 'Untitled document', parent_id: parent }, prefer: 'return=representation' });
+      const [row] = await api('/items', { method: 'POST', body: { space_id: newSpace, kind, title: kind === 'wiki' ? 'New page' : kind === 'whiteboard' ? 'Untitled whiteboard' : kind === 'table' ? 'Untitled table' : kind === 'tasklist' ? 'New task list' : kind === 'poll' ? 'New poll' : kind === 'form' ? 'New form' : kind === 'linklist' ? 'Useful links' : kind === 'meeting' ? `Meeting ${new Date().toLocaleDateString([], { month: 'short', day: 'numeric' })}` : 'Untitled document', parent_id: parent }, prefer: 'return=representation' });
       if (kind === 'poll') await api('/poll_choices', { method: 'POST', body: [{ poll_id: row.id, label: 'Yes', position: 0 }, { poll_id: row.id, label: 'No', position: 1 }], prefer: 'return=minimal' });
       if (kind === 'form') await api('/form_questions', { method: 'POST', body: { form_id: row.id, label: 'Your name', kind: 'short', required: true, position: 0 }, prefer: 'return=minimal' });
       if (kind === 'table') await api('/table_columns', { method: 'POST', body: { table_id: row.id, name: 'Name', type: 'text', position: 0 }, prefer: 'return=minimal' });
@@ -171,11 +172,11 @@ export default function Docs({ kind, view, me, members, openId, setOpenId, notic
         {kind === 'wiki' && <ul>{renderRows(rows.filter((x) => x.parent_id === r.id), r.id, depth + 1)}</ul>}
       </li>
     ));
-  const noun = kind === 'wiki' ? 'page' : kind === 'whiteboard' ? 'whiteboard' : kind === 'table' ? 'table' : kind === 'tasklist' ? 'task list' : kind === 'poll' ? 'poll' : kind === 'form' ? 'form' : kind === 'linklist' ? 'link list' : kind === 'file' ? 'file' : 'document';
+  const noun = kind === 'wiki' ? 'page' : kind === 'whiteboard' ? 'whiteboard' : kind === 'table' ? 'table' : kind === 'tasklist' ? 'task list' : kind === 'poll' ? 'poll' : kind === 'form' ? 'form' : kind === 'linklist' ? 'link list' : kind === 'meeting' ? 'meeting' : kind === 'file' ? 'file' : 'document';
 
   return (
     <div className="docs">
-      <nav className={`docs-list${dragging ? ' is-dropping' : ''}`} aria-label={kind === 'wiki' ? 'Wiki pages' : kind === 'whiteboard' ? 'Whiteboards' : kind === 'table' ? 'Tables' : kind === 'tasklist' ? 'Task lists' : kind === 'poll' ? 'Polls' : kind === 'form' ? 'Forms' : kind === 'linklist' ? 'Link lists' : kind === 'file' ? 'Files' : 'Documents'}
+      <nav className={`docs-list${dragging ? ' is-dropping' : ''}`} aria-label={kind === 'wiki' ? 'Wiki pages' : kind === 'whiteboard' ? 'Whiteboards' : kind === 'table' ? 'Tables' : kind === 'tasklist' ? 'Task lists' : kind === 'poll' ? 'Polls' : kind === 'form' ? 'Forms' : kind === 'linklist' ? 'Link lists' : kind === 'meeting' ? 'Meetings' : kind === 'file' ? 'Files' : 'Documents'}
         onDragOver={kind === 'file' ? (e) => { e.preventDefault(); setDragging(true); } : undefined}
         onDragLeave={kind === 'file' ? () => setDragging(false) : undefined}
         onDrop={kind === 'file' ? (e) => { e.preventDefault(); setDragging(false); upload(e.dataTransfer.files); } : undefined}>
@@ -236,6 +237,8 @@ export default function Docs({ kind, view, me, members, openId, setOpenId, notic
               ? <div className="docs-form"><Form key={current.id} item={current} me={me} members={members} editable={canEditIn(current.space_id)} notice={notice} /></div>
               : kind === 'linklist'
               ? <div className="docs-links"><LinkList key={current.id} item={current} editable={canEditIn(current.space_id)} notice={notice} /></div>
+              : kind === 'meeting'
+              ? <div className="docs-meeting"><Meeting key={current.id} item={current} me={me} members={members} editable={canEditIn(current.space_id)} notice={notice} onOpenEvent={onOpenEvent} onOpenItem={onOpenItem} /></div>
               : kind === 'poll'
               ? <div className="docs-poll"><Poll key={current.id} item={current} me={me} members={members} editable={canEditIn(current.space_id)} notice={notice} /></div>
               : kind === 'tasklist' && view === 'board'
@@ -251,7 +254,7 @@ export default function Docs({ kind, view, me, members, openId, setOpenId, notic
         ) : missing ? (
           <div className="empty"><h2>You don't have access to this {noun}</h2><p>It belongs to a space you're not in, or it was deleted. Ask someone in that space to add you.</p></div>
         ) : (
-          <div className="empty"><h2>{kind === 'wiki' ? 'Pick a page' : kind === 'whiteboard' ? 'Pick a whiteboard' : kind === 'table' ? 'Pick a table' : kind === 'tasklist' ? (view === 'board' ? 'Pick a task list to see it as a board' : 'Pick a task list') : kind === 'poll' ? 'Pick a poll' : kind === 'form' ? 'Pick a form' : kind === 'linklist' ? 'Pick a link list' : kind === 'file' ? 'Pick a file' : 'Pick a document'}</h2><p>Everything here is saved in Weft, and the assistant can answer from it for anyone who can open it.</p></div>
+          <div className="empty"><h2>{kind === 'wiki' ? 'Pick a page' : kind === 'whiteboard' ? 'Pick a whiteboard' : kind === 'table' ? 'Pick a table' : kind === 'tasklist' ? (view === 'board' ? 'Pick a task list to see it as a board' : 'Pick a task list') : kind === 'poll' ? 'Pick a poll' : kind === 'form' ? 'Pick a form' : kind === 'linklist' ? 'Pick a link list' : kind === 'meeting' ? 'Pick a meeting' : kind === 'file' ? 'Pick a file' : 'Pick a document'}</h2><p>Everything here is saved in Weft, and the assistant can answer from it for anyone who can open it.</p></div>
         )}
       </section>
     </div>
