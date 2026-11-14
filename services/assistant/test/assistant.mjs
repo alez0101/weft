@@ -270,6 +270,24 @@ check('Files: and cites it as a file', (a6.reply?.meta?.citations || []).some((c
 a6 = await askA(pat, await mine(pat), 'What does the insurance certificate cover?');
 check('Files: Pat never gets an Organizers file\'s text', !(a6.calls[0]?.user || '').includes('INS-FILE-8812'));
 
+// ================================================================ glossary
+// A glossary's terms reach the model as its text, labelled as a glossary, so Weft can explain the group's
+// own words; an Organizers glossary never reaches it for Pat.
+const [festGl] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'glossary', title: 'Festival words' } })).rows;
+await api(olive.token, '/glossary_terms', { method: 'POST', body: { glossary_id: festGl.id, term: 'FOH', definition: 'Front of house: everything the audience sees, from the gate to the bar.' } });
+const [orgGl] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.organizers, kind: 'glossary', title: 'Organizer words' } })).rows;
+await api(olive.token, '/glossary_terms', { method: 'POST', body: { glossary_id: orgGl.id, term: 'Headliner cap', definition: 'GLOSS-ORG-SECRET-4410: the most we pay one act.' } });
+a6 = await askA(pat, spaces.festival, '@Weft what does FOH mean?');
+check('Glossary: a #festival term reaches the model for Pat in #festival, labelled as a glossary',
+  /\] glossary \([^)]*\) "Festival words" in #festival: FOH: Front of house/.test(a6.calls[0]?.user || ''), (a6.calls[0]?.user || '').slice(0, 300));
+a6 = await askA(pat, await mine(pat), 'What is the headliner cap?');
+check('Glossary: an Organizers glossary never reaches the model for Pat', !(a6.calls[0]?.user || '').includes('GLOSS-ORG-SECRET'));
+a6 = await askA(olive, spaces.festival, '@Weft what is the headliner cap?');
+check('Glossary: nor for Olive in #festival (the channel scope)', !(a6.calls[0]?.user || '').includes('GLOSS-ORG-SECRET'));
+a6 = await askA(olive, await mine(olive), 'What is the headliner cap?');
+check('Glossary: Olive in her own conversation gets it (positive control)', (a6.calls[0]?.user || '').includes('GLOSS-ORG-SECRET-4410'), (a6.calls[0]?.user || '').slice(0, 300));
+await api(olive.token, `/items?id=in.(${festGl.id},${orgGl.id})`, { method: 'DELETE' });
+
 // ================================================================ personal keys
 const pk = (who, path = '', opts = {}) => assist(who.token, `/assistant/me/provider${path}`, opts);
 let pr = await pk(pat);

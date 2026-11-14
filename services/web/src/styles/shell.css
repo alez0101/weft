@@ -412,6 +412,17 @@
 .contact-ways { margin: 0; display: flex; flex-wrap: wrap; gap: var(--space-2xs) var(--space-md); font-size: var(--text-sm); }
 .contact-way { color: var(--color-accent-deep); overflow-wrap: anywhere; text-underline-offset: 3px; }
 .contact-way:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; border-radius: 3px; }
+/* Glossary: terms and what they mean (uses the Links layout, plus letter headings and a letter index). */
+.glossary-index { display: flex; flex-wrap: wrap; gap: var(--space-3xs); }
+.glossary-index a { min-width: 1.75rem; padding: var(--space-3xs) var(--space-2xs); border-radius: var(--radius-pill); text-align: center;
+  font-size: var(--text-sm); font-weight: 600; color: var(--color-accent-deep); text-decoration: none; background: var(--color-paper); box-shadow: 0 0 0 1px var(--color-rule); }
+.glossary-index a:hover { background: var(--color-accent-soft); color: var(--color-ink); }
+.glossary-index a:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.glossary-groups { display: grid; gap: var(--space-md); }
+.glossary-group { display: grid; gap: var(--space-xs); scroll-margin-top: var(--space-md); }
+.glossary-letter { margin: 0; max-width: none; font-size: var(--text-lg); font-weight: 600; color: var(--color-ink); border-bottom: 1px solid var(--color-rule); padding-bottom: var(--space-3xs); scroll-margin-top: var(--space-md); }
+.glossary-term { font-style: normal; font-size: var(--text-md); font-weight: 600; color: var(--color-ink); overflow-wrap: anywhere; }
+.glossary-def { margin: 0; color: var(--color-ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
 /* Decisions: a decision log (uses the Links layout, plus the date, a "Replaced" mark and the links between
    a decision and the one it replaces). */
 .decision:focus-visible, .decision.is-focus { outline: 2px solid var(--color-focus); outline-offset: 2px; }
