@@ -23,7 +23,7 @@ On a notice, **Edit** changes its title, text or end time, **End now** takes it 
 - In the **Announcements** widget on Home: the current notices from every channel you are in. Click one to open it in the app. If you chose your widgets before this widget existed, add it with **Customize**.
 - In the app itself, current and ended notices for each channel.
 
-Announcements are only for channels, not for your personal space or direct messages. They do not appear in search, and Weft does not answer questions from them.
+Announcements are only for channels, not for your personal space or direct messages. They appear in search, and Weft answers questions from them, for the people in the channel only.
 
 ### Who can see what
 

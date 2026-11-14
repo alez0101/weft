@@ -27,4 +27,4 @@ The **Your shifts** widget lists the shifts you are on that have not ended, soon
 
 ### Who can see what
 
-Everyone in the channel sees its shifts and who is on each one; nobody else can. Every member signs up, viewers included, but only themselves. Editors and owners add, change and delete shifts and can take anyone off. Shifts never move to another channel. If you leave a channel, or are removed from it, you come off its shifts. Deleting a channel deletes its shifts. Weft (the assistant) can read shifts but cannot sign anyone up or change anything, and shifts are not in search.
+Everyone in the channel sees its shifts and who is on each one; nobody else can. Every member signs up, viewers included, but only themselves. Editors and owners add, change and delete shifts and can take anyone off. Shifts never move to another channel. If you leave a channel, or are removed from it, you come off its shifts. Deleting a channel deletes its shifts. Weft (the assistant) can read shifts but cannot sign anyone up or change anything. Shifts, with who is on them, appear in search for the people in the channel.

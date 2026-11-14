@@ -79,6 +79,11 @@ const SELECT = 'id,space_id,body,created_at,author:users(display_name,is_assista
 const ISELECT = 'id,space_id,kind,title,body_text,space:spaces(name,kind)';
 const ESELECT = 'id,space_id,title,location,starts_at,ends_at,space:spaces(name,kind)';
 const TIMEY = /\b(when|schedule|calendar|event|events|meeting|set|sets|shift|shifts|today|tomorrow|saturday|sunday|week|time|move|reschedule|start|starts)\b/i;
+// Records: rows of the apps that are not items (048, weft.records), read through a view that runs as the caller.
+const RSELECT = 'kind,id,space_id,title,body,at,ref';
+const RKINDS = ['announcement', 'rsvps', 'resource', 'shift', 'timeoff', 'kudos', 'milestone', 'journal', 'profile'];
+const RLABEL = { announcement: 'announcement', rsvps: 'answers to an event (who is going, maybe or not going)', resource: 'thing to book (with its bookings)', shift: 'shift (with who signed up)', timeoff: 'time off', kudos: 'kudos (a thank-you)', milestone: 'timeline milestone', journal: 'page of the person\'s own private journal (only they can read it)', profile: 'profile' };
+const RCITE = { announcement: 'Announcement', rsvps: 'RSVPs', resource: 'Booking', shift: 'Shift', timeoff: 'Time off', kudos: null, milestone: 'Milestone', journal: 'Your journal', profile: 'Profile' };
 const where = (s) => (s?.kind === 'channel' ? `#${s.name}` : s?.kind === 'personal' ? 'your personal space' : s?.kind === 'dm' ? 'a direct message' : 'your Weft conversation');
 
 // A short excerpt of a document: the paragraphs that mention the question's words, else its start.
@@ -104,6 +109,8 @@ async function retrieve(token, question, spaceId, scoped, excludeId) {
       .forEach((r) => put(`i${r.id}`, { type: 'item', ...r, text: excerpt(r.body_text, terms, r.kind === 'table' || r.kind === 'tasklist' ? 3500 : 1200) }));
     (await rest(token, `/events?select=${ESELECT}&or=(title.wfts(english).${q},location.wfts(english).${q})&order=starts_at&limit=10`))
       .forEach((r) => put(`e${r.id}`, { type: 'event', ...r }));
+    (await rest(token, `/records?select=${RSELECT}&or=(title.wfts(english).${q},body.wfts(english).${q})&order=at.desc&limit=8`))
+      .forEach((r) => put(`r${r.kind}${r.id}`, { type: 'record', ...r, text: excerpt(r.body, terms) }));
   }
   if (scoped) (await rest(token, `/messages?select=${SELECT}&space_id=eq.${spaceId}&order=created_at.desc&limit=15`)).forEach(msg);
   if (TIMEY.test(question)) {
@@ -118,16 +125,29 @@ async function retrieve(token, question, spaceId, scoped, excludeId) {
     const ids = (type) => [...new Set(hits.filter((h) => h.source_type === type).map((h) => h.source_id))];
     const chunkOf = new Map(hits.filter((h) => h.source_type === 'item').map((h) => [h.source_id, h.content]));
     const mIds = ids('message'); const iIds = ids('item'); const eIds = ids('event');
+    const rHits = hits.filter((h) => RKINDS.includes(h.source_type));
     if (mIds.length) (await rest(token, `/messages?select=${SELECT}&id=in.(${mIds.join(',')})`)).forEach(msg);
     if (iIds.length) (await rest(token, `/items?select=${ISELECT}&id=in.(${iIds.join(',')})`))
       .forEach((r) => put(`i${r.id}`, { type: 'item', ...r, text: (chunkOf.get(r.id) || excerpt(r.body_text, terms)).replace(/^[^\n]*\n/, '') }));
     if (eIds.length) (await rest(token, `/events?select=${ESELECT}&id=in.(${eIds.join(',')})`)).forEach((r) => put(`e${r.id}`, { type: 'event', ...r }));
+    if (rHits.length) {
+      const want = new Set(rHits.map((h) => `${h.source_type}${h.source_id}`));
+      (await rest(token, `/records?select=${RSELECT}&id=in.(${[...new Set(rHits.map((h) => h.source_id))].join(',')})`))
+        .filter((r) => want.has(`${r.kind}${r.id}`)).forEach((r) => put(`r${r.kind}${r.id}`, { type: 'record', ...r, text: excerpt(r.body, terms) }));
+    }
   } catch (e) { log('semantic search skipped:', e.message); }
-  const rank = { message: 0, item: 1, event: 2 };
-  return [...out.values()].sort((a, b) => rank[a.type] - rank[b.type] || String(a.created_at || a.starts_at).localeCompare(String(b.created_at || b.starts_at))).slice(-28);
+  // Records name their space by id only (the view cannot be joined by PostgREST): look the names up, as the asker.
+  const recs = [...out.values()].filter((x) => x.type === 'record');
+  const sids = [...new Set(recs.map((x) => x.space_id).filter(Boolean))];
+  if (sids.length) {
+    const names = new Map((await rest(token, `/spaces?id=in.(${sids.join(',')})&select=id,name,kind`)).map((x) => [x.id, x]));
+    for (const x of recs) x.space = names.get(x.space_id) || null;
+  }
+  const rank = { message: 0, item: 1, record: 1, event: 2 };
+  return [...out.values()].sort((a, b) => rank[a.type] - rank[b.type] || String(a.created_at || a.at || a.starts_at).localeCompare(String(b.created_at || b.at || b.starts_at))).slice(-28);
 }
 
-const SYSTEM = `You are Weft, the assistant inside a small team's workspace. Answer questions about the team's work using only the numbered items provided (chat messages, documents and calendar events) and cite every fact with its number in square brackets, like [2]. If those items do not contain the answer, reply with exactly NOT_FOUND and nothing else; do not guess. Never invent items you were not given. When you talk to the person, call the numbered items "what I can see here" or name them (a message, a document, an event); never say "sources". Address the person as you. Keep answers short and plain: one or two full sentences.
+const SYSTEM = `You are Weft, the assistant inside a small team's workspace. Answer questions about the team's work using only the numbered items provided (chat messages, documents, calendar events, and records from Weft's apps: announcements, RSVPs, bookings, shifts, time off, kudos, milestones, profiles and the person's own journal) and cite every fact with its number in square brackets, like [2]. If those items do not contain the answer, reply with exactly NOT_FOUND and nothing else; do not guess. Never invent items you were not given. When you talk to the person, call the numbered items "what I can see here" or name them (a message, a document, an event); never say "sources". Address the person as you. Keep answers short and plain: one or two full sentences.
 
 If the person asks about you or what you can do, answer that directly and without citations: you answer from the messages, documents and events they can open (in a channel, only from that channel, because the whole channel reads the answer); you can propose posting a message, creating an event and changing an event; nothing happens until they confirm; and you cannot delete anything.
 
@@ -144,13 +164,18 @@ function prompt(question, sources, tz) {
   const lines = sources.map((s, i) => {
     const n = `[${i + 1}]`;
     if (s.type === 'item') return `${n} ${({ wiki: 'wiki page', whiteboard: 'whiteboard', table: 'table', tasklist: 'task list', poll: 'poll', form: 'form', linklist: 'link list', addressbook: 'address book', decisionlog: 'decision log', qa: 'Q and A board (questions and answers; prefer the accepted answer, then the most upvoted)', checklist: 'checklist (its steps, then recent runs: how far each got and what was not done)', expenselist: 'expense list (who paid what for the group; the balances and the settle-up list are worked out by the database, so quote them rather than adding up yourself)', inventory: 'inventory (the things a group owns, where each is kept and who has it now)', goalset: 'goal set (goals with their key results, each as current of target and percent done; updated by hand)', retro: 'retrospective (notes on what went well, what to improve and actions for a period; some notes are anonymous, so never guess who wrote a note)', ideaboard: 'ideas board (ideas people suggested, each with its status: new, planned, done or declined, and how many votes it has)', glossary: 'glossary (the words this group uses and what each means; use it to understand the question and the other items, and to explain a term)', meeting: 'meeting notes', file: 'file' })[s.kind] || 'document'} "${s.title}" in ${where(s.space)}: ${s.text || '(empty)'}`;
+    if (s.type === 'record') {
+      if (s.kind === 'profile') return `${n} profile of ${s.title} (someone the person shares a space with): ${s.text || '(empty)'}`;
+      if (s.kind === 'journal') return `${n} ${RLABEL.journal} "${s.title}": ${s.text || '(empty)'}`;
+      return `${n} ${RLABEL[s.kind] || 'record'} "${s.title}" in ${where(s.space)}: ${s.text || '(empty)'}`;
+    }
     if (s.type === 'event') return `${n} event "${s.title}" in ${where(s.space)}, ${fmtTime(s.starts_at, tz)} to ${fmtTime(s.ends_at, tz)}${s.location ? `, at ${s.location}` : ''}`;
     return `${n} message in ${where(s.space)}, ${s.author?.display_name}, ${s.created_at.slice(0, 16).replace('T', ' ')}: ${s.body}`;
   });
   return `Sources:\n${lines.join('\n') || '(none)'}\n\nThe person's time zone is ${tz}. Question: ${question}`;
 }
 
-const label = (s) => (s.type === 'item' ? `${({ wiki: 'Wiki', whiteboard: 'Whiteboard', table: 'Table', file: 'File' })[s.kind] || 'Document'}: ${s.title}`
+const label = (s) => (s.type === 'record' ? (RCITE[s.kind] ? `${RCITE[s.kind]}: ${s.title}` : s.title) : s.type === 'item' ? `${({ wiki: 'Wiki', whiteboard: 'Whiteboard', table: 'Table', file: 'File' })[s.kind] || 'Document'}: ${s.title}`
   : s.type === 'event' ? `Event: ${s.title}` : `${where(s.space)}, ${s.author?.display_name}`);
 
 function tools(channels, creatable = []) {
@@ -313,7 +338,7 @@ async function ask(user, messageId, tzIn) {
       if (used.length) {
         body = result.text.replace(/\[(\d{1,2})\]/g, (all, n) => (order.has(Number(n)) ? `[${order.get(Number(n))}]` : ''));
         if (!/[a-z]{3,}/i.test(body.replace(/\[\d+\]/g, ''))) body = `Here is what I found: ${used.map((n) => `[${order.get(n)}]`).join(' ')}`;
-        citations = used.map((n) => { const s = sources[n - 1]; return { type: s.type, id: s.id, space_id: s.space_id, label: label(s) }; });
+        citations = used.map((n) => { const s = sources[n - 1]; return { type: s.type, id: s.id, space_id: s.space_id, label: label(s), ...(s.type === 'record' ? { kind: s.kind, ref: s.ref } : {}) }; });
       } else if (proposals.length) {
         body = result.text && !notFound ? result.text.replace(/\[\d{1,2}\]/g, '').trim() : 'Here is what I can do. Nothing happens until you confirm.';
       } else {
@@ -458,6 +483,12 @@ async function related(user, q) {
     ids('item').length ? rest(user.token, `/items?id=in.(${ids('item').join(',')})&select=id,space_id,kind,title,updated_at,space:spaces(name,kind)`) : [],
     ids('event').length ? rest(user.token, `/events?id=in.(${ids('event').join(',')})&select=id,space_id,title,location,starts_at,space:spaces(name,kind)`) : [],
   ]);
+  // Records (048): read through the view as the person; then the names of their spaces.
+  const rIds = [...best.values()].filter((h) => RKINDS.includes(h.source_type));
+  const rs = rIds.length ? (await rest(user.token, `/records?id=in.(${[...new Set(rIds.map((h) => h.source_id))].join(',')})&select=${RSELECT}`))
+    .filter((r) => best.get(r.id)?.source_type === r.kind) : [];
+  const rsp = [...new Set(rs.map((r) => r.space_id).filter(Boolean))];
+  const spaceOf = new Map(rsp.length ? (await rest(user.token, `/spaces?id=in.(${rsp.join(',')})&select=id,name,kind`)).map((x) => [x.id, x]) : []);
   const snip = (s) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, 140);
   const out = [
     // Your own questions to Weft are not "related" results (they echo the search); word search still finds them.
@@ -465,6 +496,8 @@ async function related(user, q) {
     ...is.map((i) => ({ kind: i.kind, id: i.id, space_id: i.space_id, space_name: i.space?.name, space_kind: i.space?.kind, title: i.title,
       snippet: snip(best.get(i.id)?.content.replace(/^[^\n]*\n/, '')), at: i.updated_at })),
     ...es.map((e) => ({ kind: 'event', id: e.id, space_id: e.space_id, space_name: e.space?.name, space_kind: e.space?.kind, title: e.title, snippet: e.location, at: e.starts_at })),
+    ...rs.map((r) => ({ kind: r.kind, id: r.id, space_id: r.space_id, space_name: spaceOf.get(r.space_id)?.name, space_kind: spaceOf.get(r.space_id)?.kind, title: r.title,
+      snippet: snip(best.get(r.id)?.content.replace(/^[^\n]*\n/, '')), at: r.at, ref: r.ref })),
   ].sort((a, b) => best.get(a.id).distance - best.get(b.id).distance).slice(0, 6);
   return [200, { enabled: true, results: out }];
 }

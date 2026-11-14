@@ -23,6 +23,8 @@ The **Your journal** widget on Home shows your latest pages, or a button to writ
 
 ### Who can see what
 
-Only you. Your pages live in your personal space, and the database lets nobody else read, search, change or delete them: not other people, not channel owners, not Weft admins, and not someone you add to your personal space. Weft (the assistant) cannot read them either, and they do not appear in Weft search. When you delete a page, Weft keeps a note that a page for that day was deleted, but not what it said.
+Only you. Your pages live in your personal space, and the database lets nobody else read, search, change or delete them: not other people, not channel owners, not Weft admins, and not someone you add to your personal space.
+
+Your pages appear in **your own** Weft search (under **Your journal**, marked "Only you"), and Weft (the assistant) can use them when you ask it something in **your Weft conversation** at the top of the chat. It never uses them when you ask in a channel, a direct message or your personal space, because other people could read the answer there, and it cannot change or delete them. Keep in mind that, as with anything you ask Weft, the parts of your pages it uses are sent to the model that writes the answer. AI apps you connect to Weft never find your journal. When you delete a page, Weft keeps a note that a page for that day was deleted, but not what it said.
 
 People who run the Weft server can still reach the database and its backups directly, as with everything else in Weft.

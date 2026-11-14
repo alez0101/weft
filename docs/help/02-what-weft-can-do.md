@@ -23,6 +23,10 @@ Weft answers from everything you can open, with numbered links you can click to 
   phone, email and notes), expense lists (who paid what, balances and who should pay whom), inventories
   (each thing, where it is kept and who has it now)
 - **Files and time:** files (PDF, Word and text) and calendar events
+- **Notices and plans:** announcements, who is going to an event, things to book and their bookings, shifts
+  and who is on them, time off, kudos and timeline milestones, in the channels you are in
+- **People and you:** profiles of people you share a space with, and your own journal (only in your Weft
+  conversation, never in a channel)
 
 A message link jumps to the message; a document link opens it in Documents, Wiki, Sheets or Whiteboard; an event link opens it in the Calendar. If it cannot find the answer, it says so instead of guessing. It searches by meaning as well as by words, so asking about "electricity" also finds a message about a dead outlet.
 

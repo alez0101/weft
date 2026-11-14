@@ -54,7 +54,10 @@ http.createServer((req, res) => {
         content.push({ type: 'text', text: 'I can post that.' });
         content.push({ type: 'tool_use', id: 'toolu_2', name: 'send_message', input: { channel: ch, text: 'Hello from the Weft test' } });
       } else {
-        const first = (/CITE-DOC/.test(user) && /^\[(\d+)\] (?:document|wiki page|table|whiteboard|file) /m.exec(user)) || /^\[(\d+)\] /m.exec(user);
+        const first = (/CITE-DOC/.test(user) && /^\[(\d+)\] (?:document|wiki page|table|whiteboard|file) /m.exec(user))
+          || (/CITE-JOURNAL/.test(user) && /^\[(\d+)\] page of the person's own private journal/m.exec(user))
+          || (/CITE-KUDOS/.test(user) && /^\[(\d+)\] kudos /m.exec(user))
+          || (/CITE-NOTICE/.test(user) && /^\[(\d+)\] announcement /m.exec(user)) || /^\[(\d+)\] /m.exec(user);
         content.push({ type: 'text', text: first ? `Here is what I found [${first[1]}].` : 'NOT_FOUND' });
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -424,6 +427,53 @@ check('Semantic: deleting a message deletes its embedding', (await api(olive.tok
 const prog = await assist(alex.token, '/assistant/admin/providers/embeddings');
 check('Semantic: admins can see embedding progress', prog.status === 200 && prog.data.chunks > 0, JSON.stringify(prog.data));
 check('Semantic: non-admins cannot', (await assist(pat.token, '/assistant/admin/providers/embeddings')).status === 403);
+
+// ================================================================ records (048): the apps that are not items
+// Announcements, kudos, journal pages and profiles reach the assistant and meaning search through weft.records,
+// read as the asker, so each keeps its own app's visibility.
+const KUDOS_ORG = 'KUDOSORG7781';
+const JOURNAL_SECRET = 'JOURNALSECRET4410';
+const [fNotice] = (await api(olive.token, '/announcements', { method: 'POST', body: { space_id: spaces.festival, title: 'Parking moves to lot B', body: 'Volunteers park behind the school from Friday.' } })).rows;
+const [oKudos] = (await api(olive.token, '/kudos', { method: 'POST', body: { space_id: spaces.organizers, to_user: JSON.parse(Buffer.from(alex.token.split('.')[1], 'base64url')).sub, message: `Thanks for sorting the parking permits ${KUDOS_ORG}` } })).rows;
+const [oPage] = (await api(olive.token, '/journal_entries', { method: 'POST', body: { day: '2026-02-03', body: `${JOURNAL_SECRET} I worry the parking budget will not stretch` } })).rows;
+await fetch(`${API}/profiles?on_conflict=user_id`, { method: 'POST', headers: { Authorization: `Bearer ${olive.token}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' }, body: JSON.stringify({ role: 'Parking marshal', skills: ['traffic control'] }) });
+check('Records: the test rows were made through their apps', fNotice?.id && oKudos?.id && oPage?.id, JSON.stringify({ fNotice, oKudos, oPage }).slice(0, 300));
+const has = (a, t) => (a.calls[0]?.user || '').includes(t);
+let ar = await askA(pat, await mine(pat), 'CITE-NOTICE What about parking?');
+check('Records: Pat in her own conversation gets the #festival announcement (positive control), cited as one',
+  has(ar, 'announcement "Parking moves to lot B" in #festival') && /Announcement: Parking moves/.test(JSON.stringify(ar.reply?.meta?.citations || [])), (ar.calls[0]?.user || '').slice(0, 500));
+check('Records: and Olive\'s profile (they share #festival)', has(ar, 'profile of Olive'), (ar.calls[0]?.user || '').slice(0, 500));
+check('Records: but never the Organizers kudos or Olive\'s journal', !has(ar, KUDOS_ORG) && !has(ar, JOURNAL_SECRET));
+ar = await askA(olive, spaces.festival, '@Weft what about the parking budget and permits?');
+check('Records: Olive asking in #festival gets neither the Organizers kudos nor her own journal (the channel reads the answer)', ar.calls.length === 1 && !has(ar, KUDOS_ORG) && !has(ar, JOURNAL_SECRET), (ar.calls[0]?.user || '').slice(0, 300));
+const personal = (await api(olive.token, '/spaces?kind=eq.personal&select=id')).rows[0].id;
+ar = await askA(olive, personal, '@Weft what about the parking budget?');
+check('Records: nor in her personal space (others may be added there)', ar.calls.length === 1 && !has(ar, JOURNAL_SECRET), ar.error || '');
+ar = await askA(olive, await mine(olive), 'CITE-JOURNAL What did I write about the parking budget?');
+check('Records: in her own Weft conversation Olive\'s journal page is used (positive control)', has(ar, JOURNAL_SECRET), (ar.calls[0]?.user || '').slice(0, 400));
+check('Records: and cited as her journal, with the day to open it', (ar.reply?.meta?.citations || []).some((c) => c.type === 'record' && c.kind === 'journal' && c.ref === '2026-02-03' && /^Your journal/.test(c.label)), JSON.stringify(ar.reply?.meta?.citations));
+ar = await askA(olive, await mine(olive), 'CITE-KUDOS Who got thanks for the parking permits?');
+check('Records: she gets the Organizers kudos there too (positive control)', has(ar, KUDOS_ORG) && (ar.reply?.meta?.citations || []).some((c) => c.kind === 'kudos'), JSON.stringify(ar.reply?.meta?.citations));
+ar = await askA(alex, await mine(alex), 'What did Olive write about the parking budget?');
+check('Records: Alex (admin, owner of every channel) never gets Olive\'s journal', ar.calls.length === 1 && !has(ar, JOURNAL_SECRET));
+// Meaning search over records: embedded by the worker, found by the same people as the app shows them.
+let recEmb = false;
+for (let i = 0; i < 60 && !recEmb; i++) {
+  recEmb = (await api(olive.token, `/embeddings?source_id=in.(${fNotice.id},${oKudos.id},${oPage.id})&select=source_id`)).rows.length === 3;
+  if (!recEmb) await sleep(1000);
+}
+check('Records: the worker embedded the announcement, the kudos and the journal page', recEmb);
+check('Records: Pat cannot read the embedded text of the Organizers kudos or Olive\'s page',
+  (await api(pat.token, `/embeddings?source_id=in.(${oKudos.id},${oPage.id})&select=content`)).rows.length === 0);
+rr = await rel(pat, 'parking moves to lot B');
+check('Search by meaning: Pat finds the #festival announcement (positive control)', rr.data.results.some((x) => x.id === fNotice.id && x.kind === 'announcement' && x.space_name === 'festival'), JSON.stringify(rr.data.results).slice(0, 300));
+check('Search by meaning: but never the Organizers kudos or Olive\'s journal', !rr.data.results.some((x) => [oKudos.id, oPage.id].includes(x.id) || /KUDOSORG|JOURNALSECRET/.test(x.snippet || '')));
+rr = await rel(olive, 'worry parking budget stretch');
+check('Search by meaning: Olive finds her own journal page, with its day (positive control)', rr.data.results.some((x) => x.id === oPage.id && x.kind === 'journal' && x.ref === '2026-02-03'), JSON.stringify(rr.data.results).slice(0, 300));
+rr = await rel(alex, 'worry parking budget stretch');
+check('Search by meaning: Alex does not', !rr.data.results.some((x) => x.id === oPage.id));
+await api(olive.token, `/journal_entries?id=eq.${oPage.id}`, { method: 'DELETE' });
+check('Records: deleting the journal page deletes its embedding', (await api(olive.token, `/embeddings?source_id=eq.${oPage.id}`)).rows.length === 0);
 
 // The fallback answers read-only: no tools are sent to it.
 await assist(alex.token, '/assistant/admin/providers/primary', { method: 'PUT', body: { ...anthropicSlot, enabled: false } });
