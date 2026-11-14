@@ -7,7 +7,24 @@ Weft can answer questions and propose three actions. It never acts on its own: e
 
 ### Answer questions
 
-Weft reads the chat messages, documents, wiki pages, tables, task lists, polls (the question and the vote counts), forms (the questions and how many answered; answers only for people who may read them), link lists (each link's title, address, tags and note), address books (each contact's name, organisation, phone, email and notes), decision logs (each decision with its date, who decided, the context and what it replaces), Q and A boards (each question with its answers, upvotes and which answer was accepted), checklists (the steps, and recent runs with how far each got and who finished it), expense lists (who paid what, each person's balance and who should pay whom), inventories (each thing, where it is kept and who has it now), goal sets (each goal with its key results, how far along each is and when it is due), retros (the period and the notes in each column, and which actions became tasks; never who wrote a note), glossaries (each term and what it means, so it can explain your group's own words and understand them in your questions), ideas boards (each idea with its status, how many votes it has and who suggested it), meetings (agenda, notes, decisions and action items), files (PDF, Word and text), the text on whiteboards and the calendar events you can open, and answers with numbered links you can click to check its answer. A message link jumps to the message; a document link opens it in Documents, Wiki, Sheets or Whiteboard; an event link opens it in the Calendar. If it cannot find the answer, it says so instead of guessing. It searches by meaning as well as by words, so asking about "electricity" also finds a message about a dead outlet.
+Weft answers from everything you can open, with numbered links you can click to check its answer:
+
+- **Writing:** chat messages, documents, wiki pages, the text on whiteboards, meetings (agenda, notes,
+  decisions and action items), decision logs (each decision with its date, who decided, the context and
+  what it replaces), glossaries (so it can explain your group's own words and understand them in your
+  questions)
+- **Lists and work:** tables, task lists, checklists (the steps, and recent runs with how far each got and
+  who finished it), goal sets (key results, progress and due dates), retros (the period, the notes in each
+  column and which actions became tasks; never who wrote a note)
+- **Asking and deciding:** polls (the question and the vote counts), forms (the questions and how many
+  answered; the answers only for people who may read them), Q and A boards (questions, answers, upvotes
+  and the accepted answer), ideas boards (status, votes and who suggested each)
+- **Things and people:** link lists (title, address, tags and note), address books (name, organisation,
+  phone, email and notes), expense lists (who paid what, balances and who should pay whom), inventories
+  (each thing, where it is kept and who has it now)
+- **Files and time:** files (PDF, Word and text) and calendar events
+
+A message link jumps to the message; a document link opens it in Documents, Wiki, Sheets or Whiteboard; an event link opens it in the Calendar. If it cannot find the answer, it says so instead of guessing. It searches by meaning as well as by words, so asking about "electricity" also finds a message about a dead outlet.
 
 ### Propose an action
 

@@ -1,13 +1,23 @@
 # Weft
 
-A small, self-hosted collaboration suite in one browser tab: chat, documents, a wiki, whiteboards,
-tables, task lists and boards, polls, forms, link lists, shared address books, decision logs, Q and A boards, reusable checklists, shared expenses with who owes whom, an inventory of shared things with check out and check in, meeting notes, announcements, bookings of shared things (rooms, vans), shift sign-ups, time off (who is away when), goals with key results and progress, retrospectives (with anonymous notes; actions become tasks), a glossary of each group's own words (which the assistant uses), ideas boards (suggest, vote, and track new, planned, done or declined), a wall of thank-yous (kudos) for each channel, a timeline of milestones for each channel (today marked, past ones greyed), a private journal (one page per day, only for you), files and a calendar with RSVPs, opened as tabs from an iPad-like home screen, with a Teams-like chat rail and an
-AI assistant that answers only from what the person asking is allowed to see, with links to where
-each answer came from.
+A small, self-hosted collaboration suite in one browser tab. Apps open as tabs from an iPad-like home
+screen, next to a Teams-like chat rail, and an AI assistant answers only from what the person asking is
+allowed to see, with links to where each answer came from.
+
+**What's in it**
+
+- **Write and plan:** documents, a wiki, whiteboards, tables, meeting notes, decisions, a glossary
+- **Organise work:** task lists and boards, checklists, goals with key results, retrospectives, a timeline
+- **Coordinate people:** a calendar with RSVPs, bookings of shared things, shift sign-ups, time off,
+  contacts, profiles
+- **Ask and decide together:** polls, forms, Q and A, ideas boards, announcements, kudos
+- **Keep track:** files, link lists, shared expenses with who owes whom, an inventory with check out and
+  check in, a private journal
+- **Around it all:** chat, search across everything, Home widgets, and a connector for AI apps (MCP)
 
 One rule decides who sees what (you see something only if you are a member of its space), and
 Postgres enforces it with row-level security on every path: the API, live updates, co-editing,
-search and the assistant. Over 450 automated checks prove it, including that restricted content
+search and the assistant. More than 1,500 automated checks prove it, including that restricted content
 never reaches the model for someone who cannot see it.
 
 Status: a working prototype for small teams. Not hardened for large or hostile multi-tenant use.
