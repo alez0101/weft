@@ -1,4 +1,5 @@
-# Weft: Postgres + pgvector, PostgREST, svc (sign-in + live), assistant, collab, and web (nginx + the app).
+# Weft: Postgres + pgvector, PostgREST, svc (sign-in + live), assistant, collab, files, mcp (the connector for AI apps),
+# and web (nginx + the app).
 # Postgres and PostgREST are bound to 127.0.0.1 only. web is the one way in:
 #   WEFT_BIND:WEFT_PORT (default 127.0.0.1:3010) the app
 #   127.0.0.1:3011                               test sign-in for the seeded example.com accounts
@@ -89,10 +90,24 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       FILE_MAX_MB: ${FILE_MAX_MB:-25}
 
+  mcp:
+    build: ../../services/mcp
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DATABASE_URL_MCP: postgres://weft_mcp:${MCP_SVC_PASSWORD:?set in .env}@postgres:5432/weft
+      JWT_SECRET: ${JWT_SECRET}
+      POSTGREST_URL: http://postgrest:3000
+      COLLAB_EDIT_URL: http://collab:1235
+      ASSISTANT_URL: http://assistant:8090
+      WEFT_PUBLIC_URL: ${WEFT_PUBLIC_URL:-}               # e.g. https://weft.example.org; empty = taken from each request
+      MCP_REDIRECT_HOSTS: ${MCP_REDIRECT_HOSTS:-claude.ai,claude.com}   # where approvals may be sent (loopback always)
+
   web:
     build: ../../services/web
     restart: unless-stopped
-    depends_on: [postgrest, svc, assistant, collab, files]
+    depends_on: [postgrest, svc, assistant, collab, files, mcp]
     ports:
       - "${WEFT_BIND:-127.0.0.1}:${WEFT_PORT:-3010}:80"     # the app; WEFT_BIND=0.0.0.0 to reach it from the network
       - "127.0.0.1:${WEFT_TEST_PORT:-3011}:8081"          # test sign-in: this machine only, always

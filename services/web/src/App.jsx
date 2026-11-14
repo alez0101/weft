@@ -6,6 +6,7 @@ import Docs from './Docs.jsx';
 import Calendar from './Calendar.jsx';
 import Widgets from './Home.jsx';
 import ModelKey from './ModelKey.jsx';
+import Connect, { CONNECTING, ConnectedApps } from './Connect.jsx';
 import SearchBox from './Search.jsx';
 import { applyMode, storedMode } from './mode.js';
 
@@ -125,6 +126,7 @@ function SignIn({ info, onSignedIn }) {
   return (
     <main className="signin">
       <h1>Weft</h1>
+      {CONNECTING && <p>Sign in to connect an app to your Weft account.</p>}
       {step === 'test' && (
         <>
           <p>Test sign-in with the sample accounts. This page only answers on this machine.</p>
@@ -148,6 +150,7 @@ function AccountMenu({ me, info, onSignOut }) {
   const [pw, setPw] = useState(null); // null: closed
   const [status, setStatus] = useState('');
   const [keyOpen, setKeyOpen] = useState(false);
+  const [appsOpen, setAppsOpen] = useState(false);
   const canPassword = info.mode !== 'test' && info.methods.includes('password');
   return (
     <div className="account">
@@ -172,10 +175,12 @@ function AccountMenu({ me, info, onSignOut }) {
           )}
           {status && <p className="slot-status" role="status">{status}</p>}
           <button className="btn btn--sm" type="button" onClick={() => { setKeyOpen(true); setOpen(false); }}>Your model key</button>
+          <button className="btn btn--sm" type="button" onClick={() => { setAppsOpen(true); setOpen(false); }}>Connected apps</button>
           {canPassword && <button className="btn btn--sm" type="button" onClick={onSignOut}>Sign out</button>}
         </div>
       )}
       {keyOpen && <ModelKey onClose={() => setKeyOpen(false)} />}
+      {appsOpen && <ConnectedApps onClose={() => setAppsOpen(false)} />}
     </div>
   );
 }
@@ -208,7 +213,7 @@ export default function App() {
   useEffect(() => { authMode().then(setMode).catch((e) => setFatal(e.message)); }, []);
 
   useEffect(() => {
-    if (!session) return; // leave the address alone until signed in (it may hold a #link)
+    if (!session || CONNECTING) return; // leave the address alone until signed in (it may hold a #link), and on the consent screen
     const h = new URLSearchParams();
     if (ui.tabs.length) h.set('tabs', ui.tabs.join(','));
     h.set('active', ui.active); h.set('convo', ui.convo);
@@ -234,7 +239,7 @@ export default function App() {
   const refreshUnread = useCallback(() => api('/unread').then(setUnread).catch(() => {}), []);
 
   useEffect(() => {
-    if (!session) return undefined;
+    if (!session || CONNECTING) return undefined;
     refreshSpaces().then(refreshUnread).catch((e) => setFatal(e.message));
     api(`/users?id=eq.${session.user.id}&select=is_admin`).then((r) => setIsAdmin(!!r[0]?.is_admin)).catch(() => {});
     return connectLive((n) => {
@@ -273,6 +278,7 @@ export default function App() {
   if (fatal) return <main className="signin"><h1>Weft</h1><p role="alert" className="signin-error">{fatal}</p></main>;
   if (!mode) return <main className="signin"><h1>Weft</h1><p>Loading…</p></main>;
   if (!session) return <SignIn info={mode} onSignedIn={setSession} />;
+  if (CONNECTING) return <Connect me={session.user} />;
 
   const me = session.user;
   return (

@@ -22,6 +22,7 @@ Status: a working prototype for small teams. Not hardened for large or hostile m
 | Tables and calendar | AG Grid Community, FullCalendar |
 | Files | stored in Postgres; text read from PDF (pdf.js), Word (mammoth) and text files |
 | Assistant | Claude through the Anthropic API, with an optional Ollama fallback, meaning search, and optional personal keys |
+| AI apps | an MCP connector at `/mcp` with its own OAuth sign-in, so Claude and other apps work in Weft as the person who connected them |
 | App | React and Vite, served by nginx |
 
 Everything runs with Docker Compose. Weft's own docs are inside the app: a help wiki for everyone and
@@ -68,7 +69,7 @@ Operations page has the details.
 ## Tests
 
 ```sh
-tests/run.sh          # builds a separate test stack, runs six suites (521 checks), removes it
+tests/run.sh          # builds a separate test stack, runs seven suites (588 checks), removes it
 tests/run.sh --keep   # leaves the test stack up for the browser checks in tests/*.cjs
 ```
 

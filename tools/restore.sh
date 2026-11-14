@@ -25,5 +25,5 @@ case "$mode" in
 esac
 "${DC[@]}" exec -T postgres pg_restore -U weft_owner -d weft --clean --if-exists --exit-on-error < "$dump"
 "${DC[@]}" exec -T postgres psql -qU weft_owner -d weft -c "notify pgrst, 'reload schema'"
-"${DC[@]}" restart svc assistant collab >/dev/null
+"${DC[@]}" restart svc assistant collab files mcp >/dev/null
 echo "restored $(basename "$dump")"

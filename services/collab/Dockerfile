@@ -4,5 +4,5 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
 COPY src ./src
 USER node
-EXPOSE 1234
+EXPOSE 1234 1235
 CMD ["node", "src/index.mjs"]

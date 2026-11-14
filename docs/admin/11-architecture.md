@@ -13,6 +13,7 @@ summary: The services, how a request flows, and the two front doors.
 | assistant | `services/assistant` (Node, Anthropic SDK) | answers, proposals, provider settings, the embedding worker |
 | collab | `services/collab` (Hocuspocus 4.8, Yjs 13) | live co-editing of documents, wiki pages and whiteboards |
 | files | `services/files` (Node, pdf.js, mammoth) | uploads, text extraction from PDF, Word and text files, downloads, all as the person |
+| mcp | `services/mcp` (Node, MCP SDK) | the connector for AI apps: MCP tools at `/mcp` and its own OAuth sign-in, acting as the person |
 | web | `services/web` (nginx, React 19, Vite) | the app, and the one entry point for everything above |
 
 ### A request
@@ -24,6 +25,7 @@ summary: The services, how a request flows, and the two front doors.
 5. Files go to `/files` (upload, at most `FILE_MAX_MB`, default 25) and come back from `/files/<id>`; the files service does every database step as the person, so row-level security decides. The type is read from the bytes, not trusted from the name, and anything that could run scripts (HTML, SVG, unknown types) always downloads rather than opening.
 6. The search box calls `weft.search` through the API (word matches, as the person) and `/assistant/search/related` (matches by meaning, with the person's own token).
 7. Questions go to `/assistant/ask`. The assistant reads and searches with a short-lived token minted for the asker, so it can never see more than they can.
+8. AI apps (Claude, for one) call `/mcp` with an OAuth token from `/oauth/token`. The connector turns it into a five-minute Weft token for the person who approved the app and calls the API, the meaning search and, for page edits, the collab server's internal edit port (1235, never routed by nginx), so the database decides here too. See **Connector for AI apps**.
 
 ### Front doors
 
@@ -32,4 +34,4 @@ summary: The services, how a request flows, and the two front doors.
 
 ### Libraries
 
-BlockNote 0.57 (documents and wiki), Excalidraw 0.18 with Weft's own Yjs binding (whiteboards), AG Grid Community 36 (tables), FullCalendar 7 (calendar, including tasks due), plain React (task lists, polls), `@anthropic-ai/sdk` (Claude). All open source under MIT, MPL-2.0 or PostgreSQL licences; none of BlockNote's GPL or commercial packages are used.
+BlockNote 0.57 (documents and wiki), Excalidraw 0.18 with Weft's own Yjs binding (whiteboards), AG Grid Community 36 (tables), FullCalendar 7 (calendar, including tasks due), plain React (task lists, polls), `@anthropic-ai/sdk` (Claude), `@modelcontextprotocol/sdk` (the connector). All open source under MIT, MPL-2.0 or PostgreSQL licences; none of BlockNote's GPL or commercial packages are used.

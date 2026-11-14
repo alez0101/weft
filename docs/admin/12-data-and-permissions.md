@@ -24,7 +24,7 @@ Two kinds of channel are kept by Weft itself: the help channel (`everyone`: ever
 - `weft_anon`: nothing at all.
 - `weft_user`: every person.
 - `weft_assistant`: the assistant acting for a person. Reads what they can, posts as Weft, changes and creates events. Never deletes, never edits documents.
-- Service logins, each allowed one narrow job: `weft_auth` (sign-in), `weft_notify` (memberships for live notices), `weft_assist` (assistant settings and embeddings), `weft_collab` (switches to `weft_user` only).
+- Service logins, each allowed one narrow job: `weft_auth` (sign-in), `weft_notify` (memberships for live notices), `weft_assist` (assistant settings and embeddings), `weft_collab` (switches to `weft_user` only), `weft_mcp` (the connector's apps, approvals and tokens, all hashed; it reads Weft only through the API as the person).
 
 ### Details that matter
 
@@ -40,4 +40,4 @@ Two kinds of channel are kept by Weft itself: the help channel (`everyone`: ever
 
 ### Migrations
 
-`db/migrations/001` to `023` rebuild the database from nothing, in order: roles, schema, access rules, triggers, chat reads, notices, service logins, assistant, collab, proposals, assistant events, everyone spaces, whiteboards, tables, semantic search, people, wikis, accounts, files and widgets, personal keys, search, tasks, polls.
+`db/migrations/001` to `025` rebuild the database from nothing, in order: roles, schema, access rules, triggers, chat reads, notices, service logins, assistant, collab, proposals, assistant events, everyone spaces, whiteboards, tables, semantic search, people, wikis, accounts, files and widgets, personal keys, search, tasks, polls, the connector for AI apps.

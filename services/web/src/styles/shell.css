@@ -209,6 +209,14 @@
   width: min(320px, calc(100vw - 2 * var(--space-md))); padding: var(--space-md); border-radius: var(--radius-card);
   background: var(--color-paper); box-shadow: 0 0 0 1px var(--color-rule), var(--shadow-card); }
 .account-menu .signin-form { width: 100%; }
+/* The connector's consent screen (Connect.jsx). */
+.connect .signin-form { width: min(480px, 100%); }
+.connect-title { font-size: var(--text-lg); margin: 0; }
+.connect-choice { display: grid; gap: var(--space-xs); margin: var(--space-xs) 0 0; padding: var(--space-xs) var(--space-sm); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); }
+.connect-choice legend { font-size: var(--text-sm); font-weight: 500; padding: 0 var(--space-3xs); }
+.signin-form .connect-choice label.toggle { align-items: flex-start; margin-top: 0; font-weight: 400; }
+.connect-choice input { margin-top: 0.2em; }
+.connect-note { font-size: var(--text-sm); }
 .account-name { font-weight: 500; }
 .new-link { display: grid; gap: var(--space-xs); margin-top: var(--space-sm); padding: var(--space-sm); border-radius: var(--radius-input); background: var(--color-accent-soft); }
 .new-link .pair { display: flex; gap: var(--space-xs); flex-wrap: wrap; }

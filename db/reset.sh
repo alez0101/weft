@@ -37,12 +37,13 @@ dc up -d --wait postgres >/dev/null   # PostgREST waits: its login role does not
 for f in "$repo"/db/migrations/*.sql; do
   echo "migrate $(basename "$f")"
   psql_owner -v auth_pw="$AUTHENTICATOR_PASSWORD" -v auth_svc_pw="$AUTH_SVC_PASSWORD" -v notify_svc_pw="$NOTIFY_SVC_PASSWORD" \
-    -v assist_svc_pw="$ASSIST_SVC_PASSWORD" -v collab_svc_pw="$COLLAB_SVC_PASSWORD" -v files_svc_pw="$FILES_SVC_PASSWORD" -f "/weft-db/migrations/$(basename "$f")"
+    -v assist_svc_pw="$ASSIST_SVC_PASSWORD" -v collab_svc_pw="$COLLAB_SVC_PASSWORD" -v files_svc_pw="$FILES_SVC_PASSWORD" \
+    -v mcp_svc_pw="$MCP_SVC_PASSWORD" -f "/weft-db/migrations/$(basename "$f")"
 done
 echo "seed"
 if [ "$sample" = yes ]; then python3 -I "$repo/tools/gen_seed.py" | psql_owner; fi
 python3 -I "$repo/tools/sync_wikis.py" | psql_owner >/dev/null   # the help and admin wikis, from docs/help and docs/admin
-dc up -d --build postgrest svc assistant collab files web >/dev/null
+dc up -d --build postgrest svc assistant collab files mcp web >/dev/null
 for i in $(seq 1 60); do
   curl -sf -o /dev/null "$api/" -H "Accept: application/openapi+json" && break
   [ "$i" = 60 ] && { echo "PostgREST did not come up"; dc logs postgrest --tail 20; exit 1; }

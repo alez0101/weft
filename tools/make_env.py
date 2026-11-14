@@ -24,6 +24,7 @@ lines = [
     "# Made by tools/make_env.py. Secrets: keep this file private and out of git.",
     f"OWNER_PASSWORD={pw()}", f"AUTHENTICATOR_PASSWORD={pw()}", f"AUTH_SVC_PASSWORD={pw()}",
     f"NOTIFY_SVC_PASSWORD={pw()}", f"ASSIST_SVC_PASSWORD={pw()}", f"COLLAB_SVC_PASSWORD={pw()}", f"FILES_SVC_PASSWORD={pw()}",
+    f"MCP_SVC_PASSWORD={pw()}",
     f"JWT_SECRET={secrets.token_urlsafe(48)}",
     f"ASSIST_MASTER_KEY={secrets.token_hex(32)}",
     f"BOOTSTRAP_ADMIN_EMAIL={a.admin.strip().lower()}",

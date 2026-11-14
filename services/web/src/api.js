@@ -138,6 +138,19 @@ export async function assistant(path, { method = 'GET', body } = {}) {
   return data;
 }
 
+// The connector's OAuth endpoints that the app itself calls: the consent screen and your connected apps.
+export async function oauth(path, { method = 'GET', body } = {}) {
+  const r = await fetch(`/oauth${path}`, {
+    method, body: body === undefined ? undefined : JSON.stringify(body),
+    headers: { Authorization: `Bearer ${token}`, 'X-Weft-Request': '1', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+  });
+  if (r.status === 401 && reauth) { schedule(await reauth()); return oauth(path, { method, body }); }
+  let data = null;
+  try { data = await r.json(); } catch { /* empty */ }
+  if (!r.ok) throw new Error(data?.error || `${r.status}`);
+  return data;
+}
+
 // Files: uploads and downloads go to the files service with the same token (it acts as you, so the
 // database decides). Downloads come back as a Blob, shown or saved from a blob: address in the page.
 export async function uploadFile(spaceId, file) {

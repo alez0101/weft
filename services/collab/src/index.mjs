@@ -8,6 +8,12 @@
 //   editor or owner           -> read-write
 // Plain text is extracted on every save (BlockNote -> Markdown) for search and the assistant.
 // When someone is removed from a space, their open sessions on its documents are closed.
+//
+// :1235 (inside the Compose network only; nginx never routes to it) takes edits from the connector
+// (services/mcp): POST /edit {token, id, mode: append|replace, markdown}. The edit runs as the person in
+// the token, through a server-side connection to the live document, so anyone with it open sees the
+// change at once and it is saved like any other edit (and refused if they cannot edit).
+import http from 'node:http';
 import { Server } from '@hocuspocus/server';
 import { ServerBlockNoteEditor } from '@blocknote/server-util';
 import { getDocument } from '@blocknote/server-util/dom';
@@ -130,4 +136,42 @@ async function listen() {
   }
 }
 
-server.listen().then(() => { log('weft-collab on :1234'); listen(); });
+// ---------------------------------------------------------------- edits from the connector
+async function edit({ token, id, mode, markdown }) {
+  if (!UUID.test(String(id || ''))) return [400, { error: 'bad document' }];
+  if (typeof markdown !== 'string' || !markdown.trim() || markdown.length > 200000) return [400, { error: 'Give the Markdown to add.' }];
+  let claims;
+  try { ({ payload: claims } = await jwtVerify(String(token || ''), JWT_SECRET, { algorithms: ['HS256'] })); } catch { return [401, { error: 'not signed in' }]; }
+  if (claims.role !== 'weft_user' || !claims.sub) return [401, { error: 'not a user token' }];
+  const row = await asUser(claims.sub, async (c) => (await c.query(
+    'select space_id, kind, managed, weft_private.can_edit(space_id) as can_edit from weft.items where id = $1', [id])).rows[0]);
+  if (!row) return [404, { error: 'No page with that id that you can see.' }];
+  if (!['document', 'wiki'].includes(row.kind)) return [400, { error: 'Only documents and wiki pages can be edited this way.' }];
+  if (row.managed) return [403, { error: 'This page is managed and cannot be changed in Weft.' }];
+  if (!row.can_edit) return [403, { error: 'Weft refused: you can only change pages in channels where you are an editor or owner.' }];
+  const added = await editor.tryParseMarkdownToBlocks(markdown);
+  const conn = await server.hocuspocus.openDirectConnection(id, { user: claims.sub, space: row.space_id, kind: row.kind, doc: id, exp: claims.exp });
+  try {
+    await conn.transact((doc) => {
+      const frag = doc.getXmlFragment(FRAGMENT);
+      const blocks = mode === 'replace' ? added : [...editor.yXmlFragmentToBlocks(frag), ...added];
+      editor.blocksToYXmlFragment(blocks, frag); // a diff: unchanged blocks stay as they are for people editing
+    });
+  } finally {
+    await conn.disconnect(); // saves as this person (onStoreDocument), refused by RLS if they cannot edit
+  }
+  log('edited by connector', id.slice(0, 8), mode);
+  return [200, { ok: true }];
+}
+
+http.createServer(async (req, res) => {
+  const reply = (status, body) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
+  if (req.method !== 'POST' || req.url !== '/edit') return reply(404, { error: 'not found' });
+  let data = '';
+  req.on('data', (c) => { data += c; if (data.length > 400000) req.destroy(); });
+  req.on('end', async () => {
+    try { reply(...(await edit(JSON.parse(data || '{}')))); } catch (e) { log('connector edit failed', e.message); reply(500, { error: 'The page could not be changed.' }); }
+  });
+}).listen(1235);
+
+server.listen().then(() => { log('weft-collab on :1234 (edits from the connector on :1235)'); listen(); });
