@@ -8,13 +8,14 @@ const WIDGETS = {
   upcoming: 'Coming up',
   tasks: 'Tasks due soon',
   polls: 'Polls to vote in',
+  forms: 'Forms to fill in',
   unread: 'Unread',
   recent: 'Recently changed',
   files: 'Recent files',
   ask: 'Ask Weft',
 };
-const DEFAULT = ['upcoming', 'tasks', 'polls', 'unread', 'recent', 'ask'];
-const KIND = { document: 'Document', wiki: 'Wiki page', whiteboard: 'Whiteboard', table: 'Table', tasklist: 'Task list', poll: 'Poll', file: 'File' };
+const DEFAULT = ['upcoming', 'tasks', 'polls', 'forms', 'unread', 'recent', 'ask'];
+const KIND = { document: 'Document', wiki: 'Wiki page', whiteboard: 'Whiteboard', table: 'Table', tasklist: 'Task list', poll: 'Poll', form: 'Form', file: 'File' };
 const where = (s) => (s?.kind === 'channel' ? `#${s.name}` : s?.kind === 'personal' ? 'Personal' : s?.name || '');
 const when = (iso) => new Date(iso).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 const ago = (iso) => {
@@ -44,6 +45,14 @@ function PollsToVote({ data, onOpenItem }) {
   return <ul className="widget-list">{data.map((p) => (
     <li key={p.id}><button type="button" className="widget-row" onClick={() => onOpenItem(p.id)}>
       <span className="widget-main">{p.title}</span><span className="widget-sub">Poll in {where(p.space)}, {ago(p.updated_at)}</span>
+    </button></li>))}</ul>;
+}
+// Open forms the person has not answered yet, newest first. A row opens the form.
+function FormsToFill({ data, onOpenItem }) {
+  if (!data.length) return <p className="widget-empty">No open forms waiting for you.</p>;
+  return <ul className="widget-list">{data.map((f) => (
+    <li key={f.id}><button type="button" className="widget-row" onClick={() => onOpenItem(f.id)}>
+      <span className="widget-main">{f.title}</span><span className="widget-sub">Form in {where(f.space)}, {ago(f.updated_at)}</span>
     </button></li>))}</ul>;
 }
 function Unread({ unread, spaces, onOpenConvo }) {
@@ -90,7 +99,7 @@ function Ask({ assistantSpace, onAsked }) {
 export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpenEvent, onOpenConvo }) {
   const [order, setOrder] = useState(null);
   const [editing, setEditing] = useState(false);
-  const [data, setData] = useState({ upcoming: [], tasks: [], polls: [], recent: [], files: [] });
+  const [data, setData] = useState({ upcoming: [], tasks: [], polls: [], forms: [], recent: [], files: [] });
   const [error, setError] = useState('');
   const timer = useRef(null);
 
@@ -110,23 +119,25 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
     const now = new Date(); const soon = new Date(now.getTime() + 14 * 86400000);
     try {
       const week = new Date(Date.now() + 7 * 86400000); week.setMinutes(week.getMinutes() - week.getTimezoneOffset());
-      const [upcoming, recent, files, due, open] = await Promise.all([
+      const [upcoming, recent, files, due, open, openForms] = await Promise.all([
         api(`/events?ends_at=gte.${now.toISOString()}&starts_at=lte.${soon.toISOString()}&select=id,title,starts_at,location,space:spaces(name,kind)&order=starts_at&limit=5`),
         api('/items?select=id,title,kind,updated_at,space:spaces(name,kind)&order=updated_at.desc&limit=6'),
         api('/items?kind=eq.file&select=id,title,kind,updated_at,space:spaces(name,kind)&order=updated_at.desc&limit=5'),
         api(`/tasks?done=is.false&due_on=lte.${week.toISOString().slice(0, 10)}&select=id,title,due_on,assignee_id,list_id,assignee:users!tasks_assignee_id_fkey(display_name),list:items(title,space:spaces(name,kind))&order=due_on,position&limit=40`),
         api(`/items?kind=eq.poll&select=id,title,updated_at,space:spaces(name,kind),state:polls(closed),mine:poll_votes(voter_id)&mine.voter_id=eq.${me.id}&order=updated_at.desc&limit=40`),
+        api(`/items?kind=eq.form&select=id,title,updated_at,space:spaces(name,kind),state:forms(closed),mine:form_responses(respondent_id)&mine.respondent_id=eq.${me.id}&order=updated_at.desc&limit=40`),
       ]);
       const tasks = [...due.filter((t) => t.assignee_id === me.id), ...due.filter((t) => t.assignee_id !== me.id)].slice(0, 6);
       const isClosed = (p) => (Array.isArray(p.state) ? p.state[0]?.closed : p.state?.closed);
       const polls = open.filter((p) => !isClosed(p) && !p.mine?.length).slice(0, 5);
-      setData({ upcoming, tasks, polls, recent, files }); setError('');
+      const forms = openForms.filter((f) => !isClosed(f) && !f.mine?.length).slice(0, 5);
+      setData({ upcoming, tasks, polls, forms, recent, files }); setError('');
     } catch (e) { setError(`Widgets could not load: ${e.message}`); }
   }, [me.id]);
   useEffect(() => { load(); }, [load]);
   // Live: refresh shortly after anything they show changes (several notices in a row refresh once).
   useEffect(() => {
-    if (!notice || !['events', 'items', 'members', 'tasks', 'polls'].includes(notice.t)) return;
+    if (!notice || !['events', 'items', 'members', 'tasks', 'polls', 'forms'].includes(notice.t)) return;
     clearTimeout(timer.current); timer.current = setTimeout(load, 400);
   }, [notice, load]);
 
@@ -135,6 +146,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
   const body = (k) => (k === 'upcoming' ? <Upcoming data={data.upcoming} onOpenEvent={onOpenEvent} />
     : k === 'tasks' ? <TasksDue data={data.tasks} me={me} onOpenItem={onOpenItem} />
     : k === 'polls' ? <PollsToVote data={data.polls} onOpenItem={onOpenItem} />
+    : k === 'forms' ? <FormsToFill data={data.forms} onOpenItem={onOpenItem} />
     : k === 'unread' ? <Unread unread={unread} spaces={spaces} onOpenConvo={onOpenConvo} />
     : k === 'recent' ? <Items data={data.recent} onOpenItem={onOpenItem} empty="Nothing has been written yet." />
     : k === 'files' ? <Items data={data.files} onOpenItem={onOpenItem} empty="No files yet. Upload them in Files." />

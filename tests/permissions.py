@@ -541,6 +541,177 @@ def polls():
     call("DELETE", f"/items?id=eq.{fest}", olive)
 
 
+# ---------------------------------------------------------------- forms
+def forms():
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, V, O = uid("user", "u-pub"), uid("user", "u-vol"), uid("user", "u-org")
+    oq = lambda sql: owner_sql(sql)
+    st, rows = call("POST", "/items", olive, {"space_id": SID["organizers"], "kind": "form", "title": "ORG-FORM-SECRET: caterer quotes"})
+    org = rows[0]["id"] if st == 201 else None
+    st2, rows = call("POST", "/items", olive, {"space_id": SID["festival"], "kind": "form", "title": "Festival form: volunteer T-shirts"})
+    fest = rows[0]["id"] if st2 == 201 else None
+    check("Forms: Olive (editor) makes forms in Organizers and #festival", org and fest, f"{st} {st2}")
+    check("Forms: each form starts open", oq(f"select string_agg(closed::text, ',') from weft.forms where id in ('{org}', '{fest}')") == "false,false")
+    st, _ = call("POST", "/items", pat, {"space_id": SID["festival"], "kind": "form", "title": "x"})
+    check("Forms: Pat (viewer) cannot make a form in #festival", refused(st), str(st))
+    q = {}
+    for form, specs in ((org, [("Quote", "short", [], True)]),
+                        (fest, [("Name on the shirt", "short", [], True), ("Size", "choice", [" S", "M", "L", "M", ""], True), ("Anything else?", "long", [], False)])):
+        for i, (label, kind, opts, req) in enumerate(specs):
+            st, rows = call("POST", "/form_questions", olive, {"form_id": form, "label": f"  {label} ", "kind": kind, "options": opts, "required": req, "position": i})
+            q[label] = rows[0] if st == 201 else None
+    check("Forms: Olive adds questions (positive control), trimmed, choices cleaned", all(q.values()) and q["Quote"]["label"] == "Quote"
+          and q["Size"]["options"] == ["S", "M", "L"] and q["Name on the shirt"]["options"] == [], str(q.get("Size")))
+    q = {k: v["id"] for k, v in q.items()}
+    st, _ = call("POST", "/form_questions", olive, {"form_id": fest, "label": "Empty choice", "kind": "choice", "options": [" "]})
+    check("Forms: a choice question needs at least one choice", st == 400, str(st))
+    st, _ = call("POST", "/form_questions", pat, {"form_id": fest, "label": "Pat's question"})
+    st2, rows2 = call("PATCH", f"/form_questions?id=eq.{q['Size']}", pat, {"label": "pwned"})
+    st3, rows3 = call("DELETE", f"/form_questions?id=eq.{q['Anything else?']}", pat)
+    check("Forms: Pat (viewer) cannot add, change or remove questions", refused(st) and rows2 == [] and rows3 == []
+          and oq(f"select count(*) from weft.form_questions where form_id = '{fest}'") == "3", f"{st} {st2} {st3}")
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = call("GET", f"/form_questions?form_id=eq.{org}&select=id", tok)
+        st2, rows2 = call("GET", f"/forms?id=eq.{org}&select=id", tok)
+        check(f"Forms: {who} gets no Organizers questions or form state", st == 200 and rows == [] and rows2 == [], f"{rows} {rows2}")
+    st, _ = call("POST", "/form_questions", olive, {"form_id": uid("item", "porches"), "label": "on a table"})
+    check("Forms: a question cannot hang off an item that is not a form", refused(st), str(st))
+    # Answering
+    st, rows = call("POST", "/form_responses", olive, {"form_id": org, "answers": {q["Quote"]: "ORG-ANSWER-SECRET 1200"}})
+    check("Forms: Olive answers in Organizers, and the database records her as the respondent", st == 201 and rows[0]["respondent_id"] == O, f"{st} {rows}")
+    st, rows = call("GET", f"/form_responses?form_id=eq.{org}&select=id", pat)
+    st2, rows2 = call("GET", "/form_responses?select=form_id", vic)
+    check("Forms: Pat and Vic see no Organizers answers, not even by listing every answer", rows == [] and org not in {r["form_id"] for r in rows2 or []}, f"{rows} {rows2}")
+    st, _ = call("POST", "/form_responses", pat, {"form_id": org, "answers": {q["Quote"]: "x"}})
+    st2, _ = call("POST", "/form_responses", vic, {"form_id": org, "answers": {q["Quote"]: "x"}})
+    check("Forms: Pat and Vic cannot answer in Organizers", refused(st) and refused(st2) and oq(f"select count(*) from weft.form_responses where form_id = '{org}'") == "1", f"{st} {st2}")
+    st, rows = call("GET", f"/items?id=eq.{org}&select=body_text", pat)
+    st2, rows2 = call("GET", f"/items?id=eq.{org}&select=body_text", olive)
+    body = (rows2[0]["body_text"] if rows2 else "") or ""
+    check("Forms: the summary is hidden from Pat, and for Olive lists the questions and the count but no answers",
+          rows == [] and "Form, open, 1 answer" in body and "Quote (required)" in body and "ORG-ANSWER-SECRET" not in body, f"{rows} {body!r}")
+    # Viewers answer: one answer each, their own only, checked against the questions.
+    st, body = call("POST", "/form_responses", pat, {"form_id": fest, "answers": {q["Size"]: "M"}})
+    check("Forms: a required question left out is refused, with its name", st == 400 and "Name on the shirt" in json.dumps(body), f"{st} {body}")
+    st, body = call("POST", "/form_responses", pat, {"form_id": fest, "answers": {q["Name on the shirt"]: "Pat", q["Size"]: "XXL"}})
+    check("Forms: an answer that is not one of the choices is refused", st == 400, f"{st} {body}")
+    st, body = call("POST", "/form_responses", pat, {"form_id": fest, "answers": {q["Name on the shirt"]: "Pat", q["Size"]: "M", q["Quote"]: "sneaky"}})
+    check("Forms: an answer to another form's question is refused", st == 400, f"{st} {body}")
+    st, body = call("POST", "/form_responses", pat, {"form_id": fest, "answers": {q["Name on the shirt"]: "x" * 301, q["Size"]: "M"}})
+    st2, body2 = call("POST", "/form_responses", pat, {"form_id": fest, "answers": {q["Name on the shirt"]: 5, q["Size"]: "M"}})
+    st3, body3 = call("POST", "/form_responses", pat, {"form_id": fest, "answers": ["Pat", "M"]})
+    check("Forms: over-long, non-text and malformed answers are refused", st == 400 and st2 == 400 and st3 == 400, f"{st} {st2} {st3}")
+    st, rows = call("POST", "/form_responses", pat, {"form_id": fest, "answers": {q["Name on the shirt"]: "  Pat  ", q["Size"]: "M", q["Anything else?"]: "  "}})
+    check("Forms: Pat (viewer) answers in #festival; trimmed, blanks dropped, she is the respondent",
+          st == 201 and rows[0]["respondent_id"] == P and rows[0]["answers"] == {q["Name on the shirt"]: "Pat", q["Size"]: "M"}, f"{st} {rows}")
+    pat_resp = rows[0]["id"] if st == 201 else None
+    st, body = call("POST", "/form_responses", pat, {"form_id": fest, "answers": {q["Name on the shirt"]: "Pat again", q["Size"]: "S"}})
+    check("Forms: one answer per person: a second is refused", st == 409 and oq(f"select count(*) from weft.form_responses where form_id = '{fest}' and respondent_id = '{P}'") == "1", f"{st} {body}")
+    st, rows = call("PATCH", f"/form_responses?id=eq.{pat_resp}", pat, {"answers": {q["Name on the shirt"]: "Pat", q["Size"]: "L"}})
+    check("Forms: Pat changes her answer", st == 200 and len(rows or []) == 1 and rows[0]["answers"][q["Size"]] == "L", f"{st} {rows}")
+    st, _ = call("POST", "/form_responses", vic, {"form_id": fest, "answers": {q["Name on the shirt"]: "Vic", q["Size"]: "S"}, "respondent_id": P})
+    check("Forms: an answer cannot be given in someone else's name", refused(st), str(st))
+    st, rows = call("POST", "/form_responses", vic, {"form_id": fest, "answers": {q["Name on the shirt"]: "VIC-PRIVATE", q["Size"]: "S"}})
+    vic_resp = rows[0]["id"] if st == 201 else None
+    st2, rows2 = call("PATCH", f"/form_responses?id=eq.{pat_resp}", vic, {"answers": {q["Name on the shirt"]: "pwned", q["Size"]: "S"}})
+    st3, rows3 = call("DELETE", f"/form_responses?id=eq.{pat_resp}", olive)
+    check("Forms: Vic answers; nobody, editors included, changes or withdraws someone else's answer", st == 201 and rows2 == [] and rows3 == []
+          and oq(f"select answers->>'{q['Size']}' from weft.form_responses where id = '{pat_resp}'") == "L", f"{st} {st2} {st3}")
+    st, _ = call("PATCH", f"/form_responses?id=eq.{pat_resp}", pat, {"respondent_id": V})
+    st2, _ = call("PATCH", f"/form_responses?id=eq.{pat_resp}", pat, {"form_id": org})
+    st3, _ = call("PATCH", f"/form_responses?id=eq.{pat_resp}", pat, {"created_at": "2020-01-01T00:00:00Z"})
+    check("Forms: an answer's respondent, form and time cannot be changed", refused(st) and refused(st2) and refused(st3), f"{st} {st2} {st3}")
+    # Who reads the answers: your own, or everyone's if you edit the space.
+    st, rows = call("GET", f"/form_responses?form_id=eq.{fest}&select=respondent_id,answers", pat)
+    check("Forms: Pat (viewer) reads only her own answer, not Vic's", st == 200 and [r["respondent_id"] for r in rows] == [P], str(rows))
+    st, rows = call("GET", f"/form_responses?form_id=eq.{fest}&select=respondent_id", olive)
+    st2, rows2 = call("GET", f"/form_responses?form_id=eq.{fest}&select=respondent_id", alex)
+    check("Forms: Olive (editor) and Alex (owner) read every answer (positive control)", {r["respondent_id"] for r in rows} == {P, V} and len(rows2) == 2, f"{rows} {rows2}")
+    st, rows = call("GET", f"/items?id=eq.{fest}&select=body_text", pat)
+    check("Forms: the #festival summary Pat can read has the count, not Vic's answer", rows and "2 answers" in rows[0]["body_text"] and "VIC-PRIVATE" not in rows[0]["body_text"], str(rows))
+    st, rows = call("POST", "/rpc/search", pat, {"p_q": "VIC-PRIVATE"})
+    check("Forms: search does not find answers", st == 200 and rows == [], f"{st} {rows}")
+    st, rows = call("GET", f"/audit?space_id=eq.{SID['festival']}&table_name=eq.form_responses&select=op,old_row", pat)
+    check("Forms: answer changes are in the audit log, without the answers (members read it)", len(rows or []) >= 1
+          and all("answers" not in r["old_row"] for r in rows) and "VIC-PRIVATE" not in json.dumps(rows), str(rows)[:300])
+    st, rows = call("GET", f"/audit?space_id=eq.{SID['organizers']}&table_name=like.form*&select=op", pat)
+    check("Forms: Pat reads no Organizers form audit", rows == [], str(rows))
+    # Questions lock once answered.
+    st, body = call("PATCH", f"/form_questions?id=eq.{q['Size']}", olive, {"options": ["S", "M"]})
+    st2, _ = call("PATCH", f"/form_questions?id=eq.{q['Name on the shirt']}", olive, {"label": "Nickname"})
+    st3, _ = call("DELETE", f"/form_questions?id=eq.{q['Anything else?']}", olive)
+    check("Forms: once answered, questions cannot be changed or removed, even by an editor", refused(st) and refused(st2) and refused(st3)
+          and oq(f"select count(*) from weft.form_questions where form_id = '{fest}'") == "3", f"{st} {st2} {st3} {body}")
+    st, _ = call("PATCH", f"/form_questions?id=eq.{q['Size']}", olive, {"position": 9})
+    st2, rows2 = call("POST", "/form_questions", olive, {"form_id": fest, "label": "Pick-up day", "kind": "choice", "options": ["Friday", "Saturday"], "position": 10})
+    check("Forms: but they can be reordered and new ones added (positive control)", st == 200 and st2 == 201, f"{st} {st2}")
+    # Closing
+    st, rows = call("PATCH", f"/forms?id=eq.{fest}", pat, {"closed": True})
+    check("Forms: Pat (viewer) cannot close the form", st == 200 and rows == [] and oq(f"select closed from weft.forms where id = '{fest}'") == "f", f"{st} {rows}")
+    st, _ = call("PATCH", f"/forms?id=eq.{fest}", olive, {"closed_by": P})
+    st2, _ = call("PATCH", f"/forms?id=eq.{fest}", olive, {"closed_at": "2020-01-01T00:00:00Z"})
+    check("Forms: who closed it and when cannot be set by hand", refused(st) and refused(st2), f"{st} {st2}")
+    st, rows = call("PATCH", f"/forms?id=eq.{fest}", olive, {"closed": True})
+    check("Forms: Olive closes it; the database stamps who and when", st == 200 and rows and rows[0]["closed"] and rows[0]["closed_at"] and rows[0]["closed_by"] == O, f"{st} {rows}")
+    st, _ = call("PATCH", f"/form_responses?id=eq.{pat_resp}", pat, {"answers": {q["Name on the shirt"]: "Pat", q["Size"]: "S"}})
+    st2, _ = call("DELETE", f"/form_responses?id=eq.{vic_resp}", vic)
+    st3, _ = call("POST", "/form_responses", olive, {"form_id": fest, "answers": {q["Name on the shirt"]: "Olive", q["Size"]: "S"}})
+    st4, _ = call("POST", "/form_questions", olive, {"form_id": fest, "label": "Late question"})
+    check("Forms: once closed, nobody answers, changes or withdraws an answer, nor adds a question", all(refused(x) for x in (st, st2, st3, st4))
+          and oq(f"select count(*) from weft.form_responses where form_id = '{fest}'") == "2", f"{st} {st2} {st3} {st4}")
+    st, rows = call("GET", f"/items?id=eq.{fest}&select=body_text", pat)
+    check("Forms: the summary says closed", rows and (rows[0]["body_text"] or "").startswith("Form, closed, 2 answers"), str(rows))
+    st, rows = call("PATCH", f"/forms?id=eq.{fest}", olive, {"closed": False})
+    st2, _ = call("DELETE", f"/form_responses?id=eq.{vic_resp}", vic)
+    check("Forms: reopened, Vic can withdraw his answer", st == 200 and rows[0]["closed_at"] is None and st2 in (200, 204)
+          and oq(f"select count(*) from weft.form_responses where id = '{vic_resp}'") == "0", f"{st} {st2} {rows}")
+    # Scope and the assistant
+    scoped = mint("u-org", scope="festival")
+    st, rows = call("GET", f"/form_questions?form_id=in.({org},{fest})&select=form_id", scoped)
+    st2, rows2 = call("GET", f"/form_responses?form_id=eq.{org}&select=id", scoped)
+    check("Forms: a #festival-scoped token sees only #festival questions and no Organizers answers", st == 200 and rows and {r["form_id"] for r in rows} == {fest} and rows2 == [], f"{rows} {rows2}")
+    st, rows = call("PATCH", f"/form_responses?form_id=eq.{org}&respondent_id=eq.{O}", scoped, {"answers": {q["Quote"]: "scoped"}})
+    st2, _ = call("POST", "/form_questions", scoped, {"form_id": org, "label": "scoped"})
+    check("Forms: nor changes Olive's Organizers answer or adds questions there", rows == [] and refused(st2)
+          and oq(f"select answers->>'{q['Quote']}' from weft.form_responses where form_id = '{org}'") == "ORG-ANSWER-SECRET 1200", f"{st} {st2}")
+    st, rows = call("PATCH", f"/form_responses?id=eq.{pat_resp}", mint("u-pub", scope="volunteers"), {"answers": {q["Name on the shirt"]: "Pat", q["Size"]: "S"}})
+    check("Forms: Pat cannot answer through a token scoped to another channel", rows == [], f"{st} {rows}")
+    helper = mint("u-org", assistant=True)
+    st, rows = call("GET", f"/form_responses?form_id=eq.{org}&select=answers", helper)
+    st2, rows2 = call("GET", f"/form_responses?form_id=eq.{fest}&select=respondent_id", mint("u-pub", assistant=True))
+    check("Forms: the assistant reads answers as the person would: all for Olive (positive control), only her own for Pat",
+          st == 200 and len(rows) == 1 and [r["respondent_id"] for r in rows2] == [P], f"{rows} {rows2}")
+    st, _ = call("DELETE", f"/form_responses?form_id=eq.{org}", helper)
+    st2, _ = call("POST", "/form_responses", helper, {"form_id": fest, "answers": {q["Name on the shirt"]: "Weft", q["Size"]: "S"}})
+    st3, _ = call("DELETE", f"/form_questions?id=eq.{q['Quote']}", helper)
+    st4, _ = call("PATCH", f"/forms?id=eq.{org}", helper, {"closed": True})
+    check("Forms: the assistant cannot delete, answer, remove questions or close", all(refused(x) for x in (st, st2, st3, st4))
+          and oq(f"select count(*) from weft.form_responses where form_id = '{org}'") == "1", f"{st} {st2} {st3} {st4}")
+    st, rows = call("POST", "/rpc/search", olive, {"p_q": "ORG-FORM-SECRET"})
+    st2, rows2 = call("POST", "/rpc/search", pat, {"p_q": "ORG-FORM-SECRET"})
+    check("Forms: search finds the form for Olive, not for Pat", any(r["id"] == org and r["kind"] == "form" for r in rows or []) and rows2 == [], f"{rows} {rows2}")
+    # Moves and deletes follow the space.
+    st, _ = call("PATCH", f"/items?id=eq.{fest}", olive, {"space_id": SID["volunteers"]})
+    st2, rows = call("GET", f"/form_responses?form_id=eq.{fest}&select=id", pat)
+    st3, rows3 = call("PATCH", f"/form_responses?id=eq.{pat_resp}", pat, {"answers": {q["Name on the shirt"]: "Pat", q["Size"]: "S"}})
+    st4, rows4 = call("GET", f"/form_responses?form_id=eq.{fest}&select=id", vic)
+    check("Forms: a form moved to Volunteers takes even Pat's own answer out of her sight, and Vic (now an editor of it) reads it",
+          st == 200 and rows == [] and rows3 == [] and len(rows4) == 1
+          and oq(f"select answers->>'{q['Size']}' from weft.form_responses where id = '{pat_resp}'") == "L", f"{st} {rows} {st3} {rows4}")
+    st, _ = call("PATCH", f"/items?id=eq.{org}", olive, {"space_id": SID["festival"]})
+    st2, rows = call("GET", f"/form_questions?form_id=eq.{org}&select=id", pat)
+    st3, rows3 = call("GET", f"/form_responses?form_id=eq.{org}&select=id", pat)
+    st4, _ = call("POST", "/form_responses", pat, {"form_id": org, "answers": {q["Quote"]: "Pat's quote"}})
+    check("Forms: a form moved into #festival: Pat reads its questions, not Olive's answer, and can answer", st == 200 and len(rows) == 1 and rows3 == [] and st4 == 201, f"{st} {rows} {rows3} {st4}")
+    st, _ = call("DELETE", f"/items?id=eq.{org}", pat)
+    check("Forms: Pat cannot delete the form", oq(f"select count(*) from weft.items where id = '{org}'") == "1", str(st))
+    call("PATCH", f"/forms?id=eq.{org}", olive, {"closed": True})
+    st, _ = call("DELETE", f"/items?id=eq.{org}", olive)
+    check("Forms: deleting a form, even a closed one, deletes its state, questions and answers", st in (200, 204)
+          and oq(f"select (select count(*) from weft.forms where id = '{org}') + (select count(*) from weft.form_questions where form_id = '{org}') + (select count(*) from weft.form_responses where form_id = '{org}')") == "0", str(st))
+    call("DELETE", f"/items?id=eq.{fest}", olive)
+
+
 # ---------------------------------------------------------------- people (channels, members, accounts)
 TEST_SIGNIN = os.environ.get("WEFT_SIGNIN", "http://127.0.0.1:3211/auth/test-login")
 
@@ -832,6 +1003,7 @@ if __name__ == "__main__":
     tables()
     tasks()
     polls()
+    forms()
     people()
     trees()
     prefs_and_files()
