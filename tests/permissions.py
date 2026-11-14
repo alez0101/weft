@@ -1779,6 +1779,157 @@ def bookings():
     call("DELETE", f"/resources?id=eq.{room}", alex)
 
 
+def shifts():
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, V, O, A = uid("user", "u-pub"), uid("user", "u-vol"), uid("user", "u-org"), uid("user", "u-alex")
+    oq = lambda sql: owner_sql(sql)
+    ts = lambda iv: oq(f"select to_char(date_trunc('hour', now()) + interval '{iv}', 'YYYY-MM-DD\"T\"HH24:MI:SSOF')")
+    on = lambda sh: oq(f"select coalesce(string_agg(user_id::text, ',' order by user_id), '') from weft.shift_signups where shift_id = '{sh}'")
+    n_on = lambda sh: oq(f"select count(*) from weft.shift_signups where shift_id = '{sh}'")
+    s10, s12 = ts("3 days 10 hours"), ts("3 days 12 hours")
+    # Shifts: editors and owners add them, in channels only.
+    st, rows = call("POST", "/shifts", olive, {"space_id": SID["organizers"], "title": "  ORG-SHIFT-SECRET cash count ", "starts_at": s10, "ends_at": s12, "places": 2, "note": "Back office"})
+    org = rows[0]["id"] if st == 201 else None
+    check("Shifts: Olive (editor) adds a shift in Organizers (positive control), created_by set by the database, title trimmed",
+          org and rows[0]["created_by"] == O and rows[0]["title"] == "ORG-SHIFT-SECRET cash count", f"{st} {rows}")
+    st, rows = call("POST", "/shifts", olive, {"space_id": SID["festival"], "title": "Bar", "starts_at": s10, "ends_at": s12, "places": 2})
+    bar = rows[0]["id"] if st == 201 else None
+    check("Shifts: Olive adds a #festival shift with two places", bar is not None and rows[0]["places"] == 2, f"{st} {rows}")
+    st, _ = call("POST", "/shifts", pat, {"space_id": SID["festival"], "title": "pwned", "starts_at": s10, "ends_at": s12, "places": 1})
+    st2, _ = call("POST", "/shifts", vic, {"space_id": SID["festival"], "title": "pwned", "starts_at": s10, "ends_at": s12, "places": 1})
+    st3, _ = call("POST", "/shifts", vic, {"space_id": SID["organizers"], "title": "pwned", "starts_at": s10, "ends_at": s12, "places": 1})
+    check("Shifts: Pat and Vic (viewers in #festival) cannot add shifts there, nor Vic in Organizers", refused(st) and refused(st2) and refused(st3), f"{st} {st2} {st3}")
+    for key in ("personal-u-org", "dm-alex-olive"):
+        st, body = call("POST", "/shifts", olive, {"space_id": SID[key], "title": "not a channel", "starts_at": s10, "ends_at": s12, "places": 1})
+        check(f"Shifts: only channels have shifts ({key.split('-')[0]} refused)", st == 400 and "channel" in json.dumps(body), f"{st} {body}")
+    # Sensible values.
+    bad = [{"starts_at": ts("-3 hours"), "ends_at": ts("-2 hours"), "places": 1}, {"starts_at": s12, "ends_at": s10, "places": 1},
+           {"starts_at": s10, "ends_at": ts("11 days"), "places": 1}, {"starts_at": s10, "ends_at": s12, "places": 0},
+           {"starts_at": s10, "ends_at": s12, "places": 201}, {"starts_at": s10, "ends_at": s12, "places": 1, "note": "x" * 501}]
+    sts = [call("POST", "/shifts", olive, {"space_id": SID["festival"], "title": "bad", **b})[0] for b in bad]
+    check("Shifts: a shift that has ended, ends before it starts, lasts over 7 days, has 0 or over 200 places or a long note is refused",
+          all(x == 400 for x in sts), str(sts))
+    # Reads: members only, viewers included.
+    call("POST", "/shift_signups", olive, {"shift_id": org})
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = call("GET", f"/shifts?space_id=eq.{SID['organizers']}&select=id", tok)
+        st2, rows2 = call("GET", "/shifts?title=like.*ORG-SHIFT*&select=id", tok)
+        st3, rows3 = call("GET", f"/shift_signups?or=(shift_id.eq.{org},space_id.eq.{SID['organizers']})&select=id", tok)
+        check(f"Shifts: {who} gets no Organizers shifts or sign-ups, by space, title or shift",
+              st == 200 and rows == [] and rows2 == [] and rows3 == [], f"{rows} {rows2} {rows3}")
+    st, rows = call("GET", f"/shifts?id=eq.{org}&select=id,shift_signups(user_id)", olive)
+    check("Shifts: Olive reads the Organizers shift with herself on it (positive control)", st == 200 and len(rows) == 1 and rows[0]["shift_signups"] == [{"user_id": O}], str(rows))
+    # Claiming: every member, viewers included, only themselves.
+    st, rows = call("POST", "/shift_signups", pat, {"shift_id": bar})
+    pat_su = rows[0]["id"] if st == 201 else None
+    check("Shifts: Pat (viewer) takes a place on the #festival bar shift (positive control); the database sets her and the channel",
+          pat_su and rows[0]["user_id"] == P and rows[0]["space_id"] == SID["festival"], f"{st} {rows}")
+    st, body = call("POST", "/shift_signups", pat, {"shift_id": bar})
+    check("Shifts: once per person per shift: a second claim is refused", st == 409 and n_on(bar) == "1", f"{st} {body}")
+    st, rows = call("GET", f"/shift_signups?shift_id=eq.{bar}&select=user_id,who:users!shift_signups_user_id_fkey(display_name)", vic)
+    check("Shifts: Vic (viewer) reads who is on the bar shift, with names", st == 200 and len(rows) == 1 and rows[0]["who"]["display_name"] == "Pat Public", str(rows))
+    st, _ = call("POST", "/shift_signups", vic, {"shift_id": bar})
+    check("Shifts: Vic takes the second place", st == 201 and n_on(bar) == "2", str(st))
+    st, body = call("POST", "/shift_signups", alex, {"shift_id": bar})
+    check("Shifts: a full shift takes nobody else, with a plain answer", st == 400 and "full" in json.dumps(body) and n_on(bar) == "2", f"{st} {body}")
+    # Forging and outsiders.
+    st, _ = call("POST", "/shift_signups", olive, {"shift_id": org, "user_id": A})
+    st2, _ = call("POST", "/shift_signups", alex, {"shift_id": org, "space_id": SID["festival"]})
+    st3, _ = call("POST", "/shifts", olive, {"space_id": SID["festival"], "title": "forged", "starts_at": s10, "ends_at": s12, "places": 1, "created_by": A})
+    check("Shifts: nobody signs up someone else, sets a sign-up's channel or forges who added a shift", refused(st) and refused(st2) and refused(st3)
+          and on(org) == O, f"{st} {st2} {st3}")
+    st, rows = call("POST", "/shifts", olive, {"space_id": SID["organizers"], "title": "ORG-SHIFT-SECRET open", "starts_at": s10, "ends_at": s12, "places": 5})
+    org_open = rows[0]["id"] if st == 201 else None
+    oq(f"insert into weft.shift_signups (shift_id, space_id, user_id) values ('{org}', '{SID['organizers']}', '{A}')")   # Organizers shift now full
+    past_org = oq(f"insert into weft.shifts (space_id, title, starts_at, ends_at, places, created_by) values ('{SID['organizers']}', 'old', now() - interval '3 hours', now() - interval '2 hours', 3, '{O}') returning id").splitlines()[0]
+    answers = [call("POST", "/shift_signups", vic, {"shift_id": x}) for x in (org, org_open, past_org, uid("shift", "nothing"))]
+    check("Shifts: Vic claiming in Organizers gets the same refusal whether the shift is full, open, ended or does not exist",
+          all(refused(s) for s, _ in answers) and len({json.dumps(b.get("message") if isinstance(b, dict) else b) for _, b in answers}) == 1, str(answers))
+    scoped = mint("u-org", scope="festival")
+    st, rows = call("GET", f"/shifts?id=in.({org},{bar})&select=space_id", scoped)
+    st2, rows2 = call("GET", f"/shift_signups?shift_id=in.({org},{bar})&select=space_id", scoped)
+    st3, _ = call("POST", "/shift_signups", scoped, {"shift_id": org_open})
+    check("Shifts: a #festival-scoped token sees only #festival shifts and sign-ups, and cannot claim in Organizers",
+          rows and {r["space_id"] for r in rows} == {SID["festival"]} and rows2 and {r["space_id"] for r in rows2} == {SID["festival"]} and refused(st3), f"{rows} {rows2} {st3}")
+    # Changing shifts: editors and owners; viewers cannot.
+    st, rows = call("PATCH", f"/shifts?id=eq.{bar}", pat, {"places": 9})
+    st2, rows2 = call("DELETE", f"/shifts?id=eq.{bar}", vic)
+    check("Shifts: Pat and Vic cannot change or delete the bar shift", (refused(st) or rows == []) and rows2 == []
+          and oq(f"select places from weft.shifts where id = '{bar}'") == "2", f"{st} {st2}")
+    st, body = call("PATCH", f"/shifts?id=eq.{bar}", olive, {"places": 1})
+    check("Shifts: places cannot drop below the people on the shift", st == 400 and "at least 2" in json.dumps(body), f"{st} {body}")
+    st, rows = call("PATCH", f"/shifts?id=eq.{bar}", olive, {"places": 3, "title": " Bar (main tent) ", "note": "Bring a jumper"})
+    check("Shifts: Olive (editor) gives the shift a third place and a new title (positive control)", st == 200 and rows and rows[0]["places"] == 3 and rows[0]["title"] == "Bar (main tent)", f"{st} {rows}")
+    st, _ = call("PATCH", f"/shifts?id=eq.{bar}", olive, {"space_id": SID["organizers"]})
+    st2, _ = call("PATCH", f"/shifts?id=eq.{bar}", olive, {"created_by": A})
+    st3, _ = call("PATCH", f"/shift_signups?id=eq.{pat_su}", olive, {"shift_id": org_open})
+    st4, _ = call("PATCH", f"/shift_signups?id=eq.{pat_su}", pat, {"user_id": V})
+    check("Shifts: a shift never moves channel or changes author; a sign-up never moves shift or person",
+          all(refused(x) for x in (st, st2, st3, st4)) and oq(f"select space_id from weft.shifts where id = '{bar}'") == SID["festival"]
+          and oq(f"select shift_id::text || user_id::text from weft.shift_signups where id = '{pat_su}'") == f"{bar}{P}", f"{st} {st2} {st3} {st4}")
+    # Giving back: your own place; editors and owners take anyone off; others cannot.
+    vic_su = oq(f"select id from weft.shift_signups where shift_id = '{bar}' and user_id = '{V}'")
+    st, rows = call("DELETE", f"/shift_signups?id=eq.{vic_su}", pat)
+    check("Shifts: Pat cannot take Vic off the shift", rows == [] and n_on(bar) == "2", f"{st} {rows}")
+    st, _ = call("DELETE", f"/shift_signups?id=eq.{pat_su}", pat)
+    check("Shifts: Pat gives her place back (positive control)", st in (200, 204) and on(bar) == V, str(st))
+    st, _ = call("DELETE", f"/shift_signups?id=eq.{vic_su}", olive)
+    check("Shifts: Olive (editor) takes Vic off the shift", st in (200, 204) and on(bar) == "", str(st))
+    # Ended shifts are fixed.
+    past = oq(f"insert into weft.shifts (space_id, title, starts_at, ends_at, places, created_by) values ('{SID['festival']}', 'Set-up', now() - interval '3 hours', now() - interval '1 hour', 3, '{O}') returning id").splitlines()[0]
+    psu = oq(f"insert into weft.shift_signups (shift_id, space_id, user_id) values ('{past}', '{SID['festival']}', '{P}') returning id").splitlines()[0]
+    st, _ = call("POST", "/shift_signups", vic, {"shift_id": past})
+    st2, _ = call("DELETE", f"/shift_signups?id=eq.{psu}", pat)
+    st3, _ = call("DELETE", f"/shift_signups?id=eq.{psu}", alex)
+    st4, _ = call("PATCH", f"/shifts?id=eq.{past}", olive, {"ends_at": ts("2 days")})
+    check("Shifts: an ended shift is fixed: nobody claims, gives back or is taken off, and the shift does not change",
+          all(refused(x) for x in (st, st2, st3, st4)) and on(past) == P, f"{st} {st2} {st3} {st4}")
+    # Never over-filled, even when everyone claims the last places at once.
+    import threading
+    st, rows = call("POST", "/shifts", olive, {"space_id": SID["festival"], "title": "Gate", "starts_at": s10, "ends_at": s12, "places": 2})
+    gate = rows[0]["id"]
+    got = []
+    ths = [threading.Thread(target=lambda tok=tok: got.append(call("POST", "/shift_signups", tok, {"shift_id": gate})[0])) for tok in (pat, vic, olive, alex)]
+    [t.start() for t in ths]; [t.join() for t in ths]
+    check("Shifts: four people claiming a two-place shift at once: exactly two get it", sorted(got).count(201) == 2 and n_on(gate) == "2", str(sorted(got)))
+    # The assistant only reads.
+    helper = mint("u-org", assistant=True)
+    st, rows = call("GET", f"/shift_signups?shift_id=eq.{org}&select=id", helper)
+    check("Shifts: the assistant (for Olive) reads Organizers sign-ups (positive control)", st == 200 and len(rows) == 2, str(rows))
+    st, _ = call("DELETE", f"/shift_signups?shift_id=eq.{org}", helper)
+    st2, _ = call("POST", "/shift_signups", helper, {"shift_id": org_open})
+    st3, _ = call("DELETE", f"/shifts?id=eq.{org}", helper)
+    st4, _ = call("POST", "/shifts", helper, {"space_id": SID["organizers"], "title": "by the assistant", "starts_at": s10, "ends_at": s12, "places": 1})
+    st5, _ = call("PATCH", f"/shifts?id=eq.{org}", helper, {"places": 9})
+    check("Shifts: the assistant cannot delete, claim, add or change anything", all(refused(x) for x in (st, st2, st3, st4, st5))
+          and n_on(org) == "2" and oq(f"select places from weft.shifts where id = '{org}'") == "2", f"{st} {st2} {st3} {st4} {st5}")
+    st, rows = call("GET", f"/shifts?id=eq.{org}&select=id", mint("u-pub", assistant=True))
+    check("Shifts: the assistant for Pat reads no Organizers shifts", st == 200 and rows == [], str(rows))
+    # Audit.
+    call("PATCH", f"/shifts?id=eq.{org}", olive, {"note": "ORG-SHIFT-SECRET moved to the office"})
+    st, rows = call("GET", f"/audit?row_id=eq.{org}&select=op", olive)
+    st2, rows2 = call("GET", f"/audit?row_id=eq.{org}&select=op", pat)
+    check("Shifts: an Organizers change is in the audit log for Organizers members only", len(rows or []) >= 1 and rows2 == [], f"{rows} {rows2}")
+    st, rows = call("GET", f"/audit?row_id=eq.{pat_su}&select=op", vic)
+    check("Shifts: a place given back in #festival is in its audit log, readable by Vic (positive control)", len(rows or []) == 1, str(rows))
+    # Deletes and membership follow the channel.
+    st, _ = call("DELETE", f"/shifts?id=eq.{gate}", olive)
+    check("Shifts: Olive deletes a shift, and its sign-ups go with it", st in (200, 204) and n_on(gate) == "0"
+          and oq(f"select count(*) from weft.shifts where id = '{gate}'") == "0", str(st))
+    st, ch = call("POST", "/rpc/create_channel", olive, {"p_name": "shift test"})
+    st, rows = call("POST", "/shifts", olive, {"space_id": ch, "title": "Stewards", "starts_at": s10, "ends_at": s12, "places": 4})
+    stw = rows[0]["id"] if st == 201 else None
+    call("POST", "/members", olive, {"space_id": ch, "user_id": P, "role": "viewer"}, prefer="return=minimal")
+    st, rows = call("POST", "/shift_signups", pat, {"shift_id": stw})
+    check("Shifts: added as a viewer to a new channel, Pat signs up (positive control)", st == 201 and on(stw) == P, f"{st} {rows}")
+    call("DELETE", f"/members?space_id=eq.{ch}&user_id=eq.{P}", olive)
+    st, rows = call("GET", f"/shifts?id=eq.{stw}&select=id", pat)
+    check("Shifts: removed from the channel, Pat reads nothing there and is off its shift", rows == [] and on(stw) == "", f"{rows}")
+    st, _ = call("DELETE", f"/spaces?id=eq.{ch}", olive)
+    check("Shifts: deleting the channel deletes its shifts", st in (200, 204) and oq(f"select count(*) from weft.shifts where id = '{stw}'") == "0", str(st))
+    oq(f"delete from weft.shifts where id in ('{org}', '{org_open}', '{past_org}', '{past}', '{bar}')")
+
+
 def teeth():
     """Loosen one policy on purpose and confirm the suite would catch it, then restore it."""
     owner_sql("create policy teeth_leak on weft.items for select to weft_user using (true)")
@@ -1808,6 +1959,7 @@ if __name__ == "__main__":
     meetings()
     rsvps()
     bookings()
+    shifts()
     people()
     trees()
     prefs_and_files()

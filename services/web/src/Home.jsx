@@ -6,12 +6,14 @@ import { dueLabel, today } from './TaskList.jsx';
 import { until, useNow } from './Announcements.jsx';
 import { heldLabel } from './Meeting.jsx';
 import { span } from './Bookings.jsx';
+import { shiftSpan } from './Shifts.jsx';
 
 const WIDGETS = {
   announcements: 'Announcements',
   upcoming: 'Coming up',
   yeses: 'Your upcoming yeses',
   bookings: 'Your bookings',
+  shifts: 'Your shifts',
   tasks: 'Tasks due soon',
   polls: 'Polls to vote in',
   forms: 'Forms to fill in',
@@ -22,7 +24,7 @@ const WIDGETS = {
   files: 'Recent files',
   ask: 'Ask Weft',
 };
-const DEFAULT = ['announcements', 'upcoming', 'yeses', 'bookings', 'tasks', 'polls', 'forms', 'unread', 'recent', 'ask'];
+const DEFAULT = ['announcements', 'upcoming', 'yeses', 'bookings', 'shifts', 'tasks', 'polls', 'forms', 'unread', 'recent', 'ask'];
 const KIND = { document: 'Document', wiki: 'Wiki page', whiteboard: 'Whiteboard', table: 'Table', tasklist: 'Task list', poll: 'Poll', form: 'Form', linklist: 'Link list', meeting: 'Meeting', file: 'File' };
 const where = (s) => (s?.kind === 'channel' ? `#${s.name}` : s?.kind === 'personal' ? 'Personal' : s?.name || '');
 const when = (iso) => new Date(iso).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -53,6 +55,15 @@ function MyBookings({ data, onOpenBooking }) {
     <li key={b.id}><button type="button" className="widget-row" onClick={() => onOpenBooking(b.resource_id)}>
       <span className="widget-main">{b.thing?.name}</span>
       <span className="widget-sub">{new Date(b.starts_at).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}, {span(b.starts_at, b.ends_at)}, {where(b.space)}</span>
+    </button></li>))}</ul>;
+}
+// Shifts the person is on that have not ended, soonest first, with how full each is. A row opens Shifts.
+function MyShifts({ data, onOpenShifts }) {
+  if (!data.length) return <p className="widget-empty">You are not on any shift coming up. Take a place in Shifts.</p>;
+  return <ul className="widget-list">{data.map((s) => (
+    <li key={s.id}><button type="button" className="widget-row" onClick={() => onOpenShifts(s.id)}>
+      <span className="widget-main">{s.title}</span>
+      <span className="widget-sub">{new Date(s.starts_at).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}, {shiftSpan(s.starts_at, s.ends_at)}, {where(s.space)}, {s.signups.length} of {s.places} places taken</span>
     </button></li>))}</ul>;
 }
 // Open tasks due in the next seven days or overdue, yours first. A row opens its list.
@@ -149,10 +160,10 @@ function Ask({ assistantSpace, onAsked }) {
   );
 }
 
-export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpenEvent, onOpenNotices, onOpenBooking, onOpenConvo }) {
+export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpenEvent, onOpenNotices, onOpenBooking, onOpenShifts, onOpenConvo }) {
   const [order, setOrder] = useState(null);
   const [editing, setEditing] = useState(false);
-  const [data, setData] = useState({ announcements: [], upcoming: [], yeses: [], bookings: [], tasks: [], polls: [], forms: [], links: [], meetings: [], recent: [], files: [] });
+  const [data, setData] = useState({ announcements: [], upcoming: [], yeses: [], bookings: [], shifts: [], tasks: [], polls: [], forms: [], links: [], meetings: [], recent: [], files: [] });
   const [error, setError] = useState('');
   const timer = useRef(null);
 
@@ -172,7 +183,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
     const now = new Date(); const soon = new Date(now.getTime() + 14 * 86400000);
     try {
       const week = new Date(Date.now() + 7 * 86400000); week.setMinutes(week.getMinutes() - week.getTimezoneOffset());
-      const [upcoming, recent, files, due, open, openForms, links, announcements, meetings, yeses, bookings] = await Promise.all([
+      const [upcoming, recent, files, due, open, openForms, links, announcements, meetings, yeses, bookings, onShifts] = await Promise.all([
         api(`/events?ends_at=gte.${now.toISOString()}&starts_at=lte.${soon.toISOString()}&select=id,title,starts_at,location,space:spaces(name,kind)&order=starts_at&limit=5`),
         api('/items?select=id,title,kind,updated_at,space:spaces(name,kind)&order=updated_at.desc&limit=6'),
         api('/items?kind=eq.file&select=id,title,kind,updated_at,space:spaces(name,kind)&order=updated_at.desc&limit=5'),
@@ -184,18 +195,20 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
         api('/meetings?select=id,held_at,item:items!meetings_id_fkey(title,space:spaces(name,kind))&order=held_at.desc.nullslast&limit=5'),
         api(`/events?ends_at=gte.${now.toISOString()}&select=id,title,starts_at,location,space:spaces(name,kind),mine:rsvps!inner(answer)&mine.user_id=eq.${me.id}&mine.answer=eq.going&order=starts_at&limit=5`),
         api(`/bookings?booked_by=eq.${me.id}&ends_at=gt.${now.toISOString()}&select=id,resource_id,starts_at,ends_at,thing:resources(name),space:spaces(name,kind)&order=starts_at&limit=5`),
+        api(`/shifts?ends_at=gt.${now.toISOString()}&select=id,title,starts_at,ends_at,places,space:spaces(name,kind),signups:shift_signups(user_id)&order=starts_at&limit=300`),
       ]);
+      const shifts = onShifts.filter((s) => s.signups.some((x) => x.user_id === me.id)).slice(0, 5);
       const tasks = [...due.filter((t) => t.assignee_id === me.id), ...due.filter((t) => t.assignee_id !== me.id)].slice(0, 6);
       const isClosed = (p) => (Array.isArray(p.state) ? p.state[0]?.closed : p.state?.closed);
       const polls = open.filter((p) => !isClosed(p) && !p.mine?.length).slice(0, 5);
       const forms = openForms.filter((f) => !isClosed(f) && !f.mine?.length).slice(0, 5);
-      setData({ announcements, upcoming, yeses, bookings, tasks, polls, forms, links, meetings, recent, files }); setError('');
+      setData({ announcements, upcoming, yeses, bookings, shifts, tasks, polls, forms, links, meetings, recent, files }); setError('');
     } catch (e) { setError(`Widgets could not load: ${e.message}`); }
   }, [me.id]);
   useEffect(() => { load(); }, [load]);
   // Live: refresh shortly after anything they show changes (several notices in a row refresh once).
   useEffect(() => {
-    if (!notice || !['events', 'items', 'members', 'tasks', 'polls', 'forms', 'links', 'announcements', 'meetings', 'rsvps', 'bookings', 'resources'].includes(notice.t)) return;
+    if (!notice || !['events', 'items', 'members', 'tasks', 'polls', 'forms', 'links', 'announcements', 'meetings', 'rsvps', 'bookings', 'resources', 'shifts', 'shift_signups'].includes(notice.t)) return;
     clearTimeout(timer.current); timer.current = setTimeout(load, 400);
   }, [notice, load]);
 
@@ -205,6 +218,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
     : k === 'upcoming' ? <Upcoming data={data.upcoming} onOpenEvent={onOpenEvent} />
     : k === 'yeses' ? <Yeses data={data.yeses} onOpenEvent={onOpenEvent} />
     : k === 'bookings' ? <MyBookings data={data.bookings} onOpenBooking={onOpenBooking} />
+    : k === 'shifts' ? <MyShifts data={data.shifts} onOpenShifts={onOpenShifts} />
     : k === 'tasks' ? <TasksDue data={data.tasks} me={me} onOpenItem={onOpenItem} />
     : k === 'polls' ? <PollsToVote data={data.polls} onOpenItem={onOpenItem} />
     : k === 'forms' ? <FormsToFill data={data.forms} onOpenItem={onOpenItem} />
