@@ -34,4 +34,4 @@ summary: The services, how a request flows, and the two front doors.
 
 ### Libraries
 
-BlockNote 0.57 (documents and wiki), Excalidraw 0.18 with Weft's own Yjs binding (whiteboards), AG Grid Community 36 (tables), FullCalendar 7 (calendar, including tasks due and bookings), plain React (task lists, boards with native drag and drop, polls, forms, link lists, announcements, meetings, RSVPs, bookings, shifts), `@anthropic-ai/sdk` (Claude), `@modelcontextprotocol/sdk` (the connector). All open source under MIT, MPL-2.0 or PostgreSQL licences; none of BlockNote's GPL or commercial packages are used.
+BlockNote 0.57 (documents and wiki), Excalidraw 0.18 with Weft's own Yjs binding (whiteboards), AG Grid Community 36 (tables), FullCalendar 7 (calendar, including tasks due and bookings), plain React (task lists, boards with native drag and drop, polls, forms, link lists, address books, announcements, meetings, RSVPs, bookings, shifts), `@anthropic-ai/sdk` (Claude), `@modelcontextprotocol/sdk` (the connector). All open source under MIT, MPL-2.0 or PostgreSQL licences; none of BlockNote's GPL or commercial packages are used.
