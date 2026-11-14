@@ -330,3 +330,44 @@
 .poll-edit input[readonly] { border-color: transparent; color: var(--color-ink-2); }
 .poll-foot .docs-hint { margin: 0; flex: 1 1 20rem; }
 @media (prefers-reduced-motion: reduce) { .poll-bar > span { transition: none; } }
+/* Forms: a few questions, one answer per person, the answers in a table for editors. */
+.docs-form { max-width: 860px; margin: 0 auto var(--space-lg); padding-top: var(--space-sm); }
+.form { display: grid; gap: var(--space-sm); }
+.form-head, .form-tools, .form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); justify-content: space-between; }
+.form-tools, .form-actions { justify-content: flex-start; }
+.form-views { display: inline-flex; flex-wrap: wrap; gap: var(--space-2xs); }
+.form-views .btn[aria-pressed="true"] { background: var(--color-accent-soft); box-shadow: 0 0 0 2px var(--color-accent-deep); }
+.form-qs { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-xs); }
+.form-q { display: grid; gap: var(--space-2xs); padding: var(--space-sm); border-radius: var(--radius-card); background: var(--color-paper); box-shadow: 0 0 0 1px var(--color-rule); }
+.form-label { font-weight: 500; color: var(--color-ink); overflow-wrap: anywhere; padding: 0; }
+.form-star { color: var(--color-error); }
+.form-fieldset, .form-choices { border: 0; margin: 0; padding: 0; min-width: 0; display: grid; gap: var(--space-xs); }
+.form-choices { gap: var(--space-2xs); }
+.form-choice { display: flex; align-items: center; gap: var(--space-xs); color: var(--color-ink); cursor: pointer; overflow-wrap: anywhere; }
+.form-choice input { width: 18px; height: 18px; margin: 0; accent-color: var(--color-accent-deep); }
+.form-choice:has(input:focus-visible) { outline: 2px solid var(--color-focus); outline-offset: 2px; border-radius: var(--radius-input); }
+.form-clear { justify-self: start; }
+.form-q input:not([type="checkbox"]):not([type="radio"]), .form-q select, .form-q textarea {
+  min-height: var(--ctl-h); padding: var(--space-2xs) var(--space-xs); min-width: 0; font: inherit; font-size: var(--text-sm);
+  border: 1px solid var(--color-muted); border-radius: var(--radius-input); background: var(--color-paper); color: var(--color-ink); }
+.form-q textarea { resize: vertical; }
+.form-q input:focus-visible, .form-q select:focus-visible, .form-q textarea:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+.form-q input[readonly], .form-q textarea[readonly] { border-color: transparent; color: var(--color-ink-2); }
+.form-fieldset:disabled .form-q { background: var(--color-paper-2); box-shadow: none; }
+.form-q-row { display: grid; grid-template-columns: minmax(0, 1fr) 10rem auto auto; gap: var(--space-xs); align-items: center; }
+.form-q-opts { display: grid; gap: var(--space-3xs); font-size: var(--text-sm); color: var(--color-ink-2); }
+.form-req { display: inline-flex; align-items: center; gap: var(--space-3xs); font-size: var(--text-sm); color: var(--color-ink-2); white-space: nowrap; }
+.form-req input { accent-color: var(--color-accent-deep); }
+.form-req input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.form-table-wrap { overflow: auto; max-height: 65vh; border-radius: var(--radius-card); box-shadow: 0 0 0 1px var(--color-rule); background: var(--color-paper); }
+.form-table-wrap:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.form-table { border-collapse: collapse; width: 100%; font-size: var(--text-sm); }
+.form-table th, .form-table td { padding: var(--space-xs) var(--space-sm); text-align: left; vertical-align: top; border-bottom: var(--rule-hair) solid var(--color-rule);
+  max-width: 24rem; overflow-wrap: anywhere; white-space: pre-wrap; }
+.form-table thead th { position: sticky; top: 0; background: var(--color-paper-2); color: var(--color-ink); font-weight: 600; white-space: nowrap; }
+.form-table tbody th { font-weight: 500; color: var(--color-ink); white-space: nowrap; }
+.form-table td { color: var(--color-ink-2); }
+.form-table tbody tr:last-child > * { border-bottom: 0; }
+.form .docs-hint { margin: 0; padding: 0; }
+@media (max-width: 720px) { .form-q-row { grid-template-columns: minmax(0, 1fr) auto; } }
+.form-fieldset:disabled .form-q input:not([type="radio"]), .form-fieldset:disabled .form-q textarea { background: var(--color-paper-2); border-color: var(--color-rule); color: var(--color-ink-2); }

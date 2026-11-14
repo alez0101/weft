@@ -11,6 +11,8 @@ Everything in Weft lives in a **space**: a channel, a direct message, your perso
 - **Editor**: also creates and changes documents, wiki pages and events.
 - **Owner**: also manages the space and its members.
 
+One exception: the answers to a **form** are seen only by the person who gave them and by the editors and owners of the form's space.
+
 ### Sharing
 
 Sharing a document or event into a channel posts a link. **A link gives no access**: people who are not in the document's space get a "You don't have access" page. Weft reminds you of this when you share.

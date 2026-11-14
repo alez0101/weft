@@ -7,7 +7,7 @@ Weft can answer questions and propose three actions. It never acts on its own: e
 
 ### Answer questions
 
-Weft reads the chat messages, documents, wiki pages, tables, task lists, polls (the question and the vote counts), files (PDF, Word and text), the text on whiteboards and the calendar events you can open, and answers with numbered links you can click to check its answer. A message link jumps to the message; a document link opens it in Documents, Wiki, Sheets or Whiteboard; an event link opens it in the Calendar. If it cannot find the answer, it says so instead of guessing. It searches by meaning as well as by words, so asking about "electricity" also finds a message about a dead outlet.
+Weft reads the chat messages, documents, wiki pages, tables, task lists, polls (the question and the vote counts), forms (the questions and how many answered; answers only for people who may read them), files (PDF, Word and text), the text on whiteboards and the calendar events you can open, and answers with numbered links you can click to check its answer. A message link jumps to the message; a document link opens it in Documents, Wiki, Sheets or Whiteboard; an event link opens it in the Calendar. If it cannot find the answer, it says so instead of guessing. It searches by meaning as well as by words, so asking about "electricity" also finds a message about a dead outlet.
 
 ### Propose an action
 
