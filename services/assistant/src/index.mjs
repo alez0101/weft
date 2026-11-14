@@ -583,8 +583,20 @@ async function embed(texts) {
 
 // Split long text into chunks of about 1000 characters on paragraph (or row) boundaries.
 function chunks(text) {
+  // Lines longer than a chunk are cut at word boundaries first: the embedder rejects anything past its
+  // context (nomic-embed-text: about 2,000 tokens), and one long table row once blocked every page.
+  const lines = String(text).split(/\n+/).flatMap((l) => {
+    if (l.length <= 1000) return [l];
+    const parts = []; let rest = l;
+    while (rest.length > 1000) {
+      let cut = rest.lastIndexOf(' ', 1000); if (cut < 500) cut = 1000;
+      parts.push(rest.slice(0, cut)); rest = rest.slice(cut).trimStart();
+    }
+    if (rest) parts.push(rest);
+    return parts;
+  });
   const out = []; let cur = '';
-  for (const para of String(text).split(/\n+/)) {
+  for (const para of lines) {
     if ((cur + '\n' + para).length > 1000 && cur) { out.push(cur); cur = ''; }
     cur = cur ? `${cur}\n${para}` : para;
   }
@@ -602,12 +614,26 @@ async function embedWorker() {
         const title = r.source_type === 'item' ? r.body.split('\n')[0] : '';
         return { r, parts: (r.source_type === 'item' ? chunks(r.body).map((c, i) => (i === 0 ? c : `${title}\n${c}`)) : [r.body]).filter((x) => x.trim()) };
       });
+      const store = (r, parts, vecs) => db.query('select weft_private.embed_store($1,$2,$3,$4,$5)', [r.source_type, r.source_id, r.hash, EMBED_MODEL,
+        JSON.stringify(parts.map((p, i) => ({ content: p, embedding: `[${vecs[i].join(',')}]` })))]);
       const flat = items.flatMap((x) => x.parts.map((p) => `search_document: ${p}`));
-      const vecs = flat.length ? await embed(flat) : [];
-      let k = 0;
-      for (const { r, parts } of items) {
-        const payload = parts.map((p) => ({ content: p, embedding: `[${vecs[k++].join(',')}]` }));
-        await db.query('select weft_private.embed_store($1,$2,$3,$4,$5)', [r.source_type, r.source_id, r.hash, EMBED_MODEL, JSON.stringify(payload)]);
+      let vecs = null;
+      try { vecs = flat.length ? await embed(flat) : []; } catch (e) {
+        if (!/HTTP 4\d\d/.test(e.message)) throw e;   // unreachable or 5xx: back off and retry the batch later
+        // The embedder refused the batch: one item must not block the rest. Go one by one; an item that is
+        // still refused is stored with no chunks (so it is not retried until its text changes) and logged.
+        for (const { r, parts } of items) {
+          try { await store(r, parts, parts.length ? await embed(parts.map((p) => `search_document: ${p}`)) : []); }
+          catch (e2) {
+            if (!/HTTP 4\d\d/.test(e2.message)) throw e2;
+            log(`embedding skipped for ${r.source_type} ${r.source_id}: ${e2.message}`);
+            await db.query('select weft_private.embed_store($1,$2,$3,$4,$5)', [r.source_type, r.source_id, r.hash, EMBED_MODEL, '[]']);
+          }
+        }
+      }
+      if (vecs) {
+        let k = 0;
+        for (const { r, parts } of items) { await store(r, parts, vecs.slice(k, k + parts.length)); k += parts.length; }
       }
       if (embedFailures) log('embedder reachable again');
       embedFailures = 0;

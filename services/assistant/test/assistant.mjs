@@ -25,6 +25,12 @@ http.createServer((req, res) => {
       // A stand-in embedder: words hashed into 768 buckets, with a few synonyms sharing a bucket, so a
       // paraphrase ("electricity") lands near the original ("power") while keyword search misses it.
       mock.embedCalls++;
+      // Like Ollama: input past the model's context is refused for the whole request. EMBED-POISON stands
+      // for any input the embedder refuses.
+      if ((body.input || []).some((x) => x.length > 6000 || x.includes('EMBED-POISON'))) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'the input length exceeds the context length' }));
+      }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ embeddings: (body.input || []).map(vec) }));
     }
@@ -365,6 +371,24 @@ for (let i = 0; i < 60 && !embedded; i++) {
   if (!embedded) await sleep(1000);
 }
 check('Semantic: the worker embedded new messages', embedded && mock.embedCalls > 0, `calls=${mock.embedCalls}`);
+// A page with one very long line (like a long table row) still gets embedded, in pieces that fit; and an
+// item the embedder refuses does not hold up the others.
+const longLine = Array.from({ length: 1800 }, (_, i) => `word${i}`).join(' ');   // about 15,000 characters, no line breaks
+const [longDoc] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'document', title: 'Very long line', body_text: `LONGLINE-MARK ${longLine}` } })).rows;
+const [poison] = (await api(olive.token, '/messages', { method: 'POST', body: { space_id: spaces.festival, body: 'EMBED-POISON this one is refused' } })).rows;
+const [iceMsg] = (await api(olive.token, '/messages', { method: 'POST', body: { space_id: spaces.festival, body: 'Ice for the cooler arrives at noon' } })).rows;
+let done = false;
+for (let i = 0; i < 60 && !done; i++) {
+  const got = (await api(olive.token, `/embeddings?source_id=in.(${longDoc.id},${iceMsg.id})&select=source_id,chunk`)).rows;
+  done = got.some((x) => x.source_id === iceMsg.id) && got.filter((x) => x.source_id === longDoc.id).length > 1;
+  if (!done) await sleep(1000);
+}
+const longChunks = (await api(olive.token, `/embeddings?source_id=eq.${longDoc.id}&select=content`)).rows;
+check('Embedding: a page with a 15,000-character line is embedded in pieces that fit', longChunks.length >= 10 && longChunks.every((x) => x.content.length <= 1200), `${longChunks.length} chunks, longest ${Math.max(0, ...longChunks.map((x) => x.content.length))}`);
+check('Embedding: an item the embedder refuses does not block the others', (await api(olive.token, `/embeddings?source_id=eq.${iceMsg.id}`)).rows.length === 1);
+check('Embedding: the refused item is skipped (no embedding), not retried forever', (await api(olive.token, `/embeddings?source_id=eq.${poison.id}`)).rows.length === 0);
+await api(olive.token, `/messages?id=eq.${poison.id}`, { method: 'DELETE' });
+
 check('Semantic: Pat cannot read the embedding of an Organizers message', (await api(pat.token, `/embeddings?source_id=eq.${orgSem.id}`)).rows.length === 0);
 const qv = `[${vec('search_query: generator').join(',')}]`;
 const patHits = (await api(pat.token, '/rpc/semantic_search', { method: 'POST', body: { p_query: qv, p_limit: 20 } })).rows || [];
