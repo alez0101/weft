@@ -3,6 +3,7 @@
 // Each event shows its RSVPs (Going, Maybe, Not going) and lets anyone in its space answer for themselves.
 // Open tasks with a due date show as all-day entries (read-only here; clicking one opens its list).
 // Bookings of shared things show as entries too (read-only here; clicking one opens it in Bookings).
+// Time off shows as all-day "Away" entries (read-only here; clicking one opens Time off).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import FullCalendar from '@fullcalendar/react';
 import classicThemePlugin from '@fullcalendar/react/themes/classic';
@@ -23,7 +24,7 @@ const when = (a, b) => {
   return `${day}, ${t(s)} to ${t(e)}`;
 };
 
-export default function Calendar({ me, members, notice, focusId, setFocusId, onOpenItem, onOpenBooking }) {
+export default function Calendar({ me, members, notice, focusId, setFocusId, onOpenItem, onOpenBooking, onOpenTimeOff }) {
   const cal = useRef(null);
   const [spaces, setSpaces] = useState([]);
   const [events, setEvents] = useState([]);
@@ -31,6 +32,8 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
   const [showTasks, setShowTasks] = useState(true);
   const [bookings, setBookings] = useState([]);
   const [showBookings, setShowBookings] = useState(true);
+  const [away, setAway] = useState([]);
+  const [showAway, setShowAway] = useState(true);
   const [range, setRange] = useState(null);
   const [hidden, setHidden] = useState(() => new Set());
   const [error, setError] = useState('');
@@ -84,6 +87,15 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
   }, [range]);
   useEffect(() => { loadBookings(); }, [loadBookings]);
   useEffect(() => { if (notice?.t === 'bookings' || notice?.t === 'resources') loadBookings(); }, [notice, loadBookings]);
+  // Time off is in whole days: the visible range's first and last day (day1 is the day after the end).
+  const loadAway = useCallback(async () => {
+    if (!range) return;
+    try {
+      setAway(await api(`/time_off?and=(starts_on.lt.${range.day1},ends_on.gte.${range.day0})&select=id,space_id,user_id,starts_on,ends_on,note,who:users!time_off_user_id_fkey(display_name)&order=starts_on&limit=1000`));
+    } catch (e) { setError(`Time off could not load: ${e.message}`); }
+  }, [range]);
+  useEffect(() => { loadAway(); }, [loadAway]);
+  useEffect(() => { if (notice?.t === 'time_off' || notice?.t === 'members') loadAway(); }, [notice, loadAway]);
 
   // A link from chat: jump to the event and open it (or say we cannot see it).
   useEffect(() => {
@@ -104,7 +116,15 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
   })) : []).concat(showBookings ? bookings.filter((b) => !hidden.has(b.space_id)).map((b) => ({
     id: `booking-${b.id}`, title: `${b.thing?.name ?? 'Booked'}: ${b.who?.display_name ?? 'someone'}${b.note ? ` (${b.note})` : ''}`, start: b.starts_at, end: b.ends_at, editable: false,
     className: `cal-booking ev-t${tint(b.space_id)}`, extendedProps: { booking: true, ...b },
-  })) : []), [events, tasks, showTasks, bookings, showBookings, hidden, canEdit, tint]);
+  })) : []).concat(showAway ? away.filter((a) => !hidden.has(a.space_id)).map((a) => {
+    const end = new Date(`${a.ends_on}T12:00`); end.setDate(end.getDate() + 1);   // all-day ends are exclusive
+    const pad = (n) => String(n).padStart(2, '0');
+    return {
+      id: `away-${a.id}`, title: `Away: ${a.user_id === me.id ? 'You' : a.who?.display_name ?? 'someone'}${a.note ? ` (${a.note})` : ''}`,
+      start: a.starts_on, end: `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}`, allDay: true, editable: false,
+      className: `cal-away ev-t${tint(a.space_id)}`, extendedProps: { away: true, ...a },
+    };
+  }) : []), [events, tasks, showTasks, bookings, showBookings, away, showAway, hidden, canEdit, tint, me.id]);
 
   const editableSpaces = spaces.filter((s) => canEdit(s.id));
 
@@ -160,6 +180,7 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
         </ul>
         <label className="toggle cal-tasks"><input type="checkbox" checked={showTasks} onChange={(e) => setShowTasks(e.target.checked)} /> Tasks due</label>
         <label className="toggle cal-bookings"><input type="checkbox" checked={showBookings} onChange={(e) => setShowBookings(e.target.checked)} /> Bookings</label>
+        <label className="toggle cal-aways"><input type="checkbox" checked={showAway} onChange={(e) => setShowAway(e.target.checked)} /> Time off</label>
         <p className="cal-hint">{editableSpaces.length ? 'Drag across the calendar to add an event.' : 'You can view events here. Ask an owner to make you an editor to add them.'}</p>
         {error && <p className="send-error" role="alert">{error}</p>}
         {note && <p className="slot-status" role="status">{note}</p>}
@@ -221,7 +242,7 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
             events={fcEvents}
             datesSet={(info) => setRange({ start: info.start.toISOString(), end: info.end.toISOString(), day0: info.startStr.slice(0, 10), day1: info.endStr.slice(0, 10) })}
             select={(info) => { setOpen(null); setDraft({ start: info.start.toISOString(), end: info.end.toISOString() }); setForm((f) => ({ ...f, space: f.space || editableSpaces[0]?.id || '' })); }}
-            eventClick={(info) => { if (info.event.extendedProps.task) { onOpenItem(info.event.extendedProps.list_id); return; } if (info.event.extendedProps.booking) { onOpenBooking?.(info.event.extendedProps.resource_id); return; } setDraft(null); setNote(''); setOpen(info.event.extendedProps); }}
+            eventClick={(info) => { if (info.event.extendedProps.task) { onOpenItem(info.event.extendedProps.list_id); return; } if (info.event.extendedProps.booking) { onOpenBooking?.(info.event.extendedProps.resource_id); return; } if (info.event.extendedProps.away) { onOpenTimeOff?.(); return; } setDraft(null); setNote(''); setOpen(info.event.extendedProps); }}
             eventDrop={move}
             eventResize={move}
           />

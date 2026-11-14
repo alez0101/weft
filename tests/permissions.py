@@ -2921,6 +2921,125 @@ def shifts():
     oq(f"delete from weft.shifts where id in ('{org}', '{org_open}', '{past_org}', '{past}', '{bar}')")
 
 
+def time_off():
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, V, O, A = uid("user", "u-pub"), uid("user", "u-vol"), uid("user", "u-org"), uid("user", "u-alex")
+    oq = lambda sql: owner_sql(sql)
+    day = lambda n: oq(f"select (current_date + {n})::text")
+    d3, d5, d7, d10 = day(3), day(5), day(7), day(10)
+    count = lambda where: oq(f"select count(*) from weft.time_off where {where}")
+    # Adding: your own, in a channel you are in; editors for anyone in the channel.
+    st, rows = call("POST", "/time_off", olive, {"space_id": SID["organizers"], "starts_on": d3, "ends_on": d5, "note": "  ORG-AWAY-SECRET surgery "})
+    org = rows[0]["id"] if st == 201 else None
+    check("Time off: Olive adds her own in Organizers (positive control); who, created_by set by the database, note trimmed",
+          org and rows[0]["user_id"] == O and rows[0]["created_by"] == O and rows[0]["note"] == "ORG-AWAY-SECRET surgery", f"{st} {rows}")
+    st, rows = call("POST", "/time_off", pat, {"space_id": SID["festival"], "starts_on": d5, "ends_on": d7, "note": "Holiday"})
+    patt = rows[0]["id"] if st == 201 else None
+    check("Time off: Pat (viewer in #festival) adds her own time off there (positive control)", patt and rows[0]["user_id"] == P and rows[0]["created_by"] == P, f"{st} {rows}")
+    st, rows = call("POST", "/time_off", olive, {"space_id": SID["festival"], "user_id": V, "starts_on": d3, "ends_on": d3, "note": "Sick"})
+    vict = rows[0]["id"] if st == 201 else None
+    check("Time off: Olive (editor) adds time off for Vic in #festival; created_by is Olive, user_id is Vic", vict and rows[0]["user_id"] == V and rows[0]["created_by"] == O, f"{st} {rows}")
+    st, _ = call("POST", "/time_off", pat, {"space_id": SID["festival"], "user_id": V, "starts_on": d3, "ends_on": d3})
+    st2, _ = call("POST", "/time_off", vic, {"space_id": SID["festival"], "user_id": P, "starts_on": d3, "ends_on": d3})
+    check("Time off: Pat and Vic (viewers in #festival) cannot add time off for someone else there", refused(st) and refused(st2), f"{st} {st2}")
+    st, b1 = call("POST", "/time_off", vic, {"space_id": SID["organizers"], "starts_on": d3, "ends_on": d3})
+    st2, b2 = call("POST", "/time_off", vic, {"space_id": SID["organizers"], "user_id": O, "starts_on": d3, "ends_on": d3})
+    st3, b3 = call("POST", "/time_off", vic, {"space_id": uid("space", "nowhere"), "starts_on": d3, "ends_on": d3})
+    st4, b4 = call("POST", "/time_off", vic, {"space_id": SID["organizers"], "starts_on": d5, "ends_on": d3})
+    check("Time off: Vic (not in Organizers) gets one refusal there, for himself, for Olive, a bad range, or a channel that does not exist",
+          all(refused(x) for x in (st, st2, st3, st4)) and len({json.dumps(b.get("message") if isinstance(b, dict) else b) for b in (b1, b2, b3, b4)}) == 1, f"{st} {st2} {st3} {st4} {b1} {b4}")
+    st, body = call("POST", "/time_off", olive, {"space_id": SID["organizers"], "user_id": V, "starts_on": d3, "ends_on": d3})
+    check("Time off: Olive cannot add time off in Organizers for Vic, who is not a member (a plain answer)", st == 400 and "not a member" in json.dumps(body), f"{st} {body}")
+    for key in ("personal-u-org", "dm-alex-olive"):
+        st, body = call("POST", "/time_off", olive, {"space_id": SID[key], "starts_on": d3, "ends_on": d3})
+        check(f"Time off: only channels keep time off ({key.split('-')[0]} refused)", st == 400 and "channel" in json.dumps(body), f"{st} {body}")
+    # Sensible values.
+    st, _ = call("POST", "/time_off", pat, {"space_id": SID["festival"], "starts_on": d5, "ends_on": d3})
+    st2, _ = call("POST", "/time_off", pat, {"space_id": SID["festival"], "starts_on": d3, "ends_on": day(3 + 366)})
+    st3, _ = call("POST", "/time_off", pat, {"space_id": SID["festival"], "starts_on": d3, "ends_on": d3, "note": "x" * 201})
+    check("Time off: ending before it starts, lasting over 366 days, or a note over 200 characters is refused", all(x == 400 for x in (st, st2, st3)), f"{st} {st2} {st3}")
+    st, rows = call("POST", "/time_off", pat, {"space_id": SID["festival"], "starts_on": d3, "ends_on": day(3 + 365)})
+    check("Time off: exactly 366 days is fine (positive control)", st == 201, f"{st} {rows}")
+    if st == 201:
+        call("DELETE", f"/time_off?id=eq.{rows[0]['id']}", pat)
+    # Reads: members only, viewers included, with names.
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = call("GET", f"/time_off?space_id=eq.{SID['organizers']}&select=id", tok)
+        st2, rows2 = call("GET", f"/time_off?or=(id.eq.{org},note.like.*ORG-AWAY*)&select=id", tok)
+        check(f"Time off: {who} gets no Organizers time off, by space, id or note", st == 200 and rows == [] and rows2 == [], f"{rows} {rows2}")
+    st, rows = call("GET", f"/time_off?space_id=eq.{SID['festival']}&select=id,user_id,who:users!time_off_user_id_fkey(display_name)&order=starts_on", pat)
+    check("Time off: Pat (viewer) reads #festival's time off with names (positive control)",
+          st == 200 and {r["user_id"] for r in rows} == {P, V} and all(r["who"] for r in rows), str(rows))
+    # Changing and removing: your own, or anyone's for editors and owners.
+    st, rows = call("PATCH", f"/time_off?id=eq.{patt}", pat, {"ends_on": d10, "note": " Longer holiday "})
+    check("Time off: Pat changes her own (positive control)", st == 200 and len(rows or []) == 1 and rows[0]["ends_on"] == d10 and rows[0]["note"] == "Longer holiday", f"{st} {rows}")
+    st, rows = call("PATCH", f"/time_off?id=eq.{vict}", pat, {"note": "pwned"})
+    st2, rows2 = call("DELETE", f"/time_off?id=eq.{vict}", pat)
+    st3, rows3 = call("PATCH", f"/time_off?id=eq.{patt}", vic, {"note": "pwned"})
+    st4, rows4 = call("DELETE", f"/time_off?id=eq.{patt}", vic)
+    check("Time off: Pat cannot change or remove Vic's, nor Vic Pat's (viewers)", rows == [] and rows2 == [] and rows3 == [] and rows4 == []
+          and count(f"id = '{vict}' and note = 'Sick'") == "1" and count(f"id = '{patt}' and note = 'Longer holiday'") == "1", f"{st} {st2} {st3} {st4}")
+    st, rows = call("PATCH", f"/time_off?id=eq.{vict}", vic, {"note": "Flu"})
+    check("Time off: Vic changes his own, though Olive added it (positive control)", st == 200 and len(rows or []) == 1 and rows[0]["note"] == "Flu", f"{st} {rows}")
+    st, rows = call("PATCH", f"/time_off?id=eq.{patt}", olive, {"note": "Holiday (confirmed)"})
+    check("Time off: Olive (editor) changes Pat's (positive control)", st == 200 and len(rows or []) == 1 and rows[0]["user_id"] == P, f"{st} {rows}")
+    st, body = call("PATCH", f"/time_off?id=eq.{patt}", pat, {"ends_on": day(1)})
+    check("Time off: a change that makes it end before it starts is refused", st == 400, f"{st} {body}")
+    # Authorship, the person and the channel are fixed.
+    st, _ = call("POST", "/time_off", pat, {"space_id": SID["festival"], "starts_on": d3, "ends_on": d3, "created_by": A})
+    check("Time off: created_by cannot be forged", refused(st), str(st))
+    st, _ = call("PATCH", f"/time_off?id=eq.{patt}", pat, {"user_id": V})
+    st2, _ = call("PATCH", f"/time_off?id=eq.{patt}", olive, {"space_id": SID["organizers"]})
+    st3, _ = call("PATCH", f"/time_off?id=eq.{patt}", olive, {"created_by": A})
+    check("Time off: nor changed afterwards: the person, the channel and who added it never change",
+          all(refused(x) for x in (st, st2, st3)) and oq(f"select user_id::text || space_id::text || created_by::text from weft.time_off where id = '{patt}'") == f"{P}{SID['festival']}{P}", f"{st} {st2} {st3}")
+    # Channel scope and the assistant.
+    scoped = mint("u-org", scope="festival")
+    st, rows = call("GET", f"/time_off?id=in.({org},{patt})&select=space_id", scoped)
+    check("Time off: a #festival-scoped token sees only #festival time off", rows and {r["space_id"] for r in rows} == {SID["festival"]}, str(rows))
+    st, _ = call("POST", "/time_off", scoped, {"space_id": SID["organizers"], "starts_on": d7, "ends_on": d7})
+    st2, rows2 = call("DELETE", f"/time_off?id=eq.{org}", scoped)
+    check("Time off: nor adds or removes in Organizers", refused(st) and rows2 == [] and count(f"id = '{org}'") == "1", f"{st} {st2}")
+    helper = mint("u-org", assistant=True)
+    st, rows = call("GET", f"/time_off?id=eq.{org}&select=id", helper)
+    check("Time off: the assistant (for Olive) reads Organizers time off (positive control)", st == 200 and len(rows) == 1, str(rows))
+    st, _ = call("DELETE", f"/time_off?id=eq.{org}", helper)
+    st2, _ = call("PATCH", f"/time_off?id=eq.{org}", helper, {"note": "by the assistant"})
+    st3, _ = call("POST", "/time_off", helper, {"space_id": SID["organizers"], "starts_on": d7, "ends_on": d7})
+    check("Time off: the assistant cannot delete, change or add time off", all(refused(x) for x in (st, st2, st3))
+          and count(f"id = '{org}' and note = 'ORG-AWAY-SECRET surgery'") == "1", f"{st} {st2} {st3}")
+    st, rows = call("GET", f"/time_off?id=eq.{org}&select=id", mint("u-pub", assistant=True))
+    check("Time off: the assistant for Pat reads no Organizers time off", st == 200 and rows == [], str(rows))
+    # Audit.
+    call("PATCH", f"/time_off?id=eq.{org}", olive, {"note": "ORG-AWAY-SECRET surgery, moved"})
+    st, rows = call("GET", f"/audit?row_id=eq.{org}&select=op", olive)
+    st2, rows2 = call("GET", f"/audit?row_id=eq.{org}&select=op", pat)
+    check("Time off: an Organizers change is in the audit log for Organizers members only", len(rows or []) >= 1 and rows2 == [], f"{rows} {rows2}")
+    st, rows = call("GET", f"/audit?row_id=eq.{patt}&select=op", vic)
+    check("Time off: #festival changes are readable by its members, Vic included (positive control)", len(rows or []) >= 1, str(rows))
+    # Removing.
+    st, _ = call("DELETE", f"/time_off?id=eq.{vict}", olive)
+    check("Time off: Olive (editor) removes Vic's (positive control)", st in (200, 204) and count(f"id = '{vict}'") == "0", str(st))
+    st, _ = call("DELETE", f"/time_off?id=eq.{patt}", pat)
+    check("Time off: Pat removes her own (positive control)", st in (200, 204) and count(f"id = '{patt}'") == "0", str(st))
+    # Membership decides: leaving removes your time off there; deleting the channel removes it all.
+    st, ch = call("POST", "/rpc/create_channel", olive, {"p_name": "time off test"})
+    call("POST", "/members", olive, {"space_id": ch, "user_id": P, "role": "viewer"}, prefer="return=minimal")
+    st, rows = call("POST", "/time_off", pat, {"space_id": ch, "starts_on": d3, "ends_on": d5})
+    pt = rows[0]["id"] if st == 201 else None
+    st, rows = call("POST", "/time_off", olive, {"space_id": ch, "starts_on": d3, "ends_on": d5})
+    ot = rows[0]["id"] if st == 201 else None
+    check("Time off: added as a viewer to a new channel, Pat adds her time off there (positive control)", pt is not None and ot is not None, f"{st} {rows}")
+    call("DELETE", f"/members?space_id=eq.{ch}&user_id=eq.{P}", olive)
+    st, rows = call("GET", f"/time_off?space_id=eq.{ch}&select=id", pat)
+    check("Time off: removed from the channel, Pat reads nothing there and her time off there is gone", rows == [] and count(f"id = '{pt}'") == "0" and count(f"id = '{ot}'") == "1", f"{rows}")
+    st, rows = call("GET", f"/audit?row_id=eq.{pt}&select=op,space_id", olive)
+    check("Time off: the removal is in that channel's audit log", rows and rows[0]["space_id"] == ch, str(rows))
+    st, _ = call("DELETE", f"/spaces?id=eq.{ch}", olive)
+    check("Time off: deleting the channel deletes its time off", st in (200, 204) and count(f"space_id = '{ch}'") == "0", str(st))
+    call("DELETE", f"/time_off?id=eq.{org}", olive)
+
+
 def teeth():
     """Loosen one policy on purpose and confirm the suite would catch it, then restore it."""
     owner_sql("create policy teeth_leak on weft.items for select to weft_user using (true)")
@@ -2957,6 +3076,7 @@ if __name__ == "__main__":
     rsvps()
     bookings()
     shifts()
+    time_off()
     profiles()
     people()
     trees()
