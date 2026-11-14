@@ -431,6 +431,38 @@
 .decisions .links-filters .toggle { white-space: nowrap; }
 .decisions .links-filters .toggle input { flex: none; min-height: 0; padding: 0; width: 1rem; height: 1rem; accent-color: var(--color-accent-deep); }
 .decisions .links-filters .toggle input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+/* Q and A: a board of questions (uses the Links layout), each with its answers, an upvote button and the
+   accepted answer marked. */
+.qa-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2xs) var(--space-xs); }
+.qa-title { margin: 0; font-size: var(--text-md); font-weight: 600; color: var(--color-ink); overflow-wrap: anywhere; }
+.qa-state { font-size: var(--text-xs); line-height: 1; padding: var(--space-2xs) var(--space-xs); border-radius: var(--radius-pill);
+  background: var(--color-paper-3); color: var(--color-ink-2); }
+.qa-state.is-answered { background: var(--p-tue); color: var(--color-ink); }
+.qa-answers { list-style: none; margin: var(--space-2xs) 0 0; padding: 0 0 0 var(--space-sm); display: grid; gap: var(--space-xs);
+  border-left: 2px solid var(--color-rule); }
+.qa-answer { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-xs); align-items: start;
+  padding: var(--space-xs); border-radius: var(--radius-card); }
+.qa-answer.is-accepted { background: var(--color-accent-soft); box-shadow: 0 0 0 1px var(--color-accent-deep); }
+.qa-answer-main { display: grid; gap: var(--space-3xs); min-width: 0; }
+.qa-accepted { justify-self: start; font-size: var(--text-xs); font-weight: 600; color: var(--color-accent-deep); }
+.qa-body { margin: 0; color: var(--color-ink); font-size: var(--text-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
+.qa-vote { display: grid; justify-items: center; gap: 1px; min-width: 2.5rem; padding: var(--space-2xs); font: inherit; font-size: var(--text-sm);
+  border: 1px solid var(--color-rule); border-radius: var(--radius-input); background: var(--color-paper); color: var(--color-ink-2); cursor: pointer;
+  transition: background var(--dur-micro) var(--ease-out), color var(--dur-micro) var(--ease-out); }
+.qa-vote:hover:not(:disabled):not([aria-pressed="true"]) { color: var(--color-ink); border-color: var(--color-muted); }
+.qa-vote[aria-pressed="true"] { background: var(--color-accent-deep); border-color: var(--color-accent-deep); color: var(--color-accent-ink); }
+.qa-vote:disabled { cursor: default; opacity: .7; }
+.qa-vote:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.qa-votes { font-weight: 600; line-height: 1; }
+@media (prefers-reduced-motion: reduce) { .qa-vote { transition: none; } }
+.qa-answer-form { display: grid; gap: var(--space-2xs); margin-top: var(--space-2xs); }
+.qa-answer-form textarea { font: inherit; font-size: var(--text-sm); padding: var(--space-2xs) var(--space-xs); resize: vertical; min-width: 0;
+  border: 1px solid var(--color-muted); border-radius: var(--radius-input); background: var(--color-paper); color: var(--color-ink); }
+.qa-answer-form textarea:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+.qa-answer-form .link-form-actions { grid-column: auto; }
+.qa .links-filters .toggle { white-space: nowrap; }
+.qa .links-filters .toggle input { flex: none; min-height: 0; padding: 0; width: 1rem; height: 1rem; accent-color: var(--color-accent-deep); }
+.qa .links-filters .toggle input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 /* Announcements: notices pinned to a channel, in the chat header, the app and the Home widget. */
 .pinned { display: grid; gap: var(--space-2xs); margin-top: var(--space-xs); }
 .pinned-note { display: grid; gap: 2px; padding: var(--space-xs) var(--space-sm); border-radius: var(--radius-card);

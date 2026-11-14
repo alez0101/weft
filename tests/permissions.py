@@ -834,6 +834,185 @@ def decisions():
     call("DELETE", f"/items?id=eq.{fest}", olive)
 
 
+def qa():
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, O, A, V = uid("user", "u-pub"), uid("user", "u-org"), uid("user", "u-alex"), uid("user", "u-vol")
+    oq = lambda sql: owner_sql(sql)
+    st, rows = call("POST", "/items", olive, {"space_id": SID["organizers"], "kind": "qa", "title": "Org questions"})
+    org = rows[0]["id"] if st == 201 else None
+    st2, rows = call("POST", "/items", olive, {"space_id": SID["festival"], "kind": "qa", "title": "Festival questions"})
+    fest = rows[0]["id"] if st2 == 201 else None
+    check("Q and A: Olive (editor) makes boards in Organizers and #festival", org and fest, f"{st} {st2}")
+    st, _ = call("POST", "/items", pat, {"space_id": SID["festival"], "kind": "qa", "title": "x"})
+    check("Q and A: Pat (viewer) cannot make a board in #festival", refused(st), str(st))
+    # Asking and answering.
+    st, rows = call("POST", "/questions", olive, {"board_id": org, "title": "  Who signs ORG-QA-SECRET contracts?  ", "details": " The sponsor one \n"})
+    oqid = rows[0]["id"] if st == 201 else None
+    check("Q and A: Olive asks in Organizers (positive control), created_by set by the database, text trimmed",
+          oqid and rows[0]["created_by"] == O and rows[0]["title"] == "Who signs ORG-QA-SECRET contracts?" and rows[0]["details"] == "The sponsor one", f"{st} {rows}")
+    st, rows = call("POST", "/answers", alex, {"question_id": oqid, "body": "The treasurer ORG-ANSWER-SECRET"})
+    oa = rows[0]["id"] if st == 201 else None
+    check("Q and A: Alex answers in Organizers (positive control)", oa and rows[0]["created_by"] == A, f"{st} {rows}")
+    st, rows = call("POST", "/questions", olive, {"board_id": fest, "title": "Where do volunteers park?"})
+    fq = rows[0]["id"] if st == 201 else None
+    st2, rows = call("POST", "/answers", olive, {"question_id": fq, "body": "  Behind the school.  "})
+    fa1 = rows[0]["id"] if st2 == 201 else None
+    st3, rows3 = call("POST", "/answers", alex, {"question_id": fq, "body": "On the field, unless it rained."})
+    fa2 = rows3[0]["id"] if st3 == 201 else None
+    check("Q and A: a #festival question with two answers (positive control)", fq and fa1 and fa2 and rows[0]["body"] == "Behind the school.", f"{st} {st2} {st3}")
+    # Outsiders see nothing.
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = call("GET", f"/questions?board_id=eq.{org}&select=id", tok)
+        st2, rows2 = call("GET", f"/answers?question_id=eq.{oqid}&select=id", tok)
+        check(f"Q and A: {who} gets no Organizers questions or answers", st == 200 and rows == [] and st2 == 200 and rows2 == [], f"{rows} {rows2}")
+    st, rows = call("GET", "/questions?select=title&title=like.*ORG-QA*", pat)
+    st2, rows2 = call("GET", "/answers?select=body&body=like.*ORG-ANSWER*", vic)
+    check("Q and A: nor finds them by filtering every question and answer", rows == [] and rows2 == [], f"{rows} {rows2}")
+    st, rows = call("GET", f"/items?id=eq.{org}&select=body_text", pat)
+    check("Q and A: Pat cannot read the Organizers board summary", st == 200 and rows == [], str(rows))
+    st, rows = call("GET", f"/questions?board_id=eq.{fest}&select=id,answers!answers_question_id_fkey(id)", pat)
+    check("Q and A: Pat reads the #festival question and its answers (positive control)", st == 200 and len(rows) == 1 and len(rows[0]["answers"]) == 2, str(rows))
+    # Viewers do not ask, answer, change or delete.
+    st, _ = call("POST", "/questions", pat, {"board_id": fest, "title": "pwned"})
+    st2, _ = call("POST", "/answers", pat, {"question_id": fq, "body": "pwned"})
+    check("Q and A: Pat (viewer) cannot ask or answer in #festival", refused(st) and refused(st2), f"{st} {st2}")
+    st, rows = call("PATCH", f"/questions?id=eq.{fq}", pat, {"title": "pwned"})
+    st2, rows2 = call("DELETE", f"/answers?id=eq.{fa1}", pat)
+    st3, rows3 = call("PATCH", f"/questions?id=eq.{fq}", pat, {"accepted_id": fa1})
+    check("Q and A: Pat cannot change a question, accept an answer or delete an answer", rows == [] and rows2 == [] and rows3 == []
+          and oq(f"select title || coalesce(accepted_id::text, '-') from weft.questions where id = '{fq}'") == "Where do volunteers park?-"
+          and oq(f"select count(*) from weft.answers where question_id = '{fq}'") == "2", f"{st} {st2} {st3}")
+    st, rows = call("PATCH", f"/questions?id=eq.{oqid}", vic, {"title": "pwned"})
+    st2, rows2 = call("DELETE", f"/questions?board_id=eq.{org}", vic)
+    check("Q and A: Vic changes and deletes nothing in Organizers", rows == [] and rows2 == [] and oq(f"select count(*) from weft.questions where board_id = '{org}'") == "1", f"{st} {st2}")
+    # Upvotes: every member, viewers included, only for themselves, never their own answer.
+    st, rows = call("POST", "/answer_votes", pat, {"answer_id": fa1})
+    check("Q and A: Pat (viewer) upvotes a #festival answer (positive control), voter set by the database", st == 201 and rows[0]["voter_id"] == P, f"{st} {rows}")
+    st, _ = call("POST", "/answer_votes", pat, {"answer_id": fa1})
+    check("Q and A: one upvote per person per answer", st == 409, str(st))
+    st, _ = call("POST", "/answer_votes", pat, {"answer_id": fa2, "voter_id": V})
+    check("Q and A: an upvote cannot be cast for someone else", refused(st) and oq(f"select count(*) from weft.answer_votes where voter_id = '{V}'") == "0", str(st))
+    st, rows = call("POST", "/answer_votes", olive, {"answer_id": fa1})
+    check("Q and A: nobody upvotes their own answer, and the database says why", st == 403 and "own answer" in json.dumps(rows), f"{st} {rows}")
+    st, _ = call("POST", "/answer_votes", olive, {"answer_id": fa2})
+    st2, _ = call("POST", "/answer_votes", vic, {"answer_id": fa2})
+    check("Q and A: Olive and Vic upvote Alex's answer (positive control)", st == 201 and st2 == 201, f"{st} {st2}")
+    st, rows = call("POST", "/answer_votes", pat, {"answer_id": oa})
+    check("Q and A: Pat cannot upvote an Organizers answer, and is told nothing about it", refused(st) and "own answer" not in json.dumps(rows)
+          and oq(f"select count(*) from weft.answer_votes where answer_id = '{oa}'") == "0", f"{st} {rows}")
+    st, rows = call("DELETE", f"/answer_votes?answer_id=eq.{fa2}&voter_id=eq.{O}", pat)
+    check("Q and A: Pat cannot withdraw Olive's upvote", rows == [] and oq(f"select count(*) from weft.answer_votes where answer_id = '{fa2}'") == "2", str(st))
+    st, rows = call("PATCH", f"/answer_votes?answer_id=eq.{fa1}", pat, {"answer_id": fa2})
+    check("Q and A: an upvote cannot be moved to another answer", refused(st), str(st))
+    # Changing text: only your own.
+    st, rows = call("PATCH", f"/answers?id=eq.{fa2}", olive, {"body": "rewritten by Olive"})
+    check("Q and A: Olive cannot rewrite Alex's answer", rows == [] and oq(f"select body from weft.answers where id = '{fa2}'") == "On the field, unless it rained.", f"{st} {rows}")
+    st, rows = call("PATCH", f"/answers?id=eq.{fa1}", olive, {"body": "Behind the school, entrance on Mill Lane."})
+    check("Q and A: Olive edits her own answer (positive control)", st == 200 and rows and rows[0]["body"].endswith("Mill Lane."), f"{st} {rows}")
+    st, rows = call("PATCH", f"/questions?id=eq.{fq}", alex, {"title": "rewritten by Alex"})
+    check("Q and A: even an owner cannot reword someone else's question", st == 403 and "only the person who asked" in json.dumps(rows), f"{st} {rows}")
+    # Accepting: the asker or an owner, and only an answer to the same question.
+    st, rows = call("PATCH", f"/questions?id=eq.{oqid}", olive, {"accepted_id": fa1})
+    check("Q and A: an answer to another question cannot be accepted", st >= 400 and oq(f"select accepted_id is null from weft.questions where id = '{oqid}'") == "t", f"{st} {rows}")
+    st, rows = call("PATCH", f"/questions?id=eq.{fq}", olive, {"accepted_id": fa2})
+    check("Q and A: the asker (Olive) accepts an answer (positive control)", st == 200 and rows and rows[0]["accepted_id"] == fa2, f"{st} {rows}")
+    st, rows = call("POST", "/questions", alex, {"board_id": fest, "title": "Is there a cloakroom?"})
+    aq = rows[0]["id"] if st == 201 else None
+    st, rows = call("POST", "/answers", olive, {"question_id": aq, "body": "Yes, by gate B."})
+    aqa = rows[0]["id"] if st == 201 else None
+    st, rows = call("PATCH", f"/questions?id=eq.{aq}", olive, {"accepted_id": aqa})
+    check("Q and A: an editor who did not ask cannot accept, and is told why", st == 403 and "accept an answer" in json.dumps(rows)
+          and oq(f"select accepted_id is null from weft.questions where id = '{aq}'") == "t", f"{st} {rows}")
+    st, rows = call("PATCH", f"/questions?id=eq.{oqid}", alex, {"accepted_id": oa})
+    check("Q and A: an owner (Alex) accepts on someone else's question (positive control)", st == 200 and rows and rows[0]["accepted_id"] == oa, f"{st} {rows}")
+    st, _ = call("POST", "/questions", olive, {"board_id": fest, "title": "pre-accepted", "accepted_id": fa1})
+    check("Q and A: a question cannot be made with an answer already accepted", refused(st), str(st))
+    # Bad input.
+    for path, bad, why in (("/questions", {"board_id": fest, "title": "   "}, "an empty question"), ("/questions", {"board_id": fest, "title": "x" * 201}, "a question over 200"),
+                           ("/questions", {"board_id": fest, "title": "t", "details": "x" * 4001}, "details over 4000"),
+                           ("/answers", {"question_id": fq, "body": "  \n "}, "an empty answer"), ("/answers", {"question_id": fq, "body": "x" * 8001}, "an answer over 8000")):
+        st, _ = call("POST", path, olive, bad)
+        check(f"Q and A: {why} is refused", st == 400, str(st))
+    # Authorship and links cannot be forged or moved.
+    st, _ = call("POST", "/questions", olive, {"board_id": fest, "title": "forged", "created_by": A})
+    st2, _ = call("POST", "/answers", olive, {"question_id": fq, "body": "forged", "created_by": A})
+    check("Q and A: authorship of a question or answer cannot be forged", refused(st) and refused(st2), f"{st} {st2}")
+    st, _ = call("PATCH", f"/answers?id=eq.{fa1}", olive, {"created_by": A})
+    st2, _ = call("PATCH", f"/questions?id=eq.{fq}", olive, {"created_at": "2020-01-01T00:00:00Z"})
+    check("Q and A: nor changed afterwards, nor the time", refused(st) and refused(st2) and oq(f"select created_by from weft.answers where id = '{fa1}'") == O, f"{st} {st2}")
+    st, _ = call("PATCH", f"/questions?id=eq.{fq}", olive, {"board_id": org})
+    st2, _ = call("PATCH", f"/answers?id=eq.{fa1}", olive, {"question_id": oqid})
+    check("Q and A: a question never jumps boards, nor an answer questions", refused(st) and refused(st2)
+          and oq(f"select board_id from weft.questions where id = '{fq}'") == fest and oq(f"select question_id from weft.answers where id = '{fa1}'") == fq, f"{st} {st2}")
+    st, _ = call("POST", "/questions", olive, {"board_id": uid("item", "porches"), "title": "on a table"})
+    check("Q and A: a question cannot hang off an item that is not a board", refused(st), str(st))
+    # Weft can answer from it: the summary has the accepted answer first, with upvotes and names.
+    st, rows = call("GET", f"/items?id=eq.{fest}&select=body_text", pat)
+    body = (rows[0]["body_text"] if rows else "") or ""
+    i_acc, i_other = body.find("Accepted answer (2 upvotes, by Alex"), body.find("Answer (1 upvote, by Olive")
+    check("Q and A: the board summary has each question, the accepted answer first, upvotes and who, and Pat reads it",
+          "Question: Where do volunteers park? (asked by Olive" in body and 0 <= i_acc < i_other and "Mill Lane" in body and "No answers yet" not in body.split("Question: Is there")[0], body)
+    st, rows = call("GET", f"/items?id=eq.{org}&select=body_text", olive)
+    body = (rows[0]["body_text"] if rows else "") or ""
+    check("Q and A: Olive reads the Organizers summary, with the accepted answer", "Accepted answer (0 upvotes, by Alex" in body and "ORG-ANSWER-SECRET" in body, body)
+    st, rows = call("POST", "/rpc/search", olive, {"p_q": "ORG-ANSWER-SECRET"})
+    st2, rows2 = call("POST", "/rpc/search", pat, {"p_q": "ORG-ANSWER-SECRET"})
+    check("Q and A: search finds the board by an answer's words for Olive, not for Pat", any(r["id"] == org and r["kind"] == "qa" for r in rows or []) and rows2 == [], f"{rows} {rows2}")
+    # Channel scope and the assistant.
+    scoped = mint("u-org", scope="festival")
+    st, rows = call("GET", f"/questions?board_id=in.({org},{fest})&select=board_id", scoped)
+    st2, rows2 = call("GET", f"/answers?question_id=in.({oqid},{fq})&select=question_id", scoped)
+    check("Q and A: a #festival-scoped token sees only #festival questions and answers", rows and {r["board_id"] for r in rows} == {fest}
+          and rows2 and {r["question_id"] for r in rows2} == {fq}, f"{rows} {rows2}")
+    st, _ = call("POST", "/answers", scoped, {"question_id": oqid, "body": "scoped"})
+    st2, _ = call("POST", "/answer_votes", scoped, {"answer_id": oa})
+    check("Q and A: nor answers or upvotes in Organizers", refused(st) and refused(st2), f"{st} {st2}")
+    helper = mint("u-org", assistant=True)
+    st, rows = call("GET", f"/answers?question_id=eq.{oqid}&select=id", helper)
+    check("Q and A: the assistant (for Olive) can read Organizers answers (positive control)", st == 200 and len(rows) == 1, str(rows))
+    st, _ = call("DELETE", f"/answers?id=eq.{oa}", helper)
+    st2, _ = call("DELETE", f"/questions?id=eq.{oqid}", helper)
+    st3, _ = call("POST", "/answers", helper, {"question_id": oqid, "body": "by the assistant"})
+    st4, _ = call("POST", "/answer_votes", helper, {"answer_id": oa})
+    check("Q and A: the assistant cannot delete, answer or upvote", refused(st) and refused(st2) and refused(st3) and refused(st4)
+          and oq(f"select count(*) from weft.answers where question_id = '{oqid}'") == "1", f"{st} {st2} {st3} {st4}")
+    # Audit under the board's space.
+    st, rows = call("GET", f"/audit?row_id=eq.{fa1}&select=op", vic)
+    check("Q and A: #festival changes are in the audit log, readable by its members (positive control)", len(rows or []) >= 1, str(rows))
+    st, rows = call("GET", f"/audit?row_id=eq.{oqid}&select=op", olive)
+    st2, rows2 = call("GET", f"/audit?row_id=eq.{oqid}&select=op", pat)
+    check("Q and A: an Organizers change is in the audit log for Organizers members only", len(rows or []) >= 1 and rows2 == [], f"{rows} {rows2}")
+    # Withdrawing, and deletes that follow the question.
+    st, _ = call("DELETE", f"/answer_votes?answer_id=eq.{fa1}&voter_id=eq.{P}", pat)
+    check("Q and A: Pat withdraws her own upvote (positive control)", st in (200, 204) and oq(f"select count(*) from weft.answer_votes where answer_id = '{fa1}'") == "0", str(st))
+    st, _ = call("DELETE", f"/answers?id=eq.{fa2}", olive)
+    check("Q and A: an editor deletes someone else's answer (tidying up); the accepted mark and its upvotes go with it", st in (200, 204)
+          and oq(f"select accepted_id is null from weft.questions where id = '{fq}'") == "t" and oq(f"select count(*) from weft.answer_votes where answer_id = '{fa2}'") == "0", str(st))
+    st, rows = call("GET", f"/items?id=eq.{fest}&select=body_text", olive)
+    body = (rows[0]["body_text"] if rows else "") or ""
+    check("Q and A: the summary follows the delete", "unless it rained" not in body and "Accepted answer" not in body, body)
+    st, _ = call("DELETE", f"/questions?id=eq.{aq}", olive)
+    check("Q and A: deleting a question deletes its answers", st in (200, 204) and oq(f"select count(*) from weft.answers where question_id = '{aq}'") == "0", str(st))
+    # Moves follow the space: the board moves and everything on it goes with it.
+    st, _ = call("PATCH", f"/items?id=eq.{fest}", olive, {"space_id": SID["volunteers"]})
+    st2, rows = call("GET", f"/answers?question_id=eq.{fq}&select=id", pat)
+    check("Q and A: a board moved to Volunteers takes its questions and answers out of Pat's sight", st == 200 and rows == [], f"{st} {rows}")
+    st, _ = call("POST", "/answer_votes", pat, {"answer_id": fa1})
+    check("Q and A: nor can Pat upvote there any more", refused(st), str(st))
+    st, _ = call("POST", "/answers", vic, {"question_id": fq, "body": "Vic, now an editor here"})
+    check("Q and A: Vic (editor in Volunteers) can answer on the moved board (positive control)", st == 201, str(st))
+    st, _ = call("PATCH", f"/items?id=eq.{org}", olive, {"space_id": SID["festival"]})
+    st2, rows = call("GET", f"/answers?question_id=eq.{oqid}&select=id", pat)
+    check("Q and A: a board moved into #festival becomes readable to Pat, still read-only", st == 200 and len(rows) == 1
+          and refused(call("POST", "/answers", pat, {"question_id": oqid, "body": "x"})[0]), f"{st} {rows}")
+    st, _ = call("DELETE", f"/items?id=eq.{org}", pat)
+    check("Q and A: Pat cannot delete the board", oq(f"select count(*) from weft.items where id = '{org}'") == "1", str(st))
+    st, _ = call("DELETE", f"/items?id=eq.{org}", olive)
+    check("Q and A: deleting a board deletes its questions and answers", st in (200, 204)
+          and oq(f"select count(*) from weft.questions where board_id = '{org}'") == "0" and oq(f"select count(*) from weft.answers where id = '{oa}'") == "0", str(st))
+    call("DELETE", f"/items?id=eq.{fest}", olive)
+
+
 def announcements():
     pat, vic, olive = mint("u-pub"), mint("u-vol"), mint("u-org")
     P, O, A = uid("user", "u-pub"), uid("user", "u-org"), uid("user", "u-alex")
@@ -2288,6 +2467,7 @@ if __name__ == "__main__":
     links()
     contacts()
     decisions()
+    qa()
     announcements()
     meetings()
     rsvps()

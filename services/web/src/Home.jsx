@@ -20,6 +20,7 @@ const WIDGETS = {
   links: 'New links',
   contacts: 'New contacts',
   decisions: 'Recent decisions',
+  questions: 'Open questions',
   profile: 'Your profile',
   meetings: 'Recent meetings',
   unread: 'Unread',
@@ -28,7 +29,7 @@ const WIDGETS = {
   ask: 'Ask Weft',
 };
 const DEFAULT = ['announcements', 'upcoming', 'yeses', 'bookings', 'shifts', 'tasks', 'polls', 'forms', 'unread', 'recent', 'ask'];
-const KIND = { document: 'Document', wiki: 'Wiki page', whiteboard: 'Whiteboard', table: 'Table', tasklist: 'Task list', poll: 'Poll', form: 'Form', linklist: 'Link list', addressbook: 'Address book', decisionlog: 'Decision log', meeting: 'Meeting', file: 'File' };
+const KIND = { document: 'Document', wiki: 'Wiki page', whiteboard: 'Whiteboard', table: 'Table', tasklist: 'Task list', poll: 'Poll', form: 'Form', linklist: 'Link list', addressbook: 'Address book', decisionlog: 'Decision log', qa: 'Q and A board', meeting: 'Meeting', file: 'File' };
 const where = (s) => (s?.kind === 'channel' ? `#${s.name}` : s?.kind === 'personal' ? 'Personal' : s?.name || '');
 const when = (iso) => new Date(iso).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 const ago = (iso) => {
@@ -92,6 +93,14 @@ function FormsToFill({ data, onOpenItem }) {
   return <ul className="widget-list">{data.map((f) => (
     <li key={f.id}><button type="button" className="widget-row" onClick={() => onOpenItem(f.id)}>
       <span className="widget-main">{f.title}</span><span className="widget-sub">Form in {where(f.space)}, {ago(f.updated_at)}</span>
+    </button></li>))}</ul>;
+}
+// The newest questions without an accepted answer, on Q and A boards the person can see. A row opens the board.
+function OpenQuestions({ data, onOpenItem }) {
+  if (!data.length) return <p className="widget-empty">No open questions. Ask one in Q and A.</p>;
+  return <ul className="widget-list">{data.map((q) => (
+    <li key={q.id}><button type="button" className="widget-row" onClick={() => onOpenItem(q.board_id)}>
+      <span className="widget-main">{q.title}</span><span className="widget-sub">{q.answers.length ? `${q.answers.length} answer${q.answers.length === 1 ? '' : 's'}` : 'No answers yet'}, {q.board?.title} in {where(q.board?.space)}</span>
     </button></li>))}</ul>;
 }
 // The most recently decided decisions in logs the person can see. A row opens the log.
@@ -195,7 +204,7 @@ function Ask({ assistantSpace, onAsked }) {
 export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpenEvent, onOpenNotices, onOpenBooking, onOpenShifts, onOpenProfiles, onOpenConvo }) {
   const [order, setOrder] = useState(null);
   const [editing, setEditing] = useState(false);
-  const [data, setData] = useState({ announcements: [], upcoming: [], yeses: [], bookings: [], shifts: [], tasks: [], polls: [], forms: [], links: [], contacts: [], decisions: [], profile: [], meetings: [], recent: [], files: [] });
+  const [data, setData] = useState({ announcements: [], upcoming: [], yeses: [], bookings: [], shifts: [], tasks: [], polls: [], forms: [], links: [], contacts: [], decisions: [], questions: [], profile: [], meetings: [], recent: [], files: [] });
   const [error, setError] = useState('');
   const timer = useRef(null);
 
@@ -215,7 +224,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
     const now = new Date(); const soon = new Date(now.getTime() + 14 * 86400000);
     try {
       const week = new Date(Date.now() + 7 * 86400000); week.setMinutes(week.getMinutes() - week.getTimezoneOffset());
-      const [upcoming, recent, files, due, open, openForms, links, announcements, meetings, yeses, bookings, onShifts, contacts, profile, decisions] = await Promise.all([
+      const [upcoming, recent, files, due, open, openForms, links, announcements, meetings, yeses, bookings, onShifts, contacts, profile, decisions, questions] = await Promise.all([
         api(`/events?ends_at=gte.${now.toISOString()}&starts_at=lte.${soon.toISOString()}&select=id,title,starts_at,location,space:spaces(name,kind)&order=starts_at&limit=5`),
         api('/items?select=id,title,kind,updated_at,space:spaces(name,kind)&order=updated_at.desc&limit=6'),
         api('/items?kind=eq.file&select=id,title,kind,updated_at,space:spaces(name,kind)&order=updated_at.desc&limit=5'),
@@ -231,19 +240,20 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
         api('/contacts?select=id,name,organisation,book_id,created_at,book:items(title,space:spaces(name,kind))&order=created_at.desc&limit=5'),
         api(`/profiles?user_id=eq.${me.id}&select=role,skills,reach,availability`),
         api('/decisions?select=id,title,decided_by,decided_on,log_id,log:items(title,space:spaces(name,kind))&order=decided_on.desc,created_at.desc&limit=5'),
+        api('/questions?accepted_id=is.null&select=id,title,board_id,board:items(title,space:spaces(name,kind)),answers:answers!answers_question_id_fkey(id)&order=created_at.desc&limit=5'),
       ]);
       const shifts = onShifts.filter((s) => s.signups.some((x) => x.user_id === me.id)).slice(0, 5);
       const tasks = [...due.filter((t) => t.assignee_id === me.id), ...due.filter((t) => t.assignee_id !== me.id)].slice(0, 6);
       const isClosed = (p) => (Array.isArray(p.state) ? p.state[0]?.closed : p.state?.closed);
       const polls = open.filter((p) => !isClosed(p) && !p.mine?.length).slice(0, 5);
       const forms = openForms.filter((f) => !isClosed(f) && !f.mine?.length).slice(0, 5);
-      setData({ announcements, upcoming, yeses, bookings, shifts, tasks, polls, forms, links, contacts, decisions, profile, meetings, recent, files }); setError('');
+      setData({ announcements, upcoming, yeses, bookings, shifts, tasks, polls, forms, links, contacts, decisions, questions, profile, meetings, recent, files }); setError('');
     } catch (e) { setError(`Widgets could not load: ${e.message}`); }
   }, [me.id]);
   useEffect(() => { load(); }, [load]);
   // Live: refresh shortly after anything they show changes (several notices in a row refresh once).
   useEffect(() => {
-    if (!notice || !['events', 'items', 'members', 'tasks', 'polls', 'forms', 'links', 'contacts', 'decisions', 'announcements', 'meetings', 'rsvps', 'bookings', 'resources', 'shifts', 'shift_signups', 'profiles'].includes(notice.t)) return;
+    if (!notice || !['events', 'items', 'members', 'tasks', 'polls', 'forms', 'links', 'contacts', 'decisions', 'qa', 'announcements', 'meetings', 'rsvps', 'bookings', 'resources', 'shifts', 'shift_signups', 'profiles'].includes(notice.t)) return;
     clearTimeout(timer.current); timer.current = setTimeout(load, 400);
   }, [notice, load]);
 
@@ -260,6 +270,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
     : k === 'links' ? <NewLinks data={data.links} onOpenItem={onOpenItem} />
     : k === 'contacts' ? <NewContacts data={data.contacts} onOpenItem={onOpenItem} />
     : k === 'decisions' ? <RecentDecisions data={data.decisions} onOpenItem={onOpenItem} />
+    : k === 'questions' ? <OpenQuestions data={data.questions} onOpenItem={onOpenItem} />
     : k === 'profile' ? <MyProfile data={data.profile} onOpenProfiles={onOpenProfiles} />
     : k === 'meetings' ? <Meetings data={data.meetings} onOpenItem={onOpenItem} />
     : k === 'unread' ? <Unread unread={unread} spaces={spaces} onOpenConvo={onOpenConvo} />
