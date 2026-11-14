@@ -1,7 +1,7 @@
 # Weft
 
 A small, self-hosted collaboration suite in one browser tab: chat, documents, a wiki, whiteboards,
-tables, task lists and boards, polls, forms, link lists, meeting notes, announcements, files and a calendar, opened as tabs from an iPad-like home screen, with a Teams-like chat rail and an
+tables, task lists and boards, polls, forms, link lists, meeting notes, announcements, files and a calendar with RSVPs, opened as tabs from an iPad-like home screen, with a Teams-like chat rail and an
 AI assistant that answers only from what the person asking is allowed to see, with links to where
 each answer came from.
 
