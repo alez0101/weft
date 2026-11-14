@@ -573,6 +573,42 @@
 .goal-actions { justify-content: flex-start; }
 .widget-goal { gap: var(--space-2xs); }
 .widget-goal-pct { color: var(--color-ink-2); font-variant-numeric: tabular-nums; }
+/* Retros: a retrospective, three columns of notes (Went well, To improve, Actions), each with its own add
+   form; anonymous notes are marked; an action made into a task shows the task's state. Uses the Meeting facts. */
+.docs-retro { max-width: 1180px; margin: 0 auto var(--space-lg); padding-top: var(--space-sm); }
+.retro { display: grid; gap: var(--space-md); }
+.retro > .docs-hint { margin: 0; padding: 0; }
+.retro .goal-meta { margin: 0; }
+.retro-fact-label { min-width: 8.5rem; font-size: var(--text-sm); color: var(--color-ink-2); }
+.retro-columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-sm); align-items: start; }
+@media (max-width: 900px) { .retro-columns { grid-template-columns: minmax(0, 1fr); } }
+.retro-col { --t: var(--p-thu); display: grid; gap: var(--space-xs); padding: var(--space-sm); border-radius: var(--radius-card);
+  background: var(--color-paper-2); box-shadow: 0 0 0 1px var(--color-rule), inset 0 4px 0 var(--t); }
+.retro-col--to_improve { --t: var(--p-tue); }
+.retro-col--action { --t: var(--p-fri); }
+.retro-col-head { margin: 0; display: flex; align-items: baseline; gap: var(--space-xs); font-family: var(--font-display); font-size: var(--text-lg); color: var(--color-ink); }
+.retro-count { margin-left: auto; min-width: 1.5rem; text-align: center; font-family: inherit; font-size: var(--text-xs); font-weight: 600; line-height: 1;
+  padding: var(--space-2xs) var(--space-xs); border-radius: var(--radius-pill); background: var(--t); color: var(--color-ink); font-variant-numeric: tabular-nums; }
+.retro-add, .retro-task-form { display: grid; gap: var(--space-2xs); }
+.retro-add textarea, .retro-task-form input, .retro-task-form select { min-width: 0; min-height: var(--ctl-h); padding: var(--space-2xs) var(--space-xs); font: inherit; font-size: var(--text-sm);
+  border: 1px solid var(--color-muted); border-radius: var(--radius-input); background: var(--color-paper); color: var(--color-ink); }
+.retro-add textarea { resize: vertical; }
+.retro-add textarea:focus-visible, .retro-task-form input:focus-visible, .retro-task-form select:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+.retro-task-form label { font-size: var(--text-sm); color: var(--color-ink-2); }
+.retro-add-foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-xs); }
+.retro-add-foot .btn--primary { margin-left: auto; }
+.retro-anon { display: inline-flex; align-items: center; gap: var(--space-2xs); font-size: var(--text-sm); color: var(--color-ink-2); cursor: pointer; }
+.retro-anon input { width: 16px; height: 16px; margin: 0; accent-color: var(--color-accent-deep); }
+.retro-anon input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.retro-notes { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-xs); }
+.retro-note { display: grid; gap: var(--space-2xs); padding: var(--space-xs) var(--space-sm); border-radius: var(--radius-input); background: var(--color-paper); box-shadow: 0 0 0 1px var(--color-rule); }
+.retro-body { margin: 0; font-size: var(--text-sm); color: var(--color-ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.retro-by { flex: 1 1 100%; font-size: var(--text-xs); color: var(--color-muted); }
+.retro-by.is-anon { font-style: italic; }
+.retro-task { display: flex; align-items: center; gap: var(--space-2xs); font-size: var(--text-xs); color: var(--color-ink-2); }
+.retro-task .task-check { margin: 0; width: 16px; height: 16px; }
+.retro-task.is-done .retro-task-text { color: var(--color-success); font-weight: 600; }
+.retro-note .link-foot .btn { padding-inline: var(--space-xs); }
 /* Inventory: things grouped by where they are kept (uses the Links layout and the Checklists grid), each
    in or with someone, with what is out and recent check outs beside the list. */
 .inv-place { display: grid; gap: var(--space-xs); }
