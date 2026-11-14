@@ -412,6 +412,25 @@
 .contact-ways { margin: 0; display: flex; flex-wrap: wrap; gap: var(--space-2xs) var(--space-md); font-size: var(--text-sm); }
 .contact-way { color: var(--color-accent-deep); overflow-wrap: anywhere; text-underline-offset: 3px; }
 .contact-way:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; border-radius: 3px; }
+/* Decisions: a decision log (uses the Links layout, plus the date, a "Replaced" mark and the links between
+   a decision and the one it replaces). */
+.decision:focus-visible, .decision.is-focus { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.decision-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2xs) var(--space-xs); }
+.decision-date { font-size: var(--text-xs); font-weight: 600; line-height: 1; padding: var(--space-2xs) var(--space-xs); border-radius: var(--radius-pill);
+  background: var(--p-wed); color: var(--color-ink); }
+.decision-state { font-size: var(--text-xs); line-height: 1; padding: var(--space-2xs) var(--space-xs); border-radius: var(--radius-pill);
+  background: var(--color-paper-3); color: var(--color-ink-2); }
+.decision-title { margin: 0; font-size: var(--text-md); font-weight: 600; color: var(--color-ink); overflow-wrap: anywhere; }
+.decision.is-replaced .decision-title { color: var(--color-ink-2); text-decoration: line-through; text-decoration-thickness: 1px; }
+.decision-by { margin: 0; font-size: var(--text-sm); color: var(--color-ink-2); }
+.decision-links { margin: 0; display: grid; gap: var(--space-3xs); font-size: var(--text-sm); color: var(--color-ink-2); }
+.decision-links .link-btn { color: var(--color-accent-deep); text-align: left; overflow-wrap: anywhere; }
+.decision-select { min-height: var(--ctl-h); padding: var(--space-2xs) var(--space-xs); min-width: 0; font: inherit; font-size: var(--text-sm);
+  border: 1px solid var(--color-muted); border-radius: var(--radius-input); background: var(--color-paper); color: var(--color-ink); }
+.decision-select:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+.decisions .links-filters .toggle { white-space: nowrap; }
+.decisions .links-filters .toggle input { flex: none; min-height: 0; padding: 0; width: 1rem; height: 1rem; accent-color: var(--color-accent-deep); }
+.decisions .links-filters .toggle input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 /* Announcements: notices pinned to a channel, in the chat header, the app and the Home widget. */
 .pinned { display: grid; gap: var(--space-2xs); margin-top: var(--space-xs); }
 .pinned-note { display: grid; gap: 2px; padding: var(--space-xs) var(--space-sm); border-radius: var(--radius-card);
