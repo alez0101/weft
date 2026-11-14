@@ -200,7 +200,9 @@ let pageId;
   const replaced = await call(oc, 'edit_page', { id: pageId, mode: 'replace', markdown: 'Only this now.', title: 'Connector notes v2' });
   const read3 = await call(oc, 'read_item', { id: pageId });
   check('edit_page replaces content and renames', !replaced.error && read3.text.includes('Only this now.') && !read3.text.includes('first point') && read3.text.includes('Connector notes v2'), read3.text.slice(-200));
-  const help = (await api(alex.token, '/items?managed=is.true&select=id&limit=1')).data[0];
+  const helpSpace = (await api(alex.token, '/spaces?name=eq.help&select=id')).data[0];
+  const help = helpSpace && (await api(alex.token, `/items?managed=is.true&space_id=eq.${helpSpace.id}&select=id&limit=1`)).data[0]; // the help wiki: everyone reads it
+  check('A managed help page exists to try', !!help);
   if (help) {
     const managed = await call(oc, 'edit_page', { id: help.id, markdown: 'x' });
     check('Managed help pages cannot be edited through the connector', managed.error && /managed/.test(managed.text), managed.text);

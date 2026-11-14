@@ -14,7 +14,7 @@ own database volume, its own secrets (`stacks/weft-test/.env`, git-ignored) and 
 
 ## Commands
 
-    tests/run.sh            rebuild the test stack, run all seven suites (588 checks); makes the test .env on first run, remove the test stack
+    tests/run.sh            rebuild the test stack, run all seven suites (589 checks); makes the test .env on first run, remove the test stack
     tests/run.sh --keep     same, but leave the test stack up (for the browser checks)
     db/reset.sh             rebuild the test stack's database only
     db/reset.sh --live --yes-wipe-live   rebuild the LIVE database: destroys real accounts, keys and edits
@@ -31,4 +31,4 @@ where `npm install playwright` was done) and target the test stack's 3211 by def
 - `services/assistant/test/assistant.mjs`: retrieval scoping, citations, settings, failover, proposals, meaning search, files, personal keys, search by meaning (109).
 - `services/collab/test/collab.mjs`: co-editing access and live saves (34).
 - `services/files/test/files.mjs`: uploads, downloads, text extraction, safe types (30).
-- `services/mcp/test/mcp.mjs`: the connector for AI apps: OAuth sign-in, permissions through the tools, writes, revoking (67).
+- `services/mcp/test/mcp.mjs`: the connector for AI apps: OAuth sign-in, permissions through the tools, writes, revoking (68).
