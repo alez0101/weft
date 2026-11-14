@@ -898,3 +898,21 @@ select.idea-status:focus-visible { outline: 2px solid var(--color-focus); outlin
 .away-list { margin-top: 0; }
 .cal-main .cal-away { border-style: dashed; cursor: pointer; }
 .cal-aways { margin-top: var(--space-2xs); }
+/* Kudos: a wall of thank-yous per channel (uses the Links layout and form); each card is tinted by the person thanked. */
+.kudos-head { margin-block: 0; }
+.kudos-form select { min-height: var(--ctl-h); padding: var(--space-2xs) var(--space-xs); min-width: 0; font: inherit; font-size: var(--text-sm);
+  border: 1px solid var(--color-muted); border-radius: var(--radius-input); background: var(--color-paper); color: var(--color-ink); justify-self: start; }
+.kudos-form select:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+.kudos-wall { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-sm); grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); align-items: start; }
+.kudos-card { display: grid; gap: var(--space-xs); padding: var(--space-sm) var(--space-md); border-radius: var(--radius-card);
+  background: color-mix(in oklab, var(--kudos-tint, var(--p-wed)) 40%, var(--color-paper)); box-shadow: 0 0 0 1px var(--color-rule);
+  border-top: 4px solid var(--kudos-tint, var(--p-wed)); animation: kudos-in var(--dur-short) var(--ease-out); }
+.kudos-card .link-form { padding: 0; box-shadow: none; background: none; grid-template-columns: minmax(0, 1fr); }
+.kudos-card .link-form-actions { grid-column: 1; }
+.kudos-to { margin: 0; display: flex; align-items: center; gap: var(--space-xs); font-family: var(--font-display); font-size: var(--text-md); font-weight: 700; color: var(--color-ink); overflow-wrap: anywhere; }
+.kudos-you { padding: 0 var(--space-xs); border-radius: var(--radius-pill); background: var(--color-accent-soft); color: var(--color-ink); font-family: var(--font-body); font-size: var(--text-xs); font-weight: 600; }
+.kudos-message { margin: 0; color: var(--color-ink); font-size: var(--text-sm); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.kudos-foot { gap: var(--space-2xs) var(--space-xs); }
+.kudos-from { margin-right: auto; color: var(--color-ink-2); font-size: var(--text-xs); }
+@keyframes kudos-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .kudos-card { animation: none; } }
