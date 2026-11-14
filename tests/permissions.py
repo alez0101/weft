@@ -3224,6 +3224,12 @@ def retros():
     pn = rows[0]["id"] if st == 201 else None
     check("Retros: Pat (viewer in #festival) adds an anonymous note there (positive control); no author shown",
           pn and rows[0]["author_id"] is None and rows[0]["anonymous"] is True and oq(f"select created_by from weft.retro_notes where id = '{pn}'") == P, f"{st} {rows}")
+    # Found by the independent review: the retro's text refresh caused an items audit row naming the author.
+    check("Retros: an anonymous note leaves no audit row anywhere naming its author (the retro's items row included)",
+          oq(f"select count(*) from weft.audit where table_name = 'items' and row_id = '{fest}' and actor_id = '{P}'") == "0",
+          oq(f"select coalesce(string_agg(coalesce(actor_id::text, 'nobody'), ', '), 'no rows') from weft.audit where table_name = 'items' and row_id = '{fest}'"))
+    st, rows = call("GET", f"/items?id=eq.{fest}&select=body_text", olive)
+    check("Retros: the retro's text still picks up the anonymous note (positive control)", rows and "queue at the gate" in (rows[0]["body_text"] or ""), str(rows)[:200])
     st, rows = note(vic, fest, "went_well", "Great volunteers")
     vn = rows[0]["id"] if st == 201 else None
     check("Retros: Vic (viewer in #festival) adds a named note; his name is shown", vn and rows[0]["author_id"] == V, f"{st} {rows}")

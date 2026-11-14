@@ -191,7 +191,7 @@ create trigger retro_notes_guard before insert or update on weft.retro_notes for
 -- with their task's state. It never names who wrote a note.
 create or replace function weft_private.refresh_retro_text(p_retro uuid) returns void
 language plpgsql security definer set search_path = weft, weft_private, pg_temp as $$
-declare t text; v_period text; v_well text; v_improve text; v_actions text;
+declare t text; v_claims text; v_period text; v_well text; v_improve text; v_actions text;
 begin
   select case when r.period_from is not null or r.period_to is not null then
            'Period: ' || coalesce(to_char(r.period_from, 'YYYY-MM-DD'), '…') || ' to ' || coalesce(to_char(r.period_to, 'YYYY-MM-DD'), '…') end
@@ -211,7 +211,12 @@ begin
          case when v_well is not null then E'Went well:\n' || v_well end,
          case when v_improve is not null then E'To improve:\n' || v_improve end,
          case when v_actions is not null then E'Actions:\n' || v_actions end), '');
+  -- A system update, not the caller's edit: run it without their identity, so the items audit row it causes
+  -- names nobody (otherwise an anonymous note's author would appear there the moment the note does).
+  v_claims := current_setting('request.jwt.claims', true);
+  perform set_config('request.jwt.claims', '{}', true);   -- valid JSON with no "sub": weft_private.uid() is null
   update weft.items set body_text = t where id = p_retro and kind = 'retro' and body_text is distinct from t;
+  perform set_config('request.jwt.claims', coalesce(nullif(v_claims, ''), '{}'), true);
 end $$;
 
 -- After a change to a retro: refresh its text, announce it (ids only, to members, through the notification
