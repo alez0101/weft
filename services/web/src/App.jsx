@@ -16,6 +16,7 @@ const APPS = [
   { id: 'sheets', label: 'Sheets', tint: '--p-tue', real: true, glyph: <><rect x="7" y="8" width="26" height="24" rx="2" /><path d="M7 16h26M7 24h26M16 8v24M25 8v24" /></> },
   { id: 'calendar', label: 'Calendar', tint: '--p-mon', real: true, glyph: <><rect x="7" y="9" width="26" height="24" rx="2" /><path d="M7 16h26M14 6v6M26 6v6M13 22h4M19 22h4M25 22h2M13 27h4" /></> },
   { id: 'tasks', label: 'Tasks', tint: '--p-sun', real: true, glyph: <><rect x="8" y="7" width="24" height="27" rx="2" /><path d="M13 15l2.5 2.5L20 13M23 15.5h4M13 23l2.5 2.5L20 21M23 23.5h4M14 30h12" /></> },
+  { id: 'polls', label: 'Polls', tint: '--p-thu', real: true, glyph: <><path d="M8 33h24" /><rect x="10" y="19" width="5" height="14" rx="1" /><rect x="17.5" y="11" width="5" height="22" rx="1" /><rect x="25" y="15" width="5" height="18" rx="1" /><path d="M17 6.5l2.5 2.5L24 4.5" /></> },
   { id: 'files', label: 'Files', tint: '--p-sat', real: true, glyph: <path d="M6 12h10l3 3h15v17H6z" /> },
   { id: 'settings', label: 'Settings', tint: '--p-fri', admin: true, glyph: <><circle cx="20" cy="20" r="5" /><path d="M20 7v5M20 28v5M7 20h5M28 20h5M10.8 10.8l3.5 3.5M25.7 25.7l3.5 3.5M10.8 29.2l3.5-3.5M25.7 14.3l3.5-3.5" /></> },
 ];
@@ -34,7 +35,7 @@ const readHash = () => {
   return {
     tabs, active: active === 'home' || tabs.includes(active) ? active : 'home',
     convo: h.get('convo') || 'weft', rail: RAILS.includes(h.get('chat')) ? h.get('chat') : 'normal',
-    doc: h.get('doc') || null, page: h.get('page') || null, event: h.get('event') || null, board: h.get('board') || null, sheet: h.get('sheet') || null, list: h.get('list') || null, file: h.get('file') || null,
+    doc: h.get('doc') || null, page: h.get('page') || null, event: h.get('event') || null, board: h.get('board') || null, sheet: h.get('sheet') || null, list: h.get('list') || null, poll: h.get('poll') || null, file: h.get('file') || null,
   };
 };
 
@@ -218,6 +219,7 @@ export default function App() {
     if (ui.board) h.set('board', ui.board);
     if (ui.sheet) h.set('sheet', ui.sheet);
     if (ui.list) h.set('list', ui.list);
+    if (ui.poll) h.set('poll', ui.poll);
     if (ui.file) h.set('file', ui.file);
     history.replaceState(null, '', `#${h}`);
   }, [ui, session]);
@@ -253,7 +255,7 @@ export default function App() {
   const openEvent = (id) => openTab('calendar', { event: id });
   const openItem = async (id) => {
     const r = await api(`/items?id=eq.${id}&select=kind`).catch(() => []);
-    if (r[0]?.kind === 'wiki') openTab('wiki', { page: id }); else if (r[0]?.kind === 'whiteboard') openTab('whiteboard', { board: id }); else if (r[0]?.kind === 'table') openTab('sheets', { sheet: id }); else if (r[0]?.kind === 'tasklist') openTab('tasks', { list: id }); else if (r[0]?.kind === 'file') openTab('files', { file: id }); else openTab('documents', { doc: id });
+    if (r[0]?.kind === 'wiki') openTab('wiki', { page: id }); else if (r[0]?.kind === 'whiteboard') openTab('whiteboard', { board: id }); else if (r[0]?.kind === 'table') openTab('sheets', { sheet: id }); else if (r[0]?.kind === 'tasklist') openTab('tasks', { list: id }); else if (r[0]?.kind === 'poll') openTab('polls', { poll: id }); else if (r[0]?.kind === 'file') openTab('files', { file: id }); else openTab('documents', { doc: id });
   };
   const closeTab = (id) => setUi((u) => {
     const i = u.tabs.indexOf(id); const tabs = u.tabs.filter((t) => t !== id);
@@ -328,6 +330,7 @@ export default function App() {
             : ui.active === 'whiteboard' ? <Docs key="whiteboard" kind="whiteboard" me={me} members={members} notice={notice} openId={ui.board} setOpenId={(board) => setUi((u) => ({ ...u, board }))} />
             : ui.active === 'sheets' ? <Docs key="sheets" kind="table" me={me} members={members} notice={notice} openId={ui.sheet} setOpenId={(sheet) => setUi((u) => ({ ...u, sheet }))} />
             : ui.active === 'tasks' ? <Docs key="tasks" kind="tasklist" me={me} members={members} notice={notice} openId={ui.list} setOpenId={(list) => setUi((u) => ({ ...u, list }))} />
+            : ui.active === 'polls' ? <Docs key="polls" kind="poll" me={me} members={members} notice={notice} openId={ui.poll} setOpenId={(poll) => setUi((u) => ({ ...u, poll }))} />
             : ui.active === 'files' ? <Docs key="files" kind="file" me={me} members={members} notice={notice} openId={ui.file} setOpenId={(file) => setUi((u) => ({ ...u, file }))} />
             : ui.active === 'calendar' ? <Calendar me={me} members={members} notice={notice} onOpenItem={openItem} focusId={ui.event} setFocusId={(event) => setUi((u) => ({ ...u, event }))} />
             : <AppPanel id={ui.active} />}
