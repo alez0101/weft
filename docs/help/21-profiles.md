@@ -29,6 +29,6 @@ The **Your profile** widget on Home shows your profile, or reminds you to fill i
 
 Your profile is seen by you and by anyone who shares at least one space with you: a channel (including the help channel, which every account is in), a direct message. When you leave a channel, its members who share nothing else with you stop seeing your profile.
 
-Only you can change or clear your profile. Channel owners, Weft admins and Weft itself cannot. Weft can read profiles of people you share a space with. A profile is not part of search.
+Only you can change or clear your profile. Channel owners, Weft admins and Weft itself cannot. Weft can read profiles of people you share a space with, and those profiles appear in your search (search for a skill to find who has it). Someone you share no space with is never found.
 
 Do not put anything in your profile you would not want everyone in your channels to see, such as a home address.

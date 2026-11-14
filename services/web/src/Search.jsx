@@ -6,20 +6,26 @@ import { api, assistant } from './api.js';
 
 const GROUPS = [
   ['channel', 'Channels'], ['document', 'Documents'], ['wiki', 'Wiki pages'], ['table', 'Tables'], ['tasklist', 'Task lists'], ['poll', 'Polls'], ['form', 'Forms'], ['linklist', 'Link lists'], ['addressbook', 'Address books'], ['decisionlog', 'Decision logs'], ['qa', 'Q and A'], ['checklist', 'Checklists'], ['expenselist', 'Expenses'], ['inventory', 'Inventories'], ['goalset', 'Goals'], ['retro', 'Retros'], ['glossary', 'Glossaries'], ['ideaboard', 'Ideas'], ['meeting', 'Meetings'],
-  ['whiteboard', 'Whiteboards'], ['file', 'Files'], ['event', 'Events'], ['message', 'Messages'], ['related', 'Related by meaning'],
+  ['whiteboard', 'Whiteboards'], ['file', 'Files'], ['event', 'Events'],
+  ['announcement', 'Announcements'], ['rsvps', 'RSVPs'], ['resource', 'Bookings'], ['shift', 'Shifts'], ['timeoff', 'Time off'], ['kudos', 'Kudos'], ['milestone', 'Timeline'], ['profile', 'Profiles'], ['journal', 'Your journal'],
+  ['message', 'Messages'], ['related', 'Related by meaning'],
 ];
-const KIND = { document: 'Document', wiki: 'Wiki page', table: 'Table', tasklist: 'Task list', poll: 'Poll', form: 'Form', linklist: 'Link list', addressbook: 'Address book', decisionlog: 'Decision log', qa: 'Q and A board', checklist: 'Checklist', expenselist: 'Expense list', inventory: 'Inventory', goalset: 'Goal set', retro: 'Retro', glossary: 'Glossary', ideaboard: 'Ideas board', meeting: 'Meeting', whiteboard: 'Whiteboard', file: 'File', event: 'Event', message: 'Message', channel: 'Channel' };
-const where = (r) => (r.space_kind === 'channel' ? `#${r.space_name}` : r.space_kind === 'personal' ? 'Personal' : r.space_kind === 'dm' ? 'Direct message' : r.space_kind === 'assistant' ? 'Your Weft conversation' : '');
+const KIND = { document: 'Document', wiki: 'Wiki page', table: 'Table', tasklist: 'Task list', poll: 'Poll', form: 'Form', linklist: 'Link list', addressbook: 'Address book', decisionlog: 'Decision log', qa: 'Q and A board', checklist: 'Checklist', expenselist: 'Expense list', inventory: 'Inventory', goalset: 'Goal set', retro: 'Retro', glossary: 'Glossary', ideaboard: 'Ideas board', meeting: 'Meeting', whiteboard: 'Whiteboard', file: 'File', event: 'Event', message: 'Message', channel: 'Channel',
+  announcement: 'Announcement', rsvps: 'RSVPs', resource: 'Thing to book', shift: 'Shift', timeoff: 'Time off', kudos: 'Kudos', milestone: 'Milestone', profile: 'Profile', journal: 'Your journal' };
+// Rows of apps that are not items (048): opened in their own app.
+const RECORD = new Set(['announcement', 'rsvps', 'resource', 'shift', 'timeoff', 'kudos', 'milestone', 'profile', 'journal']);
+const where = (r) => (r.kind === 'journal' ? 'Only you' : r.kind === 'profile' ? '' : r.space_kind === 'channel' ? `#${r.space_name}` : r.space_kind === 'personal' ? 'Personal' : r.space_kind === 'dm' ? 'Direct message' : r.space_kind === 'assistant' ? 'Your Weft conversation' : '');
 const when = (iso) => (iso ? new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '');
 
 // « and » mark the matches; everything else is plain text (never HTML).
 function Snippet({ text }) {
   if (!text) return null;
-  const parts = String(text).split(/(«[^»]*»)/g);
+  // Records (048) keep one fact per line; show the line breaks as separators so words do not run together.
+  const parts = String(text).replace(/\s*\n\s*/g, ' · ').split(/(«[^»]*»)/g);
   return <span className="search-snippet">{parts.map((p, i) => (p.startsWith('«') && p.endsWith('»') ? <mark key={i}>{p.slice(1, -1)}</mark> : <Fragment key={i}>{p}</Fragment>))}</span>;
 }
 
-export default function SearchBox({ onOpenItem, onOpenEvent, onOpenChannel, onOpenMessage }) {
+export default function SearchBox({ onOpenItem, onOpenEvent, onOpenRecord, onOpenChannel, onOpenMessage }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
   const [words, setWords] = useState([]);
@@ -78,6 +84,7 @@ export default function SearchBox({ onOpenItem, onOpenEvent, onOpenChannel, onOp
     if (r.kind === 'channel') onOpenChannel(r.id);
     else if (r.kind === 'message') onOpenMessage(r.space_id, r.id);
     else if (r.kind === 'event') onOpenEvent(r.id);
+    else if (RECORD.has(r.kind)) onOpenRecord(r);
     else onOpenItem(r.id);
   };
   const onKeyDown = (e) => {

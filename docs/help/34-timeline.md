@@ -24,7 +24,7 @@ Press **Add milestone**. It takes its place on the line by date, and everyone in
 - Each milestone says how far away it is ("in 3 weeks", "6 days ago"), and the top of the page names the next one.
 - The **Next milestones** widget on Home lists the coming milestones in all your channels, soonest first. Click one to open that channel's timeline. It is not on by default; add it with **Customize**.
 
-Timelines are only for channels, not for your personal space or direct messages. Milestones do not appear in search, and Weft does not answer questions from them.
+Timelines are only for channels, not for your personal space or direct messages. Milestones appear in search, and Weft answers questions from them, for the people in the channel only.
 
 ### Who can see what
 

@@ -2283,15 +2283,24 @@ def journal():
           st == 200 and rows == [] and refused(st2) and rows3 == [] and rows4 == [] and body(oj).startswith("JOURNAL-SECRET"), f"{rows} {st2} {rows3} {rows4}")
     st, rows = call("GET", "/journal_entries?select=id", mint("u-org", scope="personal-u-org"))
     check("Journal: a token scoped to her own personal space reads her pages (positive control)", st == 200 and {r["id"] for r in rows} == {oj, old}, str(rows))
+    # The assistant (since 048): reads her pages only in her own Weft conversation (an unscoped token), never
+    # scoped to a channel, a direct message or her personal space, and never writes or deletes them.
     helper = mint("u-org", assistant=True)
     st, rows = call("GET", f"/journal_entries?select=id", helper)
     st2, _ = call("DELETE", f"/journal_entries?id=eq.{oj}", helper)
     st3, _ = call("PATCH", f"/journal_entries?id=eq.{oj}", helper, {"body": "by the assistant"})
     st4, _ = call("POST", "/journal_entries", helper, {"day": "2026-01-05", "body": "by the assistant"})
-    check("Journal: the assistant (for Olive) cannot read, delete, change or write her journal", refused(st) and refused(st2) and refused(st3) and refused(st4)
+    check("Journal: the assistant (for Olive) cannot delete, change or write her journal", refused(st2) and refused(st3) and refused(st4)
           and body(oj).startswith("JOURNAL-SECRET"), f"{st} {rows} {st2} {st3} {st4}")
+    check("Journal: the assistant for Olive in her own Weft conversation reads only her pages", st == 200 and {r["id"] for r in rows} == {oj, old}, f"{st} {rows}")
+    seen = [call("GET", "/journal_entries?select=id", mint(u, assistant=True, scope=sc))[1] for u, sc in
+            (("u-org", "festival"), ("u-org", "personal-u-org"), ("u-org", "dm-alex-olive"), ("u-alex", None), ("u-pub", None))]
+    check("Journal: the assistant reads no page of Olive's scoped to a channel, a DM or her personal space, nor for anyone else",
+          all(isinstance(x, list) and not ({r["id"] for r in x} & {oj, old}) for x in seen) and all(x == [] for x in seen[:4]), str(seen))
     st, rows = call("POST", "/rpc/search", olive, {"p_q": "JOURNAL-SECRET"})
-    check("Journal: pages are not in Weft search, not even for their writer", st == 200 and rows == [], f"{st} {rows}")
+    check("Journal: pages are in Weft search for their writer (since 048)", st == 200 and {r["id"] for r in rows if r["kind"] == "journal"} == {oj}, f"{st} {rows}"[:200])
+    found = [any(r["kind"] == "journal" for r in (call("POST", "/rpc/search", t, {"p_q": "JOURNAL-SECRET"})[1] or [])) for t in (pat, vic, alex, scoped)]
+    check("Journal: and for nobody else (Pat, Vic, Alex, her own #festival-scoped token)", not any(found), str(found))
     # Audit: under the personal space, no text, readable only by its members.
     st, rows = call("GET", f"/audit?row_id=eq.{oj}&select=space_id,old_row", olive)
     st2, rows2 = call("GET", f"/audit?row_id=eq.{oj}&select=op", pat)
@@ -3292,6 +3301,193 @@ def meetings():
     call("DELETE", f"/events?id=in.({org_ev},{fest_ev})", olive)
 
 
+# ---------------------------------------------------------------- index the rest: the nine apps in search, meaning search and the assistant
+def index_the_rest():
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, V, O, A = (uid("user", k) for k in ("u-pub", "u-vol", "u-org", "u-alex"))
+    OS = SID["personal-u-org"]
+    oq = lambda sql: owner_sql(sql)
+    ts = lambda iv: oq(f"select to_char(date_trunc('hour', now()) + interval '{iv}', 'YYYY-MM-DD\"T\"HH24:MI:SSOF')")
+    day = oq("select current_date::text")
+    s = lambda tok, q, n=20: call("POST", "/rpc/search", tok, {"p_q": q, "p_limit": n})
+    items_before = oq("select count(*) from weft.items")
+    made = {}   # kind -> {"fest": id, "org": id}
+    # One row of each app in #festival (Pat and Vic read it) and one in Organizers (they do not), made through
+    # the API by the people the apps allow, with a marker word in each.
+    def mk(kind, path, tok, body, key="id"):
+        st, rows = call("POST", path, tok, body)
+        return rows[0][key] if st == 201 and rows else None
+    for where in ("fest", "org"):
+        sp = SID["festival" if where == "fest" else "organizers"]
+        m = lambda k: f"ixr{k}{where}"
+        made.setdefault("announcement", {})[where] = mk("announcement", "/announcements", olive, {"space_id": sp, "title": f"Notice {m('notice')}", "body": "Gates move"})
+        ev = mk("event", "/events", olive, {"space_id": sp, "title": f"Dinner {m('rsvp')}", "starts_at": ts("4 days"), "ends_at": ts("4 days 2 hours")})
+        call("POST", "/rsvps", olive, {"event_id": ev, "answer": "going"})
+        made.setdefault("rsvps", {})[where] = ev
+        res = mk("resource", "/resources", olive, {"space_id": sp, "name": f"Cart {m('cart')}", "note": "Charged overnight"})
+        call("POST", "/bookings", olive, {"resource_id": res, "starts_at": ts("5 days"), "ends_at": ts("5 days 2 hours"), "note": f"Load-in {m('booking')}"})
+        made.setdefault("resource", {})[where] = res
+        sh = mk("shift", "/shifts", olive, {"space_id": sp, "title": f"Gate {m('shift')}", "starts_at": ts("6 days"), "ends_at": ts("6 days 3 hours"), "places": 3})
+        call("POST", "/shift_signups", olive, {"shift_id": sh})
+        made.setdefault("shift", {})[where] = sh
+        made.setdefault("timeoff", {})[where] = mk("timeoff", "/time_off", olive, {"space_id": sp, "user_id": O, "starts_on": "2027-01-04", "ends_on": "2027-01-08", "note": f"Ski trip {m('away')}"})
+        made.setdefault("kudos", {})[where] = mk("kudos", "/kudos", olive, {"space_id": sp, "to_user": P if where == "fest" else A, "message": f"Thanks for the {m('thanks')} help"})
+        made.setdefault("milestone", {})[where] = mk("milestone", "/milestones", olive, {"space_id": sp, "title": f"Permit {m('milestone')}", "day": "2027-03-01", "note": "From the city"})
+    words = {"announcement": "notice", "rsvps": "rsvp", "resource": "cart", "shift": "shift", "timeoff": "away", "kudos": "thanks", "milestone": "milestone"}
+    check("Index: every test row was made through its app (positive control)", all(v.get("fest") and v.get("org") for v in made.values()), json.dumps(made))
+    st, rows = call("POST", "/journal_entries", olive, {"day": day, "body": "IXRJOURNAL slept badly before the ixrjournalword meeting"})
+    oj = rows[0]["id"] if st == 201 else None
+    st, _ = call("POST", "/profiles?on_conflict=user_id", olive, {"role": "Gate lead", "skills": ["ixrskill"]}, prefer="resolution=merge-duplicates,return=minimal")
+    st2, _ = call("POST", "/profiles?on_conflict=user_id", pat, {"role": "Runner", "skills": ["ixrpatskill"]}, prefer="resolution=merge-duplicates,return=minimal")
+    check("Index: Olive writes a journal page and Olive and Pat save profiles (positive control)", oj and st in (200, 201) and st2 in (200, 201), f"{oj} {st} {st2}")
+
+    # The search box, word by word.
+    for kind, w in words.items():
+        st, rows = s(olive, f"ixr{w}org")
+        hit = [r for r in rows or [] if r["id"] == made[kind]["org"] and r["kind"] == kind]   # an event and its answers share an id
+        check(f"Index search: Olive finds the Organizers {kind} by a word in it, with its channel and a highlighted snippet",
+              st == 200 and len(hit) == 1 and hit[0]["kind"] == kind and hit[0]["space_id"] == SID["organizers"] and hit[0]["space_name"] == "organizers"
+              and ("«" in (hit[0]["snippet"] or "") or f"ixr{w}org" in hit[0]["title"].lower()), str(rows)[:300])
+        st, rows = s(pat, f"ixr{w}fest")
+        check(f"Index search: Pat (viewer) finds the #festival {kind} (positive control)", st == 200 and any(r["id"] == made[kind]["fest"] for r in rows), str(rows)[:200])
+        for who, tok in (("Pat", pat), ("Vic", vic), ("Olive's #festival-scoped token", mint("u-org", scope="festival"))):
+            st, rows = s(tok, f"ixr{w}org")
+            check(f"Index search: {who} never finds the Organizers {kind}", st == 200 and not any(r["id"] == made[kind]["org"] for r in rows)
+                  and not any(r["space_id"] == SID["organizers"] for r in rows), str(rows)[:200])
+    st, rows = s(olive, "ixrbookingorg")
+    check("Index search: a booking's note finds its thing to book", any(r["id"] == made["resource"]["org"] for r in rows), str(rows)[:200])
+    st, rows = s(pat, "Olive going ixrrsvpfest")
+    check("Index search: who answered an event is searchable by name, for members", any(r["id"] == made["rsvps"]["fest"] for r in rows), str(rows)[:200])
+    st, rows = s(pat, "ixrcartfest")
+    st2, rows2 = s(pat, "ixrbookingorg")
+    check("Index search: and a booking in Organizers stays hidden from Pat even by its note", not any(r["space_id"] == SID["organizers"] for r in rows2) and any(r["id"] == made["resource"]["fest"] for r in rows), f"{rows2}"[:200])
+    # The view itself, read directly: only what each app shows.
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = call("GET", f"/records?space_id=eq.{SID['organizers']}&select=kind,id", tok)
+        st2, rows2 = call("GET", "/records?or=(title.match.ixr%5Ba-z%5D%2Borg,body.match.ixr%5Ba-z%5D%2Borg)&select=kind,id", tok)
+        check(f"Index records: {who} reads no Organizers record, by space or by text", st == 200 and rows == [] and st2 == 200 and rows2 == [], f"{rows} {rows2}"[:200])
+    st, rows = call("GET", f"/records?space_id=eq.{SID['organizers']}&select=kind", olive)
+    check("Index records: Olive reads all seven Organizers kinds (positive control)", st == 200 and {r["kind"] for r in rows} >= set(words), str(rows)[:200])
+    st, rows = call("GET", f"/records?space_id=eq.{SID['organizers']}&select=kind", mint("u-pub", assistant=True))
+    st2, rows2 = call("GET", f"/records?space_id=eq.{SID['organizers']}&select=kind", mint("u-org", assistant=True, scope="festival"))
+    st3, rows3 = call("GET", f"/records?space_id=eq.{SID['organizers']}&select=kind", mint("u-org", assistant=True))
+    check("Index records: the assistant for Pat, and for Olive in #festival, reads no Organizers record; for Olive in her own conversation it does",
+          rows == [] and rows2 == [] and len(rows3 or []) >= 7, f"{st} {rows} {st2} {rows2} {st3}")
+    w = [call("DELETE", f"/records?id=eq.{made['kudos']['fest']}", mint("u-org", assistant=True)),
+         call("DELETE", f"/records?id=eq.{made['kudos']['fest']}", olive),
+         call("PATCH", f"/records?id=eq.{made['milestone']['fest']}", olive, {"title": "pwned"}),
+         call("POST", "/records", olive, {"kind": "kudos", "title": "forged"})]
+    # Postgres refuses before anything happens: no write grant (42501) or "cannot change a UNION view" (55000).
+    check("Index records: the view cannot be written or deleted through, by the assistant or anyone",
+          all(st in (401, 403, 500) and isinstance(b, dict) and b.get("code") in ("42501", "55000") for st, b in w)
+          and oq(f"select count(*) from weft.kudos where id = '{made['kudos']['fest']}'") == "1"
+          and oq(f"select title from weft.milestones where id = '{made['milestone']['fest']}'") != "pwned", str([(st, b.get("code") if isinstance(b, dict) else b) for st, b in w]))
+    check("Index: nothing was copied into items (the view stores nothing)", oq("select count(*) from weft.items") == items_before)
+    # Time off and kudos keep their names; announcements their end; shifts who is on them.
+    st, rows = call("GET", f"/records?id=in.({made['shift']['fest']},{made['timeoff']['fest']},{made['kudos']['fest']})&select=kind,title,body", pat)
+    txt = json.dumps(rows)
+    check("Index records: a shift lists who signed up, time off names the person, kudos name both people", "Signed up (1 of 3): Olive" in txt
+          and "Olive Organizer away" in txt and "Kudos for Pat" in txt and "From Olive" in txt and "ixrthanksfest" in txt, txt[:300])
+
+    # Journal: only its writer, in her own search box and her own Weft conversation.
+    st, rows = s(olive, "ixrjournalword")
+    hit = [r for r in rows or [] if r["id"] == oj]
+    check("Index journal: Olive finds her own page in Weft search, with its day to open it (positive control)",
+          len(hit) == 1 and hit[0]["kind"] == "journal" and hit[0]["ref"] == day and hit[0]["space_id"] == OS, str(rows)[:300])
+    for who, tok in (("Pat", pat), ("Vic", vic), ("Alex (admin)", alex), ("Olive's #festival-scoped token", mint("u-org", scope="festival"))):
+        st, rows = s(tok, "ixrjournalword")
+        st2, rows2 = call("GET", "/records?kind=eq.journal&select=id", tok)
+        check(f"Index journal: {who} never finds Olive's page, in search or the view", st == 200 and not any(r["id"] == oj for r in rows) and oj not in {r["id"] for r in rows2 or []}, f"{rows} {rows2}"[:200])
+    call("POST", "/members", olive, {"space_id": OS, "user_id": A, "role": "editor"}, prefer="return=minimal")
+    try:
+        st, rows = s(alex, "ixrjournalword")
+        st2, rows2 = call("GET", f"/records?space_id=eq.{OS}&select=kind,id", alex)
+        check("Index journal: Alex, added to Olive's personal space, still finds none of her pages", not any(r["id"] == oj for r in rows or []) and oj not in {r["id"] for r in rows2 or []}, f"{rows} {rows2}"[:200])
+    finally:
+        call("DELETE", f"/members?space_id=eq.{OS}&user_id=eq.{A}", olive)
+    st, rows = call("GET", "/records?kind=eq.journal&select=id,body", mint("u-org", assistant=True))
+    check("Index journal: the assistant for Olive, unscoped (her own Weft conversation), reads her page (positive control)", st == 200 and [r["id"] for r in rows] == [oj], f"{st} {rows}"[:200])
+    for label, tok in (("in #festival", mint("u-org", assistant=True, scope="festival")), ("in her personal space", mint("u-org", assistant=True, scope="personal-u-org")),
+                       ("in a direct message", mint("u-org", assistant=True, scope="dm-alex-olive"))):
+        st, rows = call("GET", "/records?kind=eq.journal&select=id", tok)
+        st2, rows2 = call("GET", "/journal_entries?select=id", tok)
+        check(f"Index journal: the assistant for Olive {label} reads none of her pages (others could read the answer)", st == 200 and rows == [] and st2 == 200 and rows2 == [], f"{rows} {rows2}")
+    for who in ("u-alex", "u-pub"):
+        st, rows = call("GET", "/journal_entries?select=id", mint(who, assistant=True))
+        check(f"Index journal: the assistant for {NAME[who]} reads none of Olive's pages", st == 200 and oj not in {r["id"] for r in rows}, str(rows))
+    helper = mint("u-org", assistant=True)
+    st, _ = call("DELETE", f"/journal_entries?id=eq.{oj}", helper)
+    st2, _ = call("PATCH", f"/journal_entries?id=eq.{oj}", helper, {"body": "by the assistant"})
+    st3, _ = call("POST", "/journal_entries", helper, {"day": "2026-01-05", "body": "by the assistant"})
+    check("Index journal: the assistant still cannot delete, change or write a page", refused(st) and refused(st2) and refused(st3)
+          and oq(f"select body from weft.journal_entries where id = '{oj}'").startswith("IXRJOURNAL"), f"{st} {st2} {st3}")
+
+    # Profiles: only people who share a space with the owner.
+    st, rows = s(pat, "ixrskill")
+    check("Index profiles: Pat finds Olive's profile by a skill (they share #festival; positive control)", any(r["id"] == O and r["kind"] == "profile" and r["title"].startswith("Olive") for r in rows or []), str(rows)[:200])
+    st, rows = s(mint("u-org", scope="organizers"), "ixrpatskill")
+    check("Index profiles: an Organizers-scoped token does not find Pat's profile (Pat is not in Organizers)", st == 200 and not any(r["id"] == P for r in rows), str(rows)[:200])
+    L, LS = uid("user", "u-lone"), uid("space", "personal-u-lone")
+    oq(f"insert into weft.users (id, email, display_name) values ('{L}', 'lone.index@example.com', 'Lone') on conflict do nothing")
+    oq(f"insert into weft.spaces (id, kind, name, created_by) values ('{LS}', 'personal', 'Personal', '{L}') on conflict do nothing")
+    oq(f"insert into weft.members (space_id, user_id, role) values ('{LS}', '{L}', 'owner') on conflict do nothing")
+    try:
+        call("POST", "/profiles?on_conflict=user_id", mint("u-lone"), {"role": "IXRLONEROLE"}, prefer="resolution=merge-duplicates,return=minimal")
+        found = [any(r["id"] == L for r in (s(tok, "ixrlonerole")[1] or [])) for tok in (olive, pat, alex)]
+        found.append(call("GET", f"/records?kind=eq.profile&id=eq.{L}&select=id", mint("u-org", assistant=True))[1] != [])
+        st, rows = s(mint("u-lone"), "ixrlonerole")
+        check("Index profiles: a profile of someone who shares no space is found by nobody (Olive, Pat, Alex, the assistant), only by its owner",
+              not any(found) and any(r["id"] == L for r in rows or []), f"{found} {rows}"[:200])
+    finally:
+        oq(f"delete from weft.spaces where id = '{LS}'")
+        oq(f"delete from weft.users where id = '{L}'")
+
+    # Meaning search: embeddings of records are readable only while (and by whom) the record is.
+    vec = "[" + ",".join("1" if i == 7 else "0" for i in range(768)) + "]"
+    def emb(kind, i):
+        oq(f"select weft_private.embed_store('{kind}', '{i}', 'h', 'test-model', '[{{\"content\": \"IXR {kind}\", \"embedding\": \"{vec}\"}}]'::jsonb)")
+    for kind in words:
+        emb(kind, made[kind]["org"]); emb(kind, made[kind]["fest"])
+    emb("journal", oj); emb("profile", O)
+    near = lambda tok: {(h["source_type"], h["source_id"]) for h in (call("POST", "/rpc/semantic_search", tok, {"p_query": vec, "p_limit": 50})[1] or [])}
+    org_set = {(k, made[k]["org"]) for k in words}
+    fest_set = {(k, made[k]["fest"]) for k in words}
+    hp, ho, hos = near(pat), near(olive), near(mint("u-org", scope="festival"))
+    check("Index meaning: Pat's vector search gets the #festival records (positive control) and none from Organizers", fest_set <= hp and not (org_set & hp), f"{len(hp)}")
+    check("Index meaning: Olive gets the Organizers records (positive control); her #festival-scoped token does not", org_set <= ho and not (org_set & hos), f"{len(ho)} {len(hos)}")
+    check("Index meaning: Olive's journal page is in her own vector search only (not Pat's, not a scoped token's)",
+          ("journal", oj) in ho and ("journal", oj) not in hp and ("journal", oj) not in hos and ("journal", oj) not in near(alex), "")
+    check("Index meaning: and in the assistant's only unscoped (her own conversation), never scoped to a channel or her personal space",
+          ("journal", oj) in near(mint("u-org", assistant=True)) and ("journal", oj) not in near(mint("u-org", assistant=True, scope="festival"))
+          and ("journal", oj) not in near(mint("u-org", assistant=True, scope="personal-u-org")), "")
+    st, rows = call("GET", f"/embeddings?source_id=eq.{made['kudos']['org']}&select=content", pat)
+    check("Index meaning: Pat cannot read the embedded text of an Organizers kudos", st == 200 and rows == [], str(rows))
+    st, _ = call("POST", "/embeddings", olive, {"source_type": "kudos", "source_id": made["kudos"]["fest"], "content": "forged", "embedding": vec, "model": "x"})
+    check("Index meaning: nobody writes embeddings through the API", refused(st), str(st))
+    # Deleting a row deletes its embeddings: a journal page's words are gone everywhere.
+    call("DELETE", f"/kudos?id=eq.{made['kudos']['fest']}", olive)
+    call("DELETE", f"/journal_entries?id=eq.{oj}", olive)
+    check("Index meaning: deleting a kudos or a journal page deletes its embeddings and embed state",
+          oq(f"select count(*) from weft.embeddings where source_id in ('{made['kudos']['fest']}', '{oj}')") == "0"
+          and oq(f"select count(*) from weft_private.embed_state where source_id in ('{made['kudos']['fest']}', '{oj}')") == "0"
+          and oq("select count(*) from weft.audit where old_row::text like '%IXRJOURNAL%'") == "0")
+    st, rows = s(olive, "ixrjournalword")
+    check("Index journal: a deleted page is no longer found", st == 200 and not any(r["kind"] == "journal" for r in rows), str(rows)[:200])
+    # The embed worker's queue includes the records (as the database owner sees them).
+    check("Index meaning: the embedding worker's queue includes records of the new kinds",
+          oq("select count(*) from weft_private.embed_pending(500, 'other-model') where source_type in ('announcement','rsvps','resource','shift','timeoff','kudos','milestone','profile')") != "0")
+    # A disabled account finds none of it.
+    oq(f"update weft.users set disabled = true where id = '{P}'")
+    try:
+        st, rows = s(pat, "ixrnoticefest")
+        st2, rows2 = call("GET", "/records?select=id", pat)
+        check("Index: a disabled account finds no records", st == 200 and rows == [] and rows2 == [], f"{rows} {rows2}"[:200])
+    finally:
+        oq(f"update weft.users set disabled = false where id = '{P}'")
+    oq(f"delete from weft.profiles where user_id in ('{O}', '{P}')")
+    oq("delete from weft.embeddings where model = 'test-model'")
+
+
 # ---------------------------------------------------------------- teeth
 # ---------------------------------------------------------------- rsvps
 def rsvps():
@@ -4140,6 +4336,7 @@ if __name__ == "__main__":
     trees()
     prefs_and_files()
     search()
+    index_the_rest()
     wikis()
     if "--teeth" in sys.argv:
         teeth()

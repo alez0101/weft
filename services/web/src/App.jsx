@@ -313,6 +313,18 @@ export default function App() {
   const openNotices = (spaceId) => openTab('announcements', spaceId ? { notices: spaceId } : {});
   const openKudos = (spaceId) => openTab('kudos', spaceId ? { kudos: spaceId } : {});
   const openTimeline = (spaceId) => openTab('timeline', spaceId ? { timeline: spaceId } : {});
+  // A record (048: a row of an app that is not an item) from search or a Weft answer: open its app.
+  const openRecord = (r) => {
+    if (r.kind === 'announcement') openNotices(r.space_id);
+    else if (r.kind === 'kudos') openKudos(r.space_id);
+    else if (r.kind === 'milestone') openTimeline(r.space_id);
+    else if (r.kind === 'resource') openBooking(r.id);
+    else if (r.kind === 'rsvps') openEvent(r.id);
+    else if (r.kind === 'journal') openTab('journal', r.ref ? { journal: r.ref } : {});
+    else if (r.kind === 'shift') openTab('shifts');
+    else if (r.kind === 'timeoff') openTab('timeoff');
+    else if (r.kind === 'profile') openTab('profiles');
+  };
   const openItem = async (id) => {
     const r = await api(`/items?id=eq.${id}&select=kind`).catch(() => []);
     if (r[0]?.kind === 'wiki') openTab('wiki', { page: id }); else if (r[0]?.kind === 'whiteboard') openTab('whiteboard', { board: id }); else if (r[0]?.kind === 'table') openTab('sheets', { sheet: id }); else if (r[0]?.kind === 'tasklist') openTab('tasks', { list: id }); else if (r[0]?.kind === 'poll') openTab('polls', { poll: id }); else if (r[0]?.kind === 'form') openTab('forms', { form: id }); else if (r[0]?.kind === 'linklist') openTab('links', { links: id }); else if (r[0]?.kind === 'addressbook') openTab('contacts', { book: id }); else if (r[0]?.kind === 'decisionlog') openTab('decisions', { log: id }); else if (r[0]?.kind === 'qa') openTab('qa', { qa: id }); else if (r[0]?.kind === 'checklist') openTab('checklists', { checklist: id }); else if (r[0]?.kind === 'expenselist') openTab('expenses', { expenses: id }); else if (r[0]?.kind === 'inventory') openTab('inventory', { inventory: id }); else if (r[0]?.kind === 'goalset') openTab('goals', { goals: id }); else if (r[0]?.kind === 'retro') openTab('retros', { retro: id }); else if (r[0]?.kind === 'glossary') openTab('glossary', { glossary: id }); else if (r[0]?.kind === 'ideaboard') openTab('ideas', { ideas: id }); else if (r[0]?.kind === 'meeting') openTab('meetings', { meeting: id }); else if (r[0]?.kind === 'file') openTab('files', { file: id }); else openTab('documents', { doc: id });
@@ -340,7 +352,7 @@ export default function App() {
     <div className="shell" data-rail={ui.rail === 'normal' ? undefined : ui.rail}>
       <header className="topbar">
         <a className="wordmark" href="#active=home" onClick={(e) => { e.preventDefault(); setUi((u) => ({ ...u, active: 'home' })); }}>Weft</a>
-        <SearchBox onOpenItem={openItem} onOpenEvent={openEvent}
+        <SearchBox onOpenItem={openItem} onOpenEvent={openEvent} onOpenRecord={openRecord}
           onOpenChannel={(convo) => setUi((u) => ({ ...u, convo, rail: u.rail === 'collapsed' ? 'normal' : u.rail }))}
           onOpenMessage={(convo, id) => { setUi((u) => ({ ...u, convo, rail: u.rail === 'collapsed' ? 'normal' : u.rail })); setJump({ id, n: Date.now() }); }} />
         {mode.mode === 'test' && <span className="mock-note">Test sign-in</span>}
@@ -353,7 +365,7 @@ export default function App() {
 
       <Chat me={me} spaces={spaces} members={members} unread={unread} active={ui.convo} onSpacesChanged={refreshSpaces}
         setActive={(convo) => setUi((u) => ({ ...u, convo }))} rail={ui.rail} setRail={(rail) => setUi((u) => ({ ...u, rail }))}
-        notice={notice} live={live} onOpenItem={openItem} onOpenEvent={openEvent} onOpenNotices={openNotices} jump={jump} />
+        notice={notice} live={live} onOpenItem={openItem} onOpenEvent={openEvent} onOpenNotices={openNotices} onOpenRecord={openRecord} jump={jump} />
 
       <main className="stage">
         <div className="tabs" role="tablist" aria-label="Open apps" onKeyDown={onTabKey}>

@@ -223,7 +223,15 @@ const fmtTime = (t) => (t ? new Date(t).toISOString().replace(/:00\.000Z$/, 'Z')
 const enc = encodeURIComponent;
 const VIEW = { document: ['documents', 'doc'], wiki: ['wiki', 'page'], whiteboard: ['whiteboard', 'board'], table: ['sheets', 'sheet'],
   tasklist: ['tasks', 'list'], poll: ['polls', 'poll'], linklist: ['links', 'links'], addressbook: ['contacts', 'book'], decisionlog: ['decisions', 'log'], qa: ['qa', 'qa'], checklist: ['checklists', 'checklist'], expenselist: ['expenses', 'expenses'], inventory: ['inventory', 'inventory'], goalset: ['goals', 'goals'], retro: ['retros', 'retro'], glossary: ['glossary', 'glossary'], ideaboard: ['ideas', 'ideas'], meeting: ['meetings', 'meeting'], file: ['files', 'file'] };
-function linkTo(base, kind, id) {
+// Records (048: rows of apps that are not items) open their app, at their channel where it has one.
+const RECORD_VIEW = { announcement: ['announcements', 'notices', 'space'], kudos: ['kudos', 'kudos', 'space'], milestone: ['timeline', 'timeline', 'space'],
+  resource: ['bookings', 'booking', 'id'], rsvps: ['calendar', 'event', 'id'], shift: ['shifts'], timeoff: ['timeoff'], profile: ['profiles'] };
+function linkTo(base, kind, id, spaceId) {
+  if (RECORD_VIEW[kind]) {
+    const [tab, key, from] = RECORD_VIEW[kind];
+    const v = from === 'space' ? spaceId : id;
+    return `${base}/#tabs=${tab}&active=${tab}${key && v ? `&${key}=${v}` : ''}`;
+  }
   if (kind === 'event') return `${base}/#tabs=calendar&active=calendar&event=${id}`;
   if (kind === 'message') return null;
   const [tab, key] = VIEW[kind] || VIEW.document;
@@ -326,9 +334,10 @@ function buildServer(ctx) {
     } else {
       rows = await rest(ctx, `/rpc/search?p_q=${enc(query)}&p_limit=${limit}`);
     }
-    return text(rows.slice(0, limit).map((h) => ({
+    // Journal pages are found by their writer in Weft itself, never handed to a connected app.
+    return text(rows.filter((h) => h.kind !== 'journal').slice(0, limit).map((h) => ({
       kind: h.kind, id: h.id, title: h.title || undefined, channel: h.space_name, channel_id: h.space_id,
-      snippet: (h.snippet || '').replace(/[«»]/g, ''), at: fmtTime(h.at), link: linkTo(base, h.kind, h.id) || undefined,
+      snippet: (h.snippet || '').replace(/[«»]/g, ''), at: fmtTime(h.at), link: linkTo(base, h.kind, h.id, h.space_id) || undefined,
     })));
   });
 

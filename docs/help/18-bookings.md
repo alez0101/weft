@@ -27,4 +27,4 @@ The **Your bookings** widget on Home lists your own bookings that have not ended
 
 Everyone in the channel sees its things and every booking, with names; nobody else can. Editors and owners add things, rename them and book them. You change or cancel your own bookings; an owner of the channel can change or cancel anyone's. Only owners delete a thing, and its bookings go with it. Viewers can see when something is free but cannot book it; ask an owner to make you an editor.
 
-Things and bookings never move to another channel. Deleting a channel deletes its things and their bookings. If you leave a channel, bookings you made there stay until an owner cancels them. Weft (the assistant) can read bookings but cannot book, change or cancel anything, and bookings are not in search.
+Things and bookings never move to another channel. Deleting a channel deletes its things and their bookings. If you leave a channel, bookings you made there stay until an owner cancels them. Weft (the assistant) can read bookings but cannot book, change or cancel anything. Things to book, with their bookings from the last 30 days on, appear in search for the people in the channel.

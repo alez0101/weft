@@ -27,4 +27,4 @@ The **Out this week** widget on Home lists everyone away at some point this week
 
 ### Who can see what
 
-Everyone in the channel sees its time off, with names and notes; nobody else can. Every member adds, changes and removes their own, viewers included. Editors and owners can do that for anyone in the channel. Time off never moves to another channel. If you leave a channel, or are removed from it, your time off there is removed. Deleting a channel deletes its time off. Weft (the assistant) can read time off but cannot add, change or remove it, and time off is not in search.
+Everyone in the channel sees its time off, with names and notes; nobody else can. Every member adds, changes and removes their own, viewers included. Editors and owners can do that for anyone in the channel. Time off never moves to another channel. If you leave a channel, or are removed from it, your time off there is removed. Deleting a channel deletes its time off. Weft (the assistant) can read time off but cannot add, change or remove it. Time off appears in search for the people in the channel.

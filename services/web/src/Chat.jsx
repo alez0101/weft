@@ -22,7 +22,7 @@ function Body({ text, onOpenItem, onOpenEvent }) {
   })}</p>;
 }
 
-export default function Chat({ me, spaces, members, unread, active: activeRaw, setActive, rail, setRail, notice, live, onOpenItem, onOpenEvent, onOpenNotices, onSpacesChanged, jump }) {
+export default function Chat({ me, spaces, members, unread, active: activeRaw, setActive, rail, setRail, notice, live, onOpenItem, onOpenEvent, onOpenNotices, onOpenRecord, onSpacesChanged, jump }) {
   const [peopleOpen, setPeopleOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const assistantSpace = spaces.find((s) => s.kind === 'assistant');
@@ -187,6 +187,7 @@ export default function Chat({ me, spaces, members, unread, active: activeRaw, s
                         onClick={() => {
                           if (c.type === 'item') return onOpenItem(c.id);
                           if (c.type === 'event') return onOpenEvent(c.id);
+                          if (c.type === 'record') return onOpenRecord?.(c);
                           setFocus(c.id); if (c.space_id !== active) setActive(c.space_id);
                         }}>
                         [{i + 1}] {c.label}
