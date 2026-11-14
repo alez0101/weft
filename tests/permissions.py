@@ -1179,6 +1179,167 @@ def checklists():
     call("DELETE", f"/items?id=eq.{fest}", olive)
 
 
+def expenses():
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, V, O, A = uid("user", "u-pub"), uid("user", "u-vol"), uid("user", "u-org"), uid("user", "u-alex")
+    oq = lambda sql: owner_sql(sql)
+    save = lambda tok, **kw: call("POST", "/rpc/save_expense", tok, kw)
+    st, rows = call("POST", "/items", olive, {"space_id": SID["organizers"], "kind": "expenselist", "title": "Org costs"})
+    org = rows[0]["id"] if st == 201 else None
+    st2, rows = call("POST", "/items", olive, {"space_id": SID["festival"], "kind": "expenselist", "title": "Festival costs"})
+    fest = rows[0]["id"] if st2 == 201 else None
+    check("Expenses: Olive (editor) makes expense lists in Organizers and #festival", org and fest, f"{st} {st2}")
+    st, _ = call("POST", "/items", pat, {"space_id": SID["festival"], "kind": "expenselist", "title": "x"})
+    check("Expenses: Pat (viewer) cannot make an expense list in #festival", refused(st), str(st))
+    st, oe = save(olive, p_list=org, p_title="  ORG-EXPENSE-SECRET dinner  ", p_amount_cents=3000, p_paid_by=O, p_people=[O, A])
+    check("Expenses: Olive adds an Organizers expense (positive control), split evenly by the database, created_by set by the database",
+          st == 200 and oq(f"select title || '|' || created_by || '|' || split from weft.expenses where id = '{oe}'") == f"ORG-EXPENSE-SECRET dinner|{O}|even"
+          and oq(f"select string_agg(share_cents::text, ',' order by share_cents) from weft.expense_shares where expense_id = '{oe}'") == "1500,1500", f"{st} {oe}")
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = call("GET", f"/expenses?list_id=eq.{org}&select=id", tok)
+        st2, rows2 = call("GET", f"/expense_shares?expense_id=eq.{oe}&select=user_id", tok)
+        st3, rows3 = call("GET", f"/expense_balances?list_id=eq.{org}", tok)
+        check(f"Expenses: {who} gets no Organizers expenses, shares or balances", rows == [] and rows2 == [] and rows3 == [], f"{rows} {rows2} {rows3}")
+    st, rows = call("GET", "/expenses?select=title&title=like.*ORG-EXPENSE*", pat)
+    st2, rows2 = call("GET", f"/expense_balances?user_id=eq.{A}", pat)
+    check("Expenses: nor finds them by filtering every expense or every balance", rows == [] and st2 == 200 and rows2 == [], f"{rows} {rows2}")
+
+    # #festival: an even split (the odd cent goes to the first person) and a split by amounts.
+    st, fe = save(olive, p_list=fest, p_title="Van hire", p_amount_cents=10000, p_paid_by=O, p_people=[O, V, P], p_spent_on="2026-11-01")
+    check("Expenses: Olive adds an even split in #festival; the shares add up, the odd cent to the first person", st == 200
+          and oq(f"select string_agg(share_cents::text, ',' order by share_cents desc) from weft.expense_shares where expense_id = '{fe}'") == "3334,3333,3333"
+          and oq(f"select share_cents from weft.expense_shares where expense_id = '{fe}' and user_id = '{O}'") == "3334", f"{st} {fe}")
+    st, fe2 = save(alex, p_list=fest, p_title="Ice", p_amount_cents=2500, p_paid_by=A, p_people=[P, V], p_split="amounts", p_amounts=[1000, 1500])
+    check("Expenses: Alex (owner) adds a split by amounts (positive control)", st == 200
+          and oq(f"select string_agg(share_cents::text, ',' order by share_cents) from weft.expense_shares where expense_id = '{fe2}'") == "1000,1500", f"{st} {fe2}")
+    st, rows = call("GET", f"/expenses?list_id=eq.{fest}&select=id,shares:expense_shares(user_id,share_cents)", pat)
+    check("Expenses: Pat reads the #festival expenses and their shares (positive control)", st == 200 and len(rows) == 2 and sum(len(r["shares"]) for r in rows) == 5, str(rows))
+    st, rows = call("GET", f"/expense_balances?list_id=eq.{fest}&select=user_id,paid_cents,share_cents,net_cents", pat)
+    net = {r["user_id"]: r["net_cents"] for r in rows or []}
+    check("Expenses: Pat reads the running balances: Olive is owed 66.66, Alex 25.00, Pat owes 43.33, Vic 48.33",
+          net == {O: 6666, A: 2500, P: -4333, V: -4833}, str(rows))
+    # Viewers and outsiders cannot write.
+    st, _ = save(pat, p_list=fest, p_title="pwned", p_amount_cents=100, p_paid_by=P, p_people=[P])
+    st2, _ = call("POST", "/expenses", pat, {"list_id": fest, "title": "pwned", "amount_cents": 100, "paid_by": P})
+    check("Expenses: Pat cannot add an expense in #festival", refused(st) and refused(st2) and oq(f"select count(*) from weft.expenses where list_id = '{fest}'") == "2", f"{st} {st2}")
+    st, rows = call("PATCH", f"/expenses?id=eq.{fe}", pat, {"title": "pwned"})
+    st2, rows2 = call("PATCH", f"/expense_shares?expense_id=eq.{fe}&user_id=eq.{P}", pat, {"share_cents": 1})
+    st3, rows3 = call("DELETE", f"/expenses?id=eq.{fe}", pat)
+    st4, _ = call("POST", "/expense_shares", pat, {"expense_id": fe, "user_id": P, "share_cents": 5})
+    check("Expenses: Pat cannot change, re-split or delete a #festival expense, nor add a share", rows == [] and rows2 == [] and rows3 == [] and refused(st4)
+          and oq(f"select title from weft.expenses where id = '{fe}'") == "Van hire" and oq(f"select share_cents from weft.expense_shares where expense_id = '{fe}' and user_id = '{P}'") == "3333",
+          f"{st} {st2} {st3} {st4}")
+    st, rows = call("PATCH", f"/expenses?id=eq.{oe}", vic, {"title": "pwned"})
+    st2, rows2 = call("DELETE", f"/expenses?list_id=eq.{org}", vic)
+    st3, rows3 = save(vic, p_list=org, p_title="pwned", p_amount_cents=100, p_paid_by=V, p_people=[V], p_id=oe)
+    check("Expenses: Vic changes and deletes nothing in Organizers", rows == [] and rows2 == [] and not (st3 == 200)
+          and oq(f"select title from weft.expenses where id = '{oe}'") == "ORG-EXPENSE-SECRET dinner", f"{st} {st2} {st3} {rows3}")
+    # The database keeps the sums right.
+    st, rows = save(olive, p_list=fest, p_title="Bad", p_amount_cents=2500, p_paid_by=O, p_people=[O, V], p_split="amounts", p_amounts=[1000, 1000])
+    check("Expenses: shares that do not add up to the amount are refused, with the database's answer", st == 400 and "add up" in json.dumps(rows), f"{st} {rows}")
+    st, rows = call("POST", "/expenses", olive, {"list_id": fest, "title": "No shares", "amount_cents": 500, "paid_by": O})
+    check("Expenses: an expense without a split is refused, nothing saved", st == 400 and "who shares" in json.dumps(rows)
+          and oq(f"select count(*) from weft.expenses where list_id = '{fest}'") == "2", f"{st} {rows}")
+    st, rows = call("PATCH", f"/expense_shares?expense_id=eq.{fe}&user_id=eq.{O}", olive, {"share_cents": 5000})
+    st2, rows2 = call("PATCH", f"/expenses?id=eq.{fe}", olive, {"amount_cents": 12000})
+    st3, rows3 = call("DELETE", f"/expense_shares?expense_id=eq.{fe}&user_id=eq.{P}", olive)
+    check("Expenses: changing a share, the amount or dropping a person on their own is refused (the sums must still add up)",
+          st == 400 and st2 == 400 and st3 == 400 and oq(f"select sum(share_cents) from weft.expense_shares where expense_id = '{fe}'") == "10000", f"{st} {st2} {st3}")
+    st, rows = call("PATCH", f"/expenses?id=eq.{fe2}", olive, {"split": "even"})
+    check("Expenses: an uneven split cannot be marked even", st == 400 and "even split" in json.dumps(rows), f"{st} {rows}")
+    for bad, why in (({"p_amount_cents": 0}, "a zero amount"), ({"p_amount_cents": -500}, "a negative amount"), ({"p_title": "   "}, "an empty title"),
+                     ({"p_people": []}, "nobody in the split"), ({"p_people": [O, O]}, "the same person twice"),
+                     ({"p_split": "amounts", "p_amounts": [600, -100]}, "a negative share")):
+        args = {"p_list": fest, "p_title": "Bad", "p_amount_cents": 500, "p_paid_by": O, "p_people": [O, V], **bad}
+        st, _ = save(olive, **args)
+        check(f"Expenses: {why} is refused", st == 400, str(st))
+    # Who paid and who shares must be in the space; Pat gets a refusal, not that answer.
+    st, rows = save(olive, p_list=org, p_title="x", p_amount_cents=100, p_paid_by=P, p_people=[O])
+    st2, rows2 = save(olive, p_list=org, p_title="x", p_amount_cents=100, p_paid_by=O, p_people=[O, V])
+    check("Expenses: the payer and everyone in a split must be members of the list's space", st == 400 and "member" in json.dumps(rows)
+          and st2 == 400 and "member" in json.dumps(rows2) and oq(f"select count(*) from weft.expenses where list_id = '{org}'") == "1", f"{st} {rows} {st2} {rows2}")
+    st, rows = save(pat, p_list=org, p_title="x", p_amount_cents=100, p_paid_by=V, p_people=[V])
+    check("Expenses: Pat gets a refusal there, not that answer", refused(st) and "member" not in json.dumps(rows), f"{st} {rows}")
+    # Authorship and links are fixed.
+    st, _ = call("POST", "/expenses", olive, {"list_id": fest, "title": "forged", "amount_cents": 100, "paid_by": O, "created_by": A})
+    check("Expenses: authorship of an expense cannot be forged", refused(st), str(st))
+    st, _ = call("PATCH", f"/expenses?id=eq.{fe}", olive, {"list_id": org})
+    st2, _ = call("PATCH", f"/expense_shares?expense_id=eq.{fe}&user_id=eq.{P}", olive, {"user_id": A})
+    st3, _ = call("PATCH", f"/expense_shares?expense_id=eq.{fe}&user_id=eq.{P}", olive, {"expense_id": oe})
+    check("Expenses: an expense cannot jump lists, nor a share change person or expense", refused(st) and refused(st2) and refused(st3)
+          and oq(f"select list_id from weft.expenses where id = '{fe}'") == fest, f"{st} {st2} {st3}")
+    st, rows = save(olive, p_list=fest, p_title="x", p_amount_cents=100, p_paid_by=O, p_people=[O], p_id=oe)
+    check("Expenses: save_expense cannot change an expense through another list", st == 403 and oq(f"select title from weft.expenses where id = '{oe}'") == "ORG-EXPENSE-SECRET dinner", f"{st} {rows}")
+    st, _ = save(olive, p_list=uid("item", "porches"), p_title="on a table", p_amount_cents=100, p_paid_by=O, p_people=[O])
+    check("Expenses: an expense cannot hang off an item that is not an expense list", refused(st), str(st))
+    # Changing an expense through save_expense (positive control): Pat leaves the split.
+    st, rows = save(olive, p_list=fest, p_title="Van hire (half day)", p_amount_cents=9000, p_paid_by=O, p_people=[O, V], p_id=fe)
+    check("Expenses: Olive changes the amount and the split in one go (positive control)", st == 200
+          and oq(f"select string_agg(user_id || ':' || share_cents, ',' order by share_cents) from weft.expense_shares where expense_id = '{fe}'") == f"{O}:4500,{V}:4500", f"{st} {rows}")
+    st, rows = call("GET", f"/items?id=eq.{fest}&select=body_text", pat)
+    body = (rows[0]["body_text"] if rows else "") or ""
+    check("Expenses: the #festival summary has the total, balances, who pays whom and the expenses, and Pat reads it",
+          "2 expenses, total 115.00" in body and "Olive Organizer is owed 45.00" in body and "Vic Volunteer owes 60.00" in body and "To settle up:" in body
+          and "Vic Volunteer pays Olive Organizer 45.00" in body and "Van hire (half day), 90.00, paid by Olive Organizer, split evenly" in body
+          and "Ice, 25.00, paid by Alex (test admin), split by amounts: " in body, body)
+    # Someone who leaves the space stays in the record; the expense can still be changed.
+    st, _ = call("POST", "/members", alex, {"space_id": SID["organizers"], "user_id": V, "role": "viewer"})
+    st2, oe2 = save(olive, p_list=org, p_title="Taxi", p_amount_cents=1000, p_paid_by=V, p_people=[O, V])
+    st3, _ = call("DELETE", f"/members?space_id=eq.{SID['organizers']}&user_id=eq.{V}", alex)
+    st4, _ = save(olive, p_list=org, p_title="Taxi to the venue", p_amount_cents=1200, p_paid_by=V, p_people=[O, V], p_id=oe2)
+    check("Expenses: someone who left stays in the record, and the expense can still be changed", st == 201 and st2 == 200 and st3 in (200, 204) and st4 == 200
+          and oq(f"select count(*) from weft.expense_shares where expense_id = '{oe2}'") == "2", f"{st} {st2} {st3} {st4}")
+    st, rows = call("GET", f"/expenses?list_id=eq.{org}&select=id", vic)
+    check("Expenses: and once they left, they no longer read it", rows == [], str(rows))
+    # Scoped tokens and the assistant.
+    scoped = mint("u-org", scope="festival")
+    st, rows = call("GET", f"/expenses?list_id=in.({org},{fest})&select=list_id", scoped)
+    st2, rows2 = call("GET", f"/expense_balances?list_id=in.({org},{fest})&select=list_id", scoped)
+    check("Expenses: a #festival-scoped token sees only #festival expenses and balances", rows and {r["list_id"] for r in rows} == {fest}
+          and rows2 and {r["list_id"] for r in rows2} == {fest}, f"{rows} {rows2}")
+    st, _ = save(scoped, p_list=org, p_title="x", p_amount_cents=100, p_paid_by=O, p_people=[O])
+    st2, rows2 = call("DELETE", f"/expenses?id=eq.{oe}", scoped)
+    check("Expenses: nor adds or deletes in Organizers", refused(st) and rows2 == [], f"{st} {rows2}")
+    helper = mint("u-org", assistant=True)
+    st, rows = call("GET", f"/expense_shares?expense_id=eq.{oe}&select=share_cents", helper)
+    check("Expenses: the assistant (for Olive) can read Organizers shares (positive control)", st == 200 and len(rows) == 2, str(rows))
+    st, _ = call("DELETE", f"/expenses?id=eq.{oe}", helper)
+    st2, _ = call("DELETE", f"/expense_shares?expense_id=eq.{oe}", helper)
+    st3, _ = save(helper, p_list=org, p_title="x", p_amount_cents=100, p_paid_by=O, p_people=[O])
+    st4, _ = call("PATCH", f"/expenses?id=eq.{oe}", helper, {"title": "x"})
+    check("Expenses: the assistant cannot delete, add or change anything", refused(st) and refused(st2) and refused(st3) and refused(st4)
+          and oq(f"select count(*) from weft.expenses where list_id = '{org}'") == "2", f"{st} {st2} {st3} {st4}")
+    # Audit and search follow the space.
+    st, rows = call("GET", f"/audit?row_id=eq.{fe}&select=op", vic)
+    check("Expenses: #festival changes are in the audit log, readable by its members (positive control)", len(rows or []) >= 1, str(rows))
+    st, rows = call("GET", f"/audit?row_id=eq.{oe2}&select=op", olive)
+    st2, rows2 = call("GET", f"/audit?row_id=eq.{oe2}&select=op", pat)
+    check("Expenses: an Organizers change is in the audit log for Organizers members only", len(rows or []) >= 1 and rows2 == [], f"{rows} {rows2}")
+    st, rows = call("POST", "/rpc/search", olive, {"p_q": "ORG-EXPENSE-SECRET"})
+    st2, rows2 = call("POST", "/rpc/search", pat, {"p_q": "ORG-EXPENSE-SECRET"})
+    check("Expenses: search finds the list for Olive, not for Pat", any(r["id"] == org and r["kind"] == "expenselist" for r in rows or []) and rows2 == [], f"{rows} {rows2}")
+    # Deletes and moves follow the list.
+    st, _ = call("DELETE", f"/expenses?id=eq.{fe2}", olive)
+    check("Expenses: Olive deletes an expense and its shares go with it (positive control)", st in (200, 204)
+          and oq(f"select count(*) from weft.expense_shares where expense_id = '{fe2}'") == "0", str(st))
+    st, _ = call("PATCH", f"/items?id=eq.{org}", olive, {"space_id": SID["festival"]})
+    st2, rows = call("GET", f"/expenses?list_id=eq.{org}&select=id,shares:expense_shares(user_id)", pat)
+    check("Expenses: a list moved into #festival takes its expenses with it, readable to Pat", st == 200 and len(rows) == 2 and sum(len(r["shares"]) for r in rows) == 4, f"{st} {rows}")
+    st, rows = call("PATCH", f"/expenses?list_id=eq.{org}", pat, {"title": "pwned"})
+    check("Expenses: still read-only for Pat", rows == [], str(rows))
+    st, _ = call("PATCH", f"/items?id=eq.{fest}", olive, {"space_id": SID["organizers"]})
+    st2, rows = call("GET", f"/expenses?list_id=eq.{fest}&select=id", pat)
+    st3, rows3 = call("GET", f"/expense_balances?list_id=eq.{fest}", pat)
+    check("Expenses: a list moved to Organizers takes its expenses and balances out of Pat's sight", st == 200 and rows == [] and rows3 == [], f"{st} {rows} {rows3}")
+    st, _ = call("DELETE", f"/items?id=eq.{org}", pat)
+    check("Expenses: Pat cannot delete an expense list", oq(f"select count(*) from weft.items where id = '{org}'") == "1", str(st))
+    st, _ = call("DELETE", f"/items?id=eq.{org}", olive)
+    check("Expenses: deleting a list deletes its expenses and shares", st in (200, 204)
+          and oq(f"select count(*) from weft.expenses where list_id = '{org}'") == "0"
+          and oq(f"select count(*) from weft.expense_shares where expense_id in ('{oe}', '{oe2}')") == "0", str(st))
+    call("DELETE", f"/items?id=eq.{fest}", olive)
+
+
 def announcements():
     pat, vic, olive = mint("u-pub"), mint("u-vol"), mint("u-org")
     P, O, A = uid("user", "u-pub"), uid("user", "u-org"), uid("user", "u-alex")
@@ -2635,6 +2796,7 @@ if __name__ == "__main__":
     decisions()
     qa()
     checklists()
+    expenses()
     announcements()
     meetings()
     rsvps()

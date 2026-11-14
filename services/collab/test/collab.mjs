@@ -165,6 +165,9 @@ check('Nor a Q and A board (its text is its questions and answers)', qb.failed &
 const [clItem] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'checklist', title: 'Collab checklist' } })).rows;
 const cl = await open(olive.token, clItem.id);
 check('Nor a checklist (its text is its steps and runs)', cl.failed && !cl.scope, `${cl.failed} ${cl.scope}`); close(cl);
+const [exItem] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'expenselist', title: 'Collab expenses' } })).rows;
+const ex = await open(olive.token, exItem.id);
+check('Nor an expense list (its text is its expenses and balances)', ex.failed && !ex.scope, `${ex.failed} ${ex.scope}`); close(ex);
 
 // ---------------- moving or deleting a document closes its sessions
 const [mv] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'document', title: 'Move test' } })).rows;
