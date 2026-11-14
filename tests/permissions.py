@@ -2075,6 +2075,138 @@ def announcements():
     call("DELETE", f"/announcements?id=eq.{fest}", olive)
 
 
+def kudos():
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, V, O, A = uid("user", "u-pub"), uid("user", "u-vol"), uid("user", "u-org"), uid("user", "u-alex")
+    oq = lambda sql: owner_sql(sql)
+    st, rows = call("POST", "/kudos", olive, {"space_id": SID["organizers"], "to_user": A, "message": "  KUDOS-ORG-SECRET thanks for the budget \n"})
+    org = rows[0]["id"] if st == 201 else None
+    check("Kudos: Olive (editor) thanks Alex in Organizers (positive control), created_by set by the database, text trimmed",
+          org and rows[0]["created_by"] == O and rows[0]["message"] == "KUDOS-ORG-SECRET thanks for the budget", f"{st} {rows}")
+    st, rows = call("POST", "/kudos", olive, {"space_id": SID["festival"], "to_user": P, "message": "Thanks for handing out maps"})
+    fest = rows[0]["id"] if st == 201 else None
+    check("Kudos: Olive thanks Pat in #festival", fest is not None, f"{st} {rows}")
+    # Reading follows membership.
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = call("GET", f"/kudos?space_id=eq.{SID['organizers']}&select=id", tok)
+        st2, rows2 = call("GET", "/kudos?message=like.*KUDOS-ORG*&select=id", tok)
+        check(f"Kudos: {who} gets no Organizers kudos, by space or by text", st == 200 and rows == [] and st2 == 200 and rows2 == [], f"{rows} {rows2}")
+    st, rows = call("GET", f"/kudos?id=eq.{fest}&select=id,message,to:users!kudos_to_user_fkey(display_name)", pat)
+    check("Kudos: Pat (viewer) reads the #festival wall, with names (positive control)", st == 200 and len(rows) == 1 and rows[0]["to"]["display_name"], str(rows))
+    # Viewers read only.
+    st, _ = call("POST", "/kudos", pat, {"space_id": SID["festival"], "to_user": O, "message": "pwned"})
+    st2, _ = call("POST", "/kudos", vic, {"space_id": SID["festival"], "to_user": O, "message": "pwned"})
+    check("Kudos: Pat and Vic (viewers in #festival) cannot give kudos there", refused(st) and refused(st2), f"{st} {st2}")
+    st, rows = call("PATCH", f"/kudos?id=eq.{fest}", pat, {"message": "pwned"})
+    st2, rows2 = call("DELETE", f"/kudos?id=eq.{fest}", pat)
+    check("Kudos: Pat cannot change or delete a kudos, even one for her", rows == [] and rows2 == []
+          and oq(f"select message from weft.kudos where id = '{fest}'") == "Thanks for handing out maps", f"{st} {st2}")
+    st, _ = call("POST", "/kudos", pat, {"space_id": SID["organizers"], "to_user": O, "message": "pwned"})
+    st2, _ = call("POST", "/kudos", vic, {"space_id": SID["organizers"], "to_user": O, "message": "pwned"})
+    check("Kudos: Pat and Vic cannot give kudos in Organizers", refused(st) and refused(st2), f"{st} {st2}")
+    st, rows = call("PATCH", f"/kudos?id=eq.{org}", vic, {"message": "pwned"})
+    st2, rows2 = call("DELETE", f"/kudos?space_id=eq.{SID['organizers']}", vic)
+    check("Kudos: Vic changes and deletes nothing in Organizers", rows == [] and rows2 == []
+          and oq(f"select count(*) from weft.kudos where space_id = '{SID['organizers']}'") == "1", f"{st} {st2}")
+    # An outsider learns nothing from the guard's answers (no 'not a member' or 'not a channel' message).
+    st, body = call("POST", "/kudos", pat, {"space_id": SID["organizers"], "to_user": uid("user", "nobody"), "message": "probe"})
+    check("Kudos: an outsider's attempt gets the plain refusal, not the guard's reason", refused(st) and "member" not in json.dumps(body), f"{st} {body}")
+    # Rewording: only your own.
+    st, rows = call("PATCH", f"/kudos?id=eq.{fest}", olive, {"message": " Thanks for handing out maps all day "})
+    check("Kudos: Olive rewords her own kudos (positive control)", st == 200 and rows and rows[0]["message"] == "Thanks for handing out maps all day"
+          and rows[0]["updated_at"] > rows[0]["created_at"], f"{st} {rows}")
+    st, rows = call("POST", "/kudos", alex, {"space_id": SID["festival"], "to_user": O, "message": "Thanks for the signs"})
+    ak = rows[0]["id"] if st == 201 else None
+    st, rows = call("PATCH", f"/kudos?id=eq.{ak}", olive, {"message": "pwned"})
+    check("Kudos: Olive (editor) cannot reword Alex's kudos", rows == [] and oq(f"select message from weft.kudos where id = '{ak}'") == "Thanks for the signs", f"{st} {rows}")
+    st, rows = call("PATCH", f"/kudos?id=eq.{fest}", alex, {"message": "pwned"})
+    check("Kudos: nor can Alex (owner) reword Olive's", rows == [] and oq(f"select message from weft.kudos where id = '{fest}'") == "Thanks for handing out maps all day", f"{st} {rows}")
+    # Deleting: your own, or any as an owner.
+    st, rows = call("DELETE", f"/kudos?id=eq.{ak}", olive)
+    check("Kudos: Olive (editor) cannot delete Alex's kudos", rows == [] and oq(f"select count(*) from weft.kudos where id = '{ak}'") == "1", f"{st} {rows}")
+    st, rows = call("POST", "/kudos", olive, {"space_id": SID["festival"], "to_user": A, "message": "Thanks, to be tidied"})
+    tidy = rows[0]["id"] if st == 201 else None
+    st, rows = call("DELETE", f"/kudos?id=eq.{tidy}", alex)
+    check("Kudos: Alex (owner of #festival) deletes Olive's kudos (positive control)", st == 200 and len(rows or []) == 1
+          and oq(f"select count(*) from weft.kudos where id = '{tidy}'") == "0", f"{st} {rows}")
+    st, rows = call("DELETE", f"/kudos?id=eq.{ak}", alex)
+    check("Kudos: Alex deletes his own kudos (positive control)", st == 200 and len(rows or []) == 1, f"{st} {rows}")
+    # What a kudos may be.
+    st, b1 = call("POST", "/kudos", olive, {"space_id": SID["festival"], "to_user": O, "message": "me, me"})
+    check("Kudos: nobody thanks themselves", st == 400 and "yourself" in json.dumps(b1), f"{st} {b1}")
+    st, b1 = call("POST", "/kudos", olive, {"space_id": SID["organizers"], "to_user": P, "message": "not here"})
+    check("Kudos: only for a member of the channel (Pat is not in Organizers)", st == 400 and "member" in json.dumps(b1), f"{st} {b1}")
+    for key in ("personal-u-org", "dm-alex-olive", "assistant-u-org"):
+        st, body = call("POST", "/kudos", olive, {"space_id": SID[key], "to_user": A, "message": "not a channel"})
+        check(f"Kudos: only channels have a wall ({key.split('-')[0]} refused)", st == 400 and "channel" in json.dumps(body), f"{st} {body}")
+    st, _ = call("POST", "/kudos", olive, {"space_id": SID["festival"], "to_user": P, "message": "   "})
+    st2, _ = call("POST", "/kudos", olive, {"space_id": SID["festival"], "to_user": P, "message": "x" * 501})
+    st3, _ = call("PATCH", f"/kudos?id=eq.{fest}", olive, {"message": ""})
+    check("Kudos: an empty or over-long message is refused, also when rewording", st == 400 and st2 == 400 and st3 == 400, f"{st} {st2} {st3}")
+    # Authorship, recipient and channel are fixed.
+    st, _ = call("POST", "/kudos", olive, {"space_id": SID["festival"], "to_user": P, "message": "forged", "created_by": A})
+    check("Kudos: authorship cannot be forged", refused(st), str(st))
+    st, _ = call("PATCH", f"/kudos?id=eq.{fest}", olive, {"created_by": A})
+    st2, _ = call("PATCH", f"/kudos?id=eq.{fest}", olive, {"created_at": "2020-01-01T00:00:00Z"})
+    st3, _ = call("PATCH", f"/kudos?id=eq.{fest}", olive, {"to_user": V})
+    check("Kudos: nor changed afterwards, nor the time, nor who it is for", refused(st) and refused(st2) and refused(st3)
+          and oq(f"select created_by::text || to_user::text from weft.kudos where id = '{fest}'") == O + P, f"{st} {st2} {st3}")
+    st, _ = call("PATCH", f"/kudos?id=eq.{fest}", olive, {"space_id": SID["organizers"]})
+    check("Kudos: a kudos cannot be moved to another channel", refused(st)
+          and oq(f"select space_id from weft.kudos where id = '{fest}'") == SID["festival"], str(st))
+    # Channel scope and the assistant.
+    scoped = mint("u-org", scope="festival")
+    st, rows = call("GET", f"/kudos?id=in.({org},{fest})&select=space_id", scoped)
+    check("Kudos: a #festival-scoped token sees only #festival kudos", st == 200 and rows and {r["space_id"] for r in rows} == {SID["festival"]}, str(rows))
+    st, _ = call("POST", "/kudos", scoped, {"space_id": SID["organizers"], "to_user": A, "message": "scoped"})
+    st2, rows2 = call("PATCH", f"/kudos?id=eq.{org}", scoped, {"message": "scoped"})
+    check("Kudos: nor gives or rewords kudos in Organizers", refused(st) and rows2 == [], f"{st} {st2} {rows2}")
+    helper = mint("u-org", assistant=True)
+    st, rows = call("GET", f"/kudos?id=eq.{org}&select=id", helper)
+    check("Kudos: the assistant (for Olive) reads Organizers kudos (positive control)", st == 200 and len(rows) == 1, str(rows))
+    st, _ = call("DELETE", f"/kudos?id=eq.{org}", helper)
+    st2, _ = call("PATCH", f"/kudos?id=eq.{org}", helper, {"message": "by the assistant"})
+    st3, _ = call("POST", "/kudos", helper, {"space_id": SID["organizers"], "to_user": A, "message": "by the assistant"})
+    check("Kudos: the assistant cannot delete, change or give kudos", refused(st) and refused(st2) and refused(st3)
+          and oq(f"select message from weft.kudos where id = '{org}'") == "KUDOS-ORG-SECRET thanks for the budget", f"{st} {st2} {st3}")
+    st, rows = call("GET", f"/kudos?id=eq.{org}&select=id", mint("u-pub", assistant=True))
+    check("Kudos: the assistant for Pat reads no Organizers kudos", st == 200 and rows == [], str(rows))
+    # Audit.
+    st, rows = call("GET", f"/audit?row_id=eq.{fest}&select=op", vic)
+    check("Kudos: #festival changes are in the audit log, readable by its members, Vic included (positive control)", len(rows or []) >= 1, str(rows))
+    call("PATCH", f"/kudos?id=eq.{org}", olive, {"message": "KUDOS-ORG-SECRET thanks for the budget, again"})
+    st, rows = call("GET", f"/audit?row_id=eq.{org}&select=op", olive)
+    st2, rows2 = call("GET", f"/audit?row_id=eq.{org}&select=op", pat)
+    check("Kudos: an Organizers change is in the audit log for Organizers members only", len(rows or []) >= 1 and rows2 == [], f"{rows} {rows2}")
+    # Kudos follow the channel: membership decides, and deleting the channel deletes them.
+    st, ch = call("POST", "/rpc/create_channel", olive, {"p_name": "kudos test"})
+    call("POST", "/members", olive, {"space_id": ch, "user_id": V, "role": "editor"}, prefer="return=minimal")
+    st, rows = call("POST", "/kudos", olive, {"space_id": ch, "to_user": V, "message": "Channel kudos"})
+    cn = rows[0]["id"] if st == 201 else None
+    st, rows = call("GET", f"/kudos?id=eq.{cn}&select=id", pat)
+    check("Kudos: Pat cannot read kudos in a channel she is not in", cn and st == 200 and rows == [], f"{st} {rows}")
+    call("POST", "/members", olive, {"space_id": ch, "user_id": P, "role": "viewer"}, prefer="return=minimal")
+    st, rows = call("GET", f"/kudos?id=eq.{cn}&select=id", pat)
+    st2, _ = call("POST", "/kudos", pat, {"space_id": ch, "to_user": O, "message": "x"})
+    check("Kudos: added as a viewer, she reads them (positive control) and still cannot give one", len(rows or []) == 1 and refused(st2), f"{rows} {st2}")
+    st, rows = call("POST", "/kudos", vic, {"space_id": ch, "to_user": P, "message": "Welcome, Pat"})
+    vk = rows[0]["id"] if st == 201 else None
+    check("Kudos: Vic (editor there) thanks Pat, a viewer (positive control)", vk is not None, f"{st} {rows}")
+    call("PATCH", f"/members?space_id=eq.{ch}&user_id=eq.{V}", olive, {"role": "viewer"})
+    st, rows = call("PATCH", f"/kudos?id=eq.{vk}", vic, {"message": "changed"})
+    st2, rows2 = call("DELETE", f"/kudos?id=eq.{vk}", vic)
+    check("Kudos: made a viewer, Vic can no longer reword or delete his own kudos", rows == [] and rows2 == []
+          and oq(f"select message from weft.kudos where id = '{vk}'") == "Welcome, Pat", f"{st} {st2}")
+    call("DELETE", f"/members?space_id=eq.{ch}&user_id=eq.{P}", olive)
+    st, rows = call("GET", f"/kudos?id=eq.{cn}&select=id", pat)
+    check("Kudos: removed from the channel, she reads them no more", st == 200 and rows == [], str(rows))
+    st, _ = call("DELETE", f"/spaces?id=eq.{ch}", olive)
+    check("Kudos: deleting the channel deletes its kudos", st in (200, 204) and oq(f"select count(*) from weft.kudos where space_id = '{ch}'") == "0", str(st))
+    st, _ = call("DELETE", f"/kudos?id=eq.{org}", olive)
+    check("Kudos: Olive deletes her own kudos (positive control)", st in (200, 204) and oq(f"select count(*) from weft.kudos where id = '{org}'") == "0", str(st))
+    call("DELETE", f"/kudos?id=eq.{fest}", olive)
+
+
 # ---------------------------------------------------------------- polls
 def polls():
     pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
@@ -3755,6 +3887,7 @@ if __name__ == "__main__":
     inventory()
     goals()
     announcements()
+    kudos()
     meetings()
     rsvps()
     bookings()

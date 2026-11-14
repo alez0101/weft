@@ -5,6 +5,7 @@ import AdminPanel from './AdminPanel.jsx';
 import Docs from './Docs.jsx';
 import Calendar from './Calendar.jsx';
 import Announcements from './Announcements.jsx';
+import Kudos from './Kudos.jsx';
 import Rsvps from './Rsvps.jsx';
 import Bookings from './Bookings.jsx';
 import Shifts from './Shifts.jsx';
@@ -44,6 +45,7 @@ const APPS = [
   { id: 'qa', label: 'Q and A', tint: '--p-tue', real: true, glyph: <><path d="M6 8h20v13H15l-5 4v-4H6z" /><path d="M14 12.5a2.5 2.5 0 1 1 3 2.4c-.7.2-1 .7-1 1.3M16 18.5v.5" /><path d="M29 15h5v13h-4v4l-5-4h-7v-3" /></> },
   { id: 'meetings', label: 'Meetings', tint: '--p-sat', real: true, glyph: <><rect x="9" y="8" width="22" height="26" rx="2" /><path d="M15 5.5h10v5H15zM14 17h12M14 22h12M14 27h6" /><path d="M23 27.5l1.8 1.8L28 26" /></> },
   { id: 'announcements', label: 'Announcements', tint: '--p-mon', real: true, glyph: <><path d="M7 17v7l17 7V10z" /><path d="M24 15h3a5 5 0 0 1 0 10h-3M11 25.5l2 7.5h4l-1.8-6" /></> },
+  { id: 'kudos', label: 'Kudos', tint: '--p-sun', real: true, glyph: <><path d="M7 8h26v19H18l-7 6v-6H7z" /><path d="M20 23l-4.8-4.4a2.9 2.9 0 0 1 4.8-3.3 2.9 2.9 0 0 1 4.8 3.3z" /></> },
   { id: 'files', label: 'Files', tint: '--p-sat', real: true, glyph: <path d="M6 12h10l3 3h15v17H6z" /> },
   { id: 'settings', label: 'Settings', tint: '--p-fri', admin: true, glyph: <><circle cx="20" cy="20" r="5" /><path d="M20 7v5M20 28v5M7 20h5M28 20h5M10.8 10.8l3.5 3.5M25.7 25.7l3.5 3.5M10.8 29.2l3.5-3.5M25.7 14.3l3.5-3.5" /></> },
 ];
@@ -62,7 +64,7 @@ const readHash = () => {
   return {
     tabs, active: active === 'home' || tabs.includes(active) ? active : 'home',
     convo: h.get('convo') || 'weft', rail: RAILS.includes(h.get('chat')) ? h.get('chat') : 'normal',
-    doc: h.get('doc') || null, page: h.get('page') || null, event: h.get('event') || null, board: h.get('board') || null, sheet: h.get('sheet') || null, list: h.get('list') || null, kanban: h.get('kanban') || null, poll: h.get('poll') || null, form: h.get('form') || null, links: h.get('links') || null, book: h.get('book') || null, log: h.get('log') || null, qa: h.get('qa') || null, checklist: h.get('checklist') || null, expenses: h.get('expenses') || null, inventory: h.get('inventory') || null, goals: h.get('goals') || null, retro: h.get('retro') || null, glossary: h.get('glossary') || null, ideas: h.get('ideas') || null, meeting: h.get('meeting') || null, notices: h.get('notices') || null, booking: h.get('booking') || null, file: h.get('file') || null,
+    doc: h.get('doc') || null, page: h.get('page') || null, event: h.get('event') || null, board: h.get('board') || null, sheet: h.get('sheet') || null, list: h.get('list') || null, kanban: h.get('kanban') || null, poll: h.get('poll') || null, form: h.get('form') || null, links: h.get('links') || null, book: h.get('book') || null, log: h.get('log') || null, qa: h.get('qa') || null, checklist: h.get('checklist') || null, expenses: h.get('expenses') || null, inventory: h.get('inventory') || null, goals: h.get('goals') || null, retro: h.get('retro') || null, glossary: h.get('glossary') || null, ideas: h.get('ideas') || null, meeting: h.get('meeting') || null, notices: h.get('notices') || null, kudos: h.get('kudos') || null, booking: h.get('booking') || null, file: h.get('file') || null,
   };
 };
 
@@ -266,6 +268,7 @@ export default function App() {
     if (ui.ideas) h.set('ideas', ui.ideas);
     if (ui.meeting) h.set('meeting', ui.meeting);
     if (ui.notices) h.set('notices', ui.notices);
+    if (ui.kudos) h.set('kudos', ui.kudos);
     if (ui.booking) h.set('booking', ui.booking);
     if (ui.file) h.set('file', ui.file);
     history.replaceState(null, '', `#${h}`);
@@ -302,6 +305,7 @@ export default function App() {
   const openEvent = (id) => openTab('calendar', { event: id });
   const openBooking = (id) => openTab('bookings', id ? { booking: id } : {});
   const openNotices = (spaceId) => openTab('announcements', spaceId ? { notices: spaceId } : {});
+  const openKudos = (spaceId) => openTab('kudos', spaceId ? { kudos: spaceId } : {});
   const openItem = async (id) => {
     const r = await api(`/items?id=eq.${id}&select=kind`).catch(() => []);
     if (r[0]?.kind === 'wiki') openTab('wiki', { page: id }); else if (r[0]?.kind === 'whiteboard') openTab('whiteboard', { board: id }); else if (r[0]?.kind === 'table') openTab('sheets', { sheet: id }); else if (r[0]?.kind === 'tasklist') openTab('tasks', { list: id }); else if (r[0]?.kind === 'poll') openTab('polls', { poll: id }); else if (r[0]?.kind === 'form') openTab('forms', { form: id }); else if (r[0]?.kind === 'linklist') openTab('links', { links: id }); else if (r[0]?.kind === 'addressbook') openTab('contacts', { book: id }); else if (r[0]?.kind === 'decisionlog') openTab('decisions', { log: id }); else if (r[0]?.kind === 'qa') openTab('qa', { qa: id }); else if (r[0]?.kind === 'checklist') openTab('checklists', { checklist: id }); else if (r[0]?.kind === 'expenselist') openTab('expenses', { expenses: id }); else if (r[0]?.kind === 'inventory') openTab('inventory', { inventory: id }); else if (r[0]?.kind === 'goalset') openTab('goals', { goals: id }); else if (r[0]?.kind === 'retro') openTab('retros', { retro: id }); else if (r[0]?.kind === 'glossary') openTab('glossary', { glossary: id }); else if (r[0]?.kind === 'ideaboard') openTab('ideas', { ideas: id }); else if (r[0]?.kind === 'meeting') openTab('meetings', { meeting: id }); else if (r[0]?.kind === 'file') openTab('files', { file: id }); else openTab('documents', { doc: id });
@@ -371,7 +375,7 @@ export default function App() {
                   </a></li>
                 ))}
               </ul>
-              <Widgets me={me} spaces={spaces} unread={unread} notice={notice} onOpenItem={openItem} onOpenEvent={openEvent} onOpenNotices={openNotices} onOpenBooking={openBooking} onOpenShifts={() => openTab('shifts')} onOpenProfiles={() => openTab('profiles')} onOpenTimeOff={() => openTab('timeoff')}
+              <Widgets me={me} spaces={spaces} unread={unread} notice={notice} onOpenItem={openItem} onOpenEvent={openEvent} onOpenNotices={openNotices} onOpenKudos={openKudos} onOpenBooking={openBooking} onOpenShifts={() => openTab('shifts')} onOpenProfiles={() => openTab('profiles')} onOpenTimeOff={() => openTab('timeoff')}
                 onOpenConvo={(convo) => setUi((u) => ({ ...u, convo, rail: u.rail === 'collapsed' ? 'normal' : u.rail }))} />
             </div>
           ) : ui.active === 'settings' ? (isAdmin ? <AdminPanel me={me} info={mode} /> : null)
@@ -395,6 +399,7 @@ export default function App() {
             : ui.active === 'goals' ? <Docs key="goals" kind="goalset" me={me} members={members} notice={notice} openId={ui.goals} setOpenId={(goals) => setUi((u) => ({ ...u, goals }))} />
             : ui.active === 'ideas' ? <Docs key="ideas" kind="ideaboard" me={me} members={members} notice={notice} openId={ui.ideas} setOpenId={(ideas) => setUi((u) => ({ ...u, ideas }))} />
             : ui.active === 'qa' ? <Docs key="qa" kind="qa" me={me} members={members} notice={notice} openId={ui.qa} setOpenId={(qa) => setUi((u) => ({ ...u, qa }))} />
+            : ui.active === 'kudos' ? <Kudos me={me} spaces={spaces} members={members} notice={notice} openId={ui.kudos} setOpenId={(kudos) => setUi((u) => ({ ...u, kudos }))} />
             : ui.active === 'announcements' ? <Announcements me={me} spaces={spaces} members={members} notice={notice} openId={ui.notices} setOpenId={(notices) => setUi((u) => ({ ...u, notices }))} />
             : ui.active === 'files' ? <Docs key="files" kind="file" me={me} members={members} notice={notice} openId={ui.file} setOpenId={(file) => setUi((u) => ({ ...u, file }))} />
             : ui.active === 'bookings' ? <Bookings me={me} spaces={spaces} members={members} notice={notice} openId={ui.booking} setOpenId={(booking) => setUi((u) => ({ ...u, booking }))} />
