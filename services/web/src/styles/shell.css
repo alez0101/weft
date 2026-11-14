@@ -645,6 +645,24 @@
 .inv-out strong, .inv-moves strong { font-weight: 600; color: var(--color-ink); overflow-wrap: anywhere; }
 .inv-move-what { min-width: 0; overflow-wrap: anywhere; }
 .inv-side .docs-hint { margin: 0; padding: 0; }
+/* Ideas: a board of ideas (uses the Links layout and the Q and A vote button), each with its status. */
+.idea { grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: var(--space-xs) var(--space-sm); }
+.idea-main { display: grid; gap: var(--space-2xs); min-width: 0; }
+.idea.is-done, .idea.is-declined { background: var(--color-paper-2); }
+.idea.is-declined .qa-title { color: var(--color-ink-2); }
+.idea-status { font: inherit; font-size: var(--text-xs); line-height: 1; padding: var(--space-2xs) var(--space-xs); border: 0; border-radius: var(--radius-pill);
+  background: var(--color-paper-3); color: var(--color-ink); }
+select.idea-status { cursor: pointer; padding-right: var(--space-sm); box-shadow: 0 0 0 1px var(--color-rule); }
+select.idea-status:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.idea-status.is-planned { background: var(--p-fri); }
+.idea-status.is-done { background: var(--p-thu); }
+.idea-status.is-declined { background: var(--p-mon); }
+.idea-count { color: var(--color-muted); margin-left: 2px; }
+.link-tag[aria-pressed="true"] .idea-count { color: var(--color-ink-2); }
+.idea-sort { display: inline-flex; align-items: center; gap: var(--space-2xs); font-size: var(--text-sm); color: var(--color-ink-2); }
+.idea-sort select { font: inherit; font-size: var(--text-sm); padding: var(--space-3xs) var(--space-2xs); border: 1px solid var(--color-muted);
+  border-radius: var(--radius-input); background: var(--color-paper); color: var(--color-ink); }
+.idea-sort select:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
 /* Announcements: notices pinned to a channel, in the chat header, the app and the Home widget. */
 .pinned { display: grid; gap: var(--space-2xs); margin-top: var(--space-xs); }
 .pinned-note { display: grid; gap: 2px; padding: var(--space-xs) var(--space-sm); border-radius: var(--radius-card);

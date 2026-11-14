@@ -1013,6 +1013,184 @@ def qa():
     call("DELETE", f"/items?id=eq.{fest}", olive)
 
 
+def ideas():
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, O, A, V = uid("user", "u-pub"), uid("user", "u-org"), uid("user", "u-alex"), uid("user", "u-vol")
+    oq = lambda sql: owner_sql(sql)
+    st, rows = call("POST", "/items", olive, {"space_id": SID["organizers"], "kind": "ideaboard", "title": "Org ideas"})
+    org = rows[0]["id"] if st == 201 else None
+    st2, rows = call("POST", "/items", olive, {"space_id": SID["festival"], "kind": "ideaboard", "title": "Festival ideas"})
+    fest = rows[0]["id"] if st2 == 201 else None
+    check("Ideas: Olive (editor) makes boards in Organizers and #festival", org and fest, f"{st} {st2}")
+    st, _ = call("POST", "/items", pat, {"space_id": SID["festival"], "kind": "ideaboard", "title": "x"})
+    check("Ideas: Pat (viewer) cannot make a board in #festival", refused(st), str(st))
+    # Suggesting.
+    st, rows = call("POST", "/ideas", olive, {"board_id": org, "title": "  Raise   ORG-IDEA-SECRET ticket prices  ", "details": " By five pounds \n"})
+    oi = rows[0]["id"] if st == 201 else None
+    check("Ideas: Olive suggests in Organizers (positive control), created_by set by the database, text tidied, status new",
+          oi and rows[0]["created_by"] == O and rows[0]["title"] == "Raise ORG-IDEA-SECRET ticket prices" and rows[0]["details"] == "By five pounds"
+          and rows[0]["status"] == "new", f"{st} {rows}")
+    st, rows = call("POST", "/ideas", olive, {"board_id": fest, "title": "Water refill point by the main stage"})
+    f1 = rows[0]["id"] if st == 201 else None
+    st2, rows2 = call("POST", "/ideas", alex, {"board_id": fest, "title": "Quiet tent for families", "details": "With beanbags."})
+    f2 = rows2[0]["id"] if st2 == 201 else None
+    check("Ideas: Olive and Alex suggest in #festival (positive control)", f1 and f2 and rows2[0]["created_by"] == A, f"{st} {st2}")
+    st, _ = call("POST", "/ideas", olive, {"board_id": fest, "title": "Pre-planned", "status": "planned"})
+    check("Ideas: an idea cannot be made with a status already set", refused(st) and oq(f"select count(*) from weft.ideas where title = 'Pre-planned'") == "0", str(st))
+    st, rows = call("POST", "/ideas", olive, {"board_id": fest, "title": "Pre-planned"})
+    f3 = rows[0]["id"] if st == 201 else None
+    check("Ideas: a new idea starts as new (positive control)", f3 and rows[0]["status"] == "new", f"{st} {rows}")
+    # Outsiders see nothing.
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = call("GET", f"/ideas?board_id=eq.{org}&select=id", tok)
+        st2, rows2 = call("GET", f"/idea_votes?idea_id=eq.{oi}&select=idea_id", tok)
+        check(f"Ideas: {who} gets no Organizers ideas or votes", st == 200 and rows == [] and st2 == 200 and rows2 == [], f"{rows} {rows2}")
+    st, rows = call("GET", "/ideas?select=title&title=like.*ORG-IDEA*", pat)
+    check("Ideas: nor finds them by filtering every idea", st == 200 and rows == [], str(rows))
+    st, rows = call("GET", f"/items?id=eq.{org}&select=body_text", pat)
+    check("Ideas: Pat cannot read the Organizers board summary", st == 200 and rows == [], str(rows))
+    st, rows = call("GET", f"/ideas?board_id=eq.{fest}&select=id", pat)
+    check("Ideas: Pat reads the #festival ideas (positive control)", st == 200 and len(rows) == 3, str(rows))
+    # Viewers do not suggest, change, set status or delete.
+    st, _ = call("POST", "/ideas", pat, {"board_id": fest, "title": "pwned"})
+    st2, _ = call("POST", "/ideas", vic, {"board_id": fest, "title": "pwned"})
+    check("Ideas: Pat and Vic (viewers) cannot suggest in #festival", refused(st) and refused(st2), f"{st} {st2}")
+    st, rows = call("PATCH", f"/ideas?id=eq.{f1}", pat, {"title": "pwned"})
+    st2, rows2 = call("PATCH", f"/ideas?id=eq.{f1}", pat, {"status": "declined"})
+    st3, rows3 = call("DELETE", f"/ideas?id=eq.{f1}", pat)
+    check("Ideas: Pat cannot change an idea, its status, or delete it", rows == [] and rows2 == [] and rows3 == []
+          and oq(f"select title || '/' || status from weft.ideas where id = '{f1}'") == "Water refill point by the main stage/new", f"{st} {st2} {st3}")
+    st, rows = call("PATCH", f"/ideas?id=eq.{oi}", vic, {"status": "done"})
+    st2, rows2 = call("DELETE", f"/ideas?board_id=eq.{org}", vic)
+    check("Ideas: Vic changes and deletes nothing in Organizers", rows == [] and rows2 == [] and oq(f"select count(*) || status from weft.ideas where board_id = '{org}' group by status") == "1new", f"{st} {st2}")
+    # Votes: every member, viewers included, only for themselves, once.
+    st, rows = call("POST", "/idea_votes", pat, {"idea_id": f1})
+    check("Ideas: Pat (viewer) votes for a #festival idea (positive control), voter set by the database", st == 201 and rows[0]["voter_id"] == P, f"{st} {rows}")
+    st, _ = call("POST", "/idea_votes", pat, {"idea_id": f1})
+    check("Ideas: one vote per person per idea", st == 409, str(st))
+    st, _ = call("POST", "/idea_votes", pat, {"idea_id": f2, "voter_id": V})
+    check("Ideas: a vote cannot be cast for someone else", refused(st) and oq(f"select count(*) from weft.idea_votes where voter_id = '{V}'") == "0", str(st))
+    st, _ = call("POST", "/idea_votes", olive, {"idea_id": f1})
+    st2, _ = call("POST", "/idea_votes", vic, {"idea_id": f1})
+    st3, _ = call("POST", "/idea_votes", alex, {"idea_id": f2})
+    check("Ideas: Olive votes for her own idea, Vic and Alex vote too (positive control)", st == 201 and st2 == 201 and st3 == 201, f"{st} {st2} {st3}")
+    st, rows = call("POST", "/idea_votes", pat, {"idea_id": oi})
+    check("Ideas: Pat cannot vote for an Organizers idea, and is told nothing about it", refused(st) and "closed" not in json.dumps(rows)
+          and oq(f"select count(*) from weft.idea_votes where idea_id = '{oi}'") == "0", f"{st} {rows}")
+    st, rows = call("DELETE", f"/idea_votes?idea_id=eq.{f1}&voter_id=eq.{O}", pat)
+    check("Ideas: Pat cannot take back Olive's vote", rows == [] and oq(f"select count(*) from weft.idea_votes where idea_id = '{f1}'") == "3", str(st))
+    st, _ = call("PATCH", f"/idea_votes?idea_id=eq.{f1}", pat, {"idea_id": f2})
+    check("Ideas: a vote cannot be moved to another idea", refused(st), str(st))
+    # Changing text: only your own, owners included.
+    st, rows = call("PATCH", f"/ideas?id=eq.{f2}", olive, {"title": "rewritten by Olive"})
+    check("Ideas: Olive cannot reword Alex's idea, and is told why", st == 403 and "only the person who suggested" in json.dumps(rows)
+          and oq(f"select title from weft.ideas where id = '{f2}'") == "Quiet tent for families", f"{st} {rows}")
+    st, rows = call("PATCH", f"/ideas?id=eq.{f1}", alex, {"details": "rewritten by Alex"})
+    check("Ideas: even an owner cannot reword someone else's idea", st == 403, f"{st} {rows}")
+    st, rows = call("PATCH", f"/ideas?id=eq.{f1}", olive, {"details": "Next to the first aid tent."})
+    check("Ideas: Olive edits her own idea (positive control)", st == 200 and rows and rows[0]["details"] == "Next to the first aid tent.", f"{st} {rows}")
+    # Status: owners only.
+    st, rows = call("PATCH", f"/ideas?id=eq.{f1}", olive, {"status": "planned"})
+    check("Ideas: an editor, even the one who suggested it, cannot change the status, and is told why", st == 403 and "owner of the space" in json.dumps(rows)
+          and oq(f"select status from weft.ideas where id = '{f1}'") == "new", f"{st} {rows}")
+    st, rows = call("PATCH", f"/ideas?id=eq.{f1}", alex, {"status": "planned"})
+    check("Ideas: an owner (Alex) marks an idea planned (positive control)", st == 200 and rows and rows[0]["status"] == "planned", f"{st} {rows}")
+    st, rows = call("PATCH", f"/ideas?id=eq.{f3}", alex, {"status": "maybe"})
+    check("Ideas: only the four statuses exist", st == 400 and oq(f"select status from weft.ideas where id = '{f3}'") == "new", f"{st} {rows}")
+    st, rows = call("PATCH", f"/ideas?id=eq.{f3}", alex, {"status": "declined"})
+    check("Ideas: an owner declines an idea (positive control)", st == 200 and rows and rows[0]["status"] == "declined", f"{st} {rows}")
+    # Voting is closed on done and declined ideas (told only to members); votes there are kept.
+    st, rows = call("POST", "/idea_votes", pat, {"idea_id": f3})
+    check("Ideas: nobody votes for a declined idea, and the database says why", st == 403 and "voting is closed" in json.dumps(rows), f"{st} {rows}")
+    st, _ = call("POST", "/idea_votes", pat, {"idea_id": f2})
+    st2, _ = call("PATCH", f"/ideas?id=eq.{f2}", alex, {"status": "done"})
+    check("Ideas: an idea marked done keeps its votes", st == 201 and st2 == 200 and oq(f"select count(*) from weft.idea_votes where idea_id = '{f2}'") == "2", f"{st} {st2}")
+    st, _ = call("DELETE", f"/idea_votes?idea_id=eq.{f2}&voter_id=eq.{P}", pat)
+    check("Ideas: a vote can still be taken back after it is done (positive control)", st in (200, 204) and oq(f"select count(*) from weft.idea_votes where idea_id = '{f2}'") == "1", str(st))
+    st, _ = call("PATCH", f"/ideas?id=eq.{oi}", alex, {"status": "done"})
+    st2, rows2 = call("POST", "/idea_votes", vic, {"idea_id": oi})
+    check("Ideas: an outsider gets the plain refusal on a closed idea too, not the reason", st == 200 and refused(st2) and "closed" not in json.dumps(rows2), f"{st} {st2} {rows2}")
+    call("PATCH", f"/ideas?id=eq.{oi}", alex, {"status": "new"})
+    # Bad input.
+    for bad, why in (({"board_id": fest, "title": "   "}, "an empty idea"), ({"board_id": fest, "title": "x" * 201}, "an idea over 200"),
+                     ({"board_id": fest, "title": "t", "details": "x" * 4001}, "details over 4000")):
+        st, _ = call("POST", "/ideas", olive, bad)
+        check(f"Ideas: {why} is refused", st == 400, str(st))
+    st, rows = call("POST", "/ideas", olive, {"board_id": fest, "title": "two\n  lines"})
+    check("Ideas: an idea typed on two lines is kept on one", st == 201 and rows[0]["title"] == "two lines", f"{st} {rows}")
+    if st == 201:
+        call("DELETE", f"/ideas?id=eq.{rows[0]['id']}", olive)
+    # Authorship and links cannot be forged or moved.
+    st, _ = call("POST", "/ideas", olive, {"board_id": fest, "title": "forged", "created_by": A})
+    check("Ideas: authorship cannot be forged", refused(st), str(st))
+    st, _ = call("PATCH", f"/ideas?id=eq.{f1}", olive, {"created_by": A})
+    st2, _ = call("PATCH", f"/ideas?id=eq.{f1}", olive, {"created_at": "2020-01-01T00:00:00Z"})
+    check("Ideas: nor changed afterwards, nor the time", refused(st) and refused(st2) and oq(f"select created_by from weft.ideas where id = '{f1}'") == O, f"{st} {st2}")
+    st, _ = call("PATCH", f"/ideas?id=eq.{f1}", olive, {"board_id": org})
+    check("Ideas: an idea never jumps boards", refused(st) and oq(f"select board_id from weft.ideas where id = '{f1}'") == fest, str(st))
+    st, _ = call("POST", "/ideas", olive, {"board_id": uid("item", "porches"), "title": "on a table"})
+    check("Ideas: an idea cannot hang off an item that is not an ideas board", refused(st), str(st))
+    # Weft can answer from it: the summary has open ideas first, with status, votes and names.
+    st, rows = call("GET", f"/items?id=eq.{fest}&select=body_text", pat)
+    body = (rows[0]["body_text"] if rows else "") or ""
+    i1, i2, i3 = body.find("Idea: Water refill point by the main stage (planned, 3 votes, suggested by Olive"), body.find("Idea: Quiet tent for families (done, 1 vote, suggested by Alex"), body.find("Idea: Pre-planned (declined, 0 votes")
+    check("Ideas: the board summary lists planned, then done, then declined, with votes and who, and Pat reads it",
+          body.startswith("Ideas, 3 ideas") and 0 <= i1 < i2 < i3 and "first aid tent" in body, body)
+    st, rows = call("POST", "/rpc/search", olive, {"p_q": "ORG-IDEA-SECRET"})
+    st2, rows2 = call("POST", "/rpc/search", pat, {"p_q": "ORG-IDEA-SECRET"})
+    check("Ideas: search finds the board by an idea's words for Olive, not for Pat", any(r["id"] == org and r["kind"] == "ideaboard" for r in rows or []) and rows2 == [], f"{rows} {rows2}")
+    # Channel scope and the assistant.
+    scoped = mint("u-org", scope="festival")
+    st, rows = call("GET", f"/ideas?board_id=in.({org},{fest})&select=board_id", scoped)
+    check("Ideas: a #festival-scoped token sees only #festival ideas", rows and {r["board_id"] for r in rows} == {fest}, str(rows))
+    st, _ = call("POST", "/ideas", scoped, {"board_id": org, "title": "scoped"})
+    st2, _ = call("POST", "/idea_votes", scoped, {"idea_id": oi})
+    check("Ideas: nor suggests or votes in Organizers", refused(st) and refused(st2), f"{st} {st2}")
+    helper = mint("u-org", assistant=True)
+    st, rows = call("GET", f"/ideas?board_id=eq.{org}&select=id", helper)
+    check("Ideas: the assistant (for Olive) can read Organizers ideas (positive control)", st == 200 and len(rows) == 1, str(rows))
+    st, _ = call("DELETE", f"/ideas?id=eq.{oi}", helper)
+    st2, _ = call("POST", "/ideas", helper, {"board_id": org, "title": "by the assistant"})
+    st3, _ = call("POST", "/idea_votes", helper, {"idea_id": oi})
+    st4, _ = call("PATCH", f"/ideas?id=eq.{oi}", helper, {"status": "done"})
+    check("Ideas: the assistant cannot delete, suggest, vote or change the status", refused(st) and refused(st2) and refused(st3) and refused(st4)
+          and oq(f"select count(*) || status from weft.ideas where board_id = '{org}' group by status") == "1new", f"{st} {st2} {st3} {st4}")
+    # Audit under the board's space.
+    st, rows = call("GET", f"/audit?row_id=eq.{f1}&select=op", vic)
+    check("Ideas: #festival changes are in the audit log, readable by its members (positive control)", len(rows or []) >= 1, str(rows))
+    st, rows = call("GET", f"/audit?row_id=eq.{oi}&select=op", olive)
+    st2, rows2 = call("GET", f"/audit?row_id=eq.{oi}&select=op", pat)
+    check("Ideas: an Organizers change is in the audit log for Organizers members only", len(rows or []) >= 1 and rows2 == [], f"{rows} {rows2}")
+    # Withdrawing, and deletes.
+    st, _ = call("DELETE", f"/idea_votes?idea_id=eq.{f1}&voter_id=eq.{P}", pat)
+    check("Ideas: Pat takes back her own vote (positive control)", st in (200, 204) and oq(f"select count(*) from weft.idea_votes where idea_id = '{f1}' and voter_id = '{P}'") == "0", str(st))
+    st, _ = call("DELETE", f"/ideas?id=eq.{f2}", olive)
+    check("Ideas: an editor deletes someone else's idea (tidying up), with its votes", st in (200, 204)
+          and oq(f"select count(*) from weft.ideas where id = '{f2}'") == "0" and oq(f"select count(*) from weft.idea_votes where idea_id = '{f2}'") == "0", str(st))
+    st, rows = call("GET", f"/items?id=eq.{fest}&select=body_text", olive)
+    body = (rows[0]["body_text"] if rows else "") or ""
+    check("Ideas: the summary follows the delete and the withdrawn vote", "Quiet tent" not in body and "(planned, 2 votes" in body, body)
+    # Moves follow the space: the board moves and everything on it goes with it.
+    st, _ = call("PATCH", f"/items?id=eq.{fest}", olive, {"space_id": SID["volunteers"]})
+    st2, rows = call("GET", f"/ideas?board_id=eq.{fest}&select=id", pat)
+    check("Ideas: a board moved to Volunteers takes its ideas out of Pat's sight", st == 200 and rows == [], f"{st} {rows}")
+    st, _ = call("POST", "/idea_votes", pat, {"idea_id": f1})
+    check("Ideas: nor can Pat vote there any more", refused(st), str(st))
+    st, _ = call("POST", "/ideas", vic, {"board_id": fest, "title": "Vic, now an editor here"})
+    check("Ideas: Vic (editor in Volunteers) can suggest on the moved board (positive control)", st == 201, str(st))
+    st, _ = call("PATCH", f"/items?id=eq.{org}", olive, {"space_id": SID["festival"]})
+    st2, rows = call("GET", f"/ideas?board_id=eq.{org}&select=id", pat)
+    st3, _ = call("POST", "/idea_votes", pat, {"idea_id": oi})
+    check("Ideas: a board moved into #festival becomes readable to Pat, who may now vote but not suggest", st == 200 and len(rows) == 1 and st3 == 201
+          and refused(call("POST", "/ideas", pat, {"board_id": org, "title": "x"})[0]), f"{st} {rows} {st3}")
+    st, _ = call("DELETE", f"/items?id=eq.{org}", pat)
+    check("Ideas: Pat cannot delete the board", oq(f"select count(*) from weft.items where id = '{org}'") == "1", str(st))
+    st, _ = call("DELETE", f"/items?id=eq.{org}", olive)
+    check("Ideas: deleting a board deletes its ideas and votes", st in (200, 204)
+          and oq(f"select count(*) from weft.ideas where board_id = '{org}'") == "0" and oq(f"select count(*) from weft.idea_votes where idea_id = '{oi}'") == "0", str(st))
+    call("DELETE", f"/items?id=eq.{fest}", olive)
+
+
 def checklists():
     pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
     O, A = uid("user", "u-org"), uid("user", "u-alex")
@@ -3571,6 +3749,7 @@ if __name__ == "__main__":
     glossary()
     decisions()
     qa()
+    ideas()
     checklists()
     expenses()
     inventory()
