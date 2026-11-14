@@ -222,7 +222,7 @@ async function rest(ctx, path, { method = 'GET', body, prefer } = {}) {
 const fmtTime = (t) => (t ? new Date(t).toISOString().replace(/:00\.000Z$/, 'Z').replace('.000Z', 'Z') : null);
 const enc = encodeURIComponent;
 const VIEW = { document: ['documents', 'doc'], wiki: ['wiki', 'page'], whiteboard: ['whiteboard', 'board'], table: ['sheets', 'sheet'],
-  tasklist: ['tasks', 'list'], poll: ['polls', 'poll'], linklist: ['links', 'links'], meeting: ['meetings', 'meeting'], file: ['files', 'file'] };
+  tasklist: ['tasks', 'list'], poll: ['polls', 'poll'], linklist: ['links', 'links'], addressbook: ['contacts', 'book'], meeting: ['meetings', 'meeting'], file: ['files', 'file'] };
 function linkTo(base, kind, id) {
   if (kind === 'event') return `${base}/#tabs=calendar&active=calendar&event=${id}`;
   if (kind === 'message') return null;
@@ -334,10 +334,10 @@ function buildServer(ctx) {
 
   tool('list_items', {
     title: 'List documents and other items', annotations: READ,
-    description: 'Documents, wiki pages, whiteboards, tables, task lists, polls, link lists, meetings and files, most recently changed first.',
+    description: 'Documents, wiki pages, whiteboards, tables, task lists, polls, link lists, address books, meetings and files, most recently changed first.',
   }, {
     channel: chan.optional(),
-    kind: z.enum(['document', 'wiki', 'whiteboard', 'table', 'tasklist', 'poll', 'linklist', 'meeting', 'file']).optional(),
+    kind: z.enum(['document', 'wiki', 'whiteboard', 'table', 'tasklist', 'poll', 'linklist', 'addressbook', 'meeting', 'file']).optional(),
     limit: z.number().int().min(1).max(200).default(50),
   }, async ({ channel, kind, limit }) => {
     let q = `/items?select=id,kind,title,parent_id,updated_at,space:spaces(name)&order=updated_at.desc&limit=${limit}`;

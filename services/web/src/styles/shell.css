@@ -403,6 +403,15 @@
 .link-form label { font-size: var(--text-sm); color: var(--color-ink-2); }
 .link-form-actions { grid-column: 2; display: flex; gap: var(--space-xs); }
 @media (max-width: 720px) { .link-form { grid-template-columns: minmax(0, 1fr); } .link-form-actions { grid-column: 1; } }
+/* Contacts: a shared address book (uses the Links layout, plus a name badge and the ways to reach someone). */
+.contact-head { display: flex; align-items: center; gap: var(--space-xs); min-width: 0; }
+.contact-badge { flex: none; display: grid; place-items: center; width: 2.25rem; height: 2.25rem; border-radius: var(--radius-pill);
+  background: var(--p-mon); color: var(--color-ink); font-size: var(--text-sm); font-weight: 600; }
+.contact-who { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-3xs) var(--space-xs); min-width: 0; }
+.contact-name { font-size: var(--text-md); font-weight: 600; color: var(--color-ink); overflow-wrap: anywhere; }
+.contact-ways { margin: 0; display: flex; flex-wrap: wrap; gap: var(--space-2xs) var(--space-md); font-size: var(--text-sm); }
+.contact-way { color: var(--color-accent-deep); overflow-wrap: anywhere; text-underline-offset: 3px; }
+.contact-way:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; border-radius: 3px; }
 /* Announcements: notices pinned to a channel, in the chat header, the app and the Home widget. */
 .pinned { display: grid; gap: var(--space-2xs); margin-top: var(--space-xs); }
 .pinned-note { display: grid; gap: 2px; padding: var(--space-xs) var(--space-sm); border-radius: var(--radius-card);
