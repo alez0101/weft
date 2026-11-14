@@ -8,6 +8,7 @@ import Announcements from './Announcements.jsx';
 import Rsvps from './Rsvps.jsx';
 import Bookings from './Bookings.jsx';
 import Shifts from './Shifts.jsx';
+import Profiles from './Profiles.jsx';
 import Widgets from './Home.jsx';
 import ModelKey from './ModelKey.jsx';
 import Connect, { CONNECTING, ConnectedApps } from './Connect.jsx';
@@ -29,6 +30,7 @@ const APPS = [
   { id: 'forms', label: 'Forms', tint: '--p-wed', real: true, glyph: <><rect x="8" y="6" width="24" height="28" rx="2" /><path d="M13 13h14M13 18h14" /><rect x="13" y="23" width="4" height="4" rx="1" /><path d="M20 25h7M13 31h9" /></> },
   { id: 'links', label: 'Links', tint: '--p-fri', real: true, glyph: <><path d="M17.5 22.5a6 6 0 0 0 8.5 0l5-5a6 6 0 0 0-8.5-8.5l-2.5 2.5" /><path d="M22.5 17.5a6 6 0 0 0-8.5 0l-5 5a6 6 0 0 0 8.5 8.5l2.5-2.5" /></> },
   { id: 'contacts', label: 'Contacts', tint: '--p-mon', real: true, glyph: <><rect x="8" y="6" width="23" height="28" rx="2" /><path d="M31 11h3M31 18h3M31 25h3" /><circle cx="19.5" cy="17" r="4.5" /><path d="M12.5 29c1-4 4-6 7-6s6 2 7 6" /></> },
+  { id: 'profiles', label: 'Profiles', tint: '--p-thu', real: true, glyph: <><rect x="6" y="9" width="28" height="22" rx="2" /><circle cx="15" cy="18" r="3.5" /><path d="M9.5 27c1-3 3-4.5 5.5-4.5s4.5 1.5 5.5 4.5M23 17h7M23 21h7M23 25h4" /></> },
   { id: 'meetings', label: 'Meetings', tint: '--p-sat', real: true, glyph: <><rect x="9" y="8" width="22" height="26" rx="2" /><path d="M15 5.5h10v5H15zM14 17h12M14 22h12M14 27h6" /><path d="M23 27.5l1.8 1.8L28 26" /></> },
   { id: 'announcements', label: 'Announcements', tint: '--p-mon', real: true, glyph: <><path d="M7 17v7l17 7V10z" /><path d="M24 15h3a5 5 0 0 1 0 10h-3M11 25.5l2 7.5h4l-1.8-6" /></> },
   { id: 'files', label: 'Files', tint: '--p-sat', real: true, glyph: <path d="M6 12h10l3 3h15v17H6z" /> },
@@ -349,7 +351,7 @@ export default function App() {
                   </a></li>
                 ))}
               </ul>
-              <Widgets me={me} spaces={spaces} unread={unread} notice={notice} onOpenItem={openItem} onOpenEvent={openEvent} onOpenNotices={openNotices} onOpenBooking={openBooking} onOpenShifts={() => openTab('shifts')}
+              <Widgets me={me} spaces={spaces} unread={unread} notice={notice} onOpenItem={openItem} onOpenEvent={openEvent} onOpenNotices={openNotices} onOpenBooking={openBooking} onOpenShifts={() => openTab('shifts')} onOpenProfiles={() => openTab('profiles')}
                 onOpenConvo={(convo) => setUi((u) => ({ ...u, convo, rail: u.rail === 'collapsed' ? 'normal' : u.rail }))} />
             </div>
           ) : ui.active === 'settings' ? (isAdmin ? <AdminPanel me={me} info={mode} /> : null)
@@ -367,6 +369,7 @@ export default function App() {
             : ui.active === 'announcements' ? <Announcements me={me} spaces={spaces} members={members} notice={notice} openId={ui.notices} setOpenId={(notices) => setUi((u) => ({ ...u, notices }))} />
             : ui.active === 'files' ? <Docs key="files" kind="file" me={me} members={members} notice={notice} openId={ui.file} setOpenId={(file) => setUi((u) => ({ ...u, file }))} />
             : ui.active === 'bookings' ? <Bookings me={me} spaces={spaces} members={members} notice={notice} openId={ui.booking} setOpenId={(booking) => setUi((u) => ({ ...u, booking }))} />
+            : ui.active === 'profiles' ? <Profiles me={me} spaces={spaces} members={members} notice={notice} />
             : ui.active === 'shifts' ? <Shifts me={me} spaces={spaces} members={members} notice={notice} />
             : ui.active === 'rsvps' ? <Rsvps me={me} notice={notice} onOpenEvent={openEvent} />
             : ui.active === 'calendar' ? <Calendar me={me} members={members} notice={notice} onOpenItem={openItem} onOpenBooking={openBooking} focusId={ui.event} setFocusId={(event) => setUi((u) => ({ ...u, event }))} />

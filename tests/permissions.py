@@ -1149,6 +1149,119 @@ def forms():
 TEST_SIGNIN = os.environ.get("WEFT_SIGNIN", "http://127.0.0.1:3211/auth/test-login")
 
 
+def profiles():
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, V, O, A = (uid("user", k) for k in ("u-pub", "u-vol", "u-org", "u-alex"))
+    L, LS = uid("user", "u-lone"), uid("space", "personal-u-lone")
+    oq = lambda sql: owner_sql(sql)
+    up = "resolution=merge-duplicates,return=representation"
+    prof = lambda who: oq(f"select coalesce(role, '') || '|' || array_to_string(skills, ',') from weft.profiles where user_id = '{who}'")
+    # Your own profile: anyone writes theirs, whatever their role in any space.
+    st, rows = call("POST", "/profiles?on_conflict=user_id", olive, {"role": "  Festival lead ", "skills": [" First Aid ", "first aid", "Van   licence", ""],
+                                                                     "reach": " Message me in Weft ", "availability": "Weekday evenings"}, prefer=up)
+    check("Profiles: Olive saves her own profile (positive control), user_id set by the database",
+          st in (200, 201) and rows and rows[0]["user_id"] == O, f"{st} {rows}")
+    check("Profiles: text is trimmed and skills tidied (lowercase, spaces collapsed, no repeats or blanks)",
+          rows and rows[0]["role"] == "Festival lead" and rows[0]["skills"] == ["first aid", "van licence"] and rows[0]["reach"] == "Message me in Weft", str(rows))
+    st, rows = call("POST", "/profiles?on_conflict=user_id", olive, {"role": "Festival lead", "skills": ["first aid", "van licence", "PROFILE-SECRET-SKILL"],
+                                                                     "reach": "Message me in Weft", "availability": "Weekday evenings"}, prefer=up)
+    check("Profiles: saving again updates the same row", st in (200, 201) and oq(f"select count(*) from weft.profiles where user_id = '{O}'") == "1"
+          and "profile-secret-skill" in prof(O), f"{st} {rows}")
+    st, rows = call("POST", "/profiles?on_conflict=user_id", pat, {"role": "Volunteer", "skills": ["spanish"]}, prefer=up)
+    check("Profiles: Pat (a viewer everywhere) saves her own profile too (positive control)", st in (200, 201) and rows and rows[0]["user_id"] == P, f"{st} {rows}")
+    # Forging the owner.
+    st, _ = call("POST", "/profiles", pat, {"user_id": O, "role": "pwned"})
+    st2, _ = call("POST", "/profiles", vic, {"user_id": V, "role": "explicit own id"})
+    check("Profiles: nobody writes a profile with a user_id, not even their own (it is never granted)", refused(st) and refused(st2) and prof(O).startswith("Festival lead|"), f"{st} {st2}")
+    st, _ = call("PATCH", f"/profiles?user_id=eq.{P}", pat, {"user_id": V})
+    st2, _ = call("PATCH", f"/profiles?user_id=eq.{P}", pat, {"updated_at": "2020-01-01T00:00:00Z"})
+    check("Profiles: nor can a profile be handed to someone else or its time set", refused(st) and refused(st2) and oq(f"select count(*) from weft.profiles where user_id = '{V}'") == "0", f"{st} {st2}")
+    # Only the person changes it: not a co-member, not an owner of every space, not an admin.
+    for who, tok in (("Pat", pat), ("Vic", vic), ("Alex (admin and owner)", alex)):
+        st, rows = call("PATCH", f"/profiles?user_id=eq.{O}", tok, {"role": "pwned"})
+        st2, rows2 = call("DELETE", f"/profiles?user_id=eq.{O}", tok)
+        check(f"Profiles: {who} cannot change or clear Olive's profile", rows == [] and rows2 == [] and prof(O).startswith("Festival lead|"), f"{st} {rows} {st2} {rows2}")
+    # Reading: people who share a space.
+    st, rows = call("GET", f"/profiles?user_id=eq.{O}&select=role,skills", pat)
+    check("Profiles: Pat reads Olive's profile (they share #festival; positive control)", st == 200 and len(rows) == 1 and "profile-secret-skill" in rows[0]["skills"], str(rows))
+    st, rows = call("GET", "/users?id=eq." + P + "&select=display_name,profile:profiles(role)", olive)
+    check("Profiles: Olive reads Pat's profile through users (as the app does)", st == 200 and rows and (rows[0]["profile"] or {}).get("role") == "Volunteer", str(rows))
+    # Someone who shares no space: a fresh account outside every channel (not even help).
+    oq(f"insert into weft.users (id, email, display_name) values ('{L}', 'lone.profile@example.com', 'Lone') on conflict do nothing")
+    oq(f"insert into weft.spaces (id, kind, name, created_by) values ('{LS}', 'personal', 'Personal', '{L}') on conflict do nothing")
+    oq(f"insert into weft.members (space_id, user_id, role) values ('{LS}', '{L}', 'owner') on conflict do nothing")
+    lone = mint("u-lone")
+    try:
+        st, rows = call("POST", "/profiles?on_conflict=user_id", lone, {"role": "LONE-ROLE-SECRET", "skills": ["welding"]}, prefer=up)
+        check("Profiles: an account in no channel still saves its own profile", st in (200, 201), f"{st} {rows}")
+        st, rows = call("GET", "/profiles?select=user_id", lone)
+        check("Profiles: it sees only its own profile, nobody else's", st == 200 and [r["user_id"] for r in rows] == [L], str(rows))
+        hidden = []
+        for who, tok in (("Olive", olive), ("Pat", pat), ("Alex", alex)):
+            st, rows = call("GET", f"/profiles?or=(user_id.eq.{L},role.eq.LONE-ROLE-SECRET,skills.cs.{{welding}})&select=user_id", tok)
+            hidden.append(st == 200 and rows == [])
+        check("Profiles: nobody who shares no space with it sees its profile, by id, role or skill (Olive, Pat, Alex)", all(hidden), str(hidden))
+        oq(f"insert into weft.members (space_id, user_id, role) values ('{SID['volunteers']}', '{L}', 'viewer')")
+        st, rows = call("GET", f"/profiles?user_id=eq.{L}&select=role", olive)
+        st2, rows2 = call("GET", f"/profiles?user_id=eq.{L}&select=role", pat)
+        st3, rows3 = call("GET", f"/profiles?user_id=eq.{O}&select=role", lone)
+        check("Profiles: once it joins Volunteers, Olive (in Volunteers) sees it and it sees Olive; Pat (not in Volunteers) still does not",
+              len(rows or []) == 1 and rows2 == [] and len(rows3 or []) == 1, f"{rows} {rows2} {rows3}")
+        oq(f"delete from weft.members where space_id = '{SID['volunteers']}' and user_id = '{L}'")
+        st, rows = call("GET", f"/profiles?user_id=eq.{L}&select=role", olive)
+        check("Profiles: after it leaves Volunteers, Olive no longer sees it", st == 200 and rows == [], str(rows))
+    finally:
+        oq(f"delete from weft.spaces where id = '{LS}'")
+        oq(f"delete from weft.users where id = '{L}'")
+    check("Profiles: deleting an account deletes its profile", oq(f"select count(*) from weft.profiles where user_id = '{L}'") == "0")
+    # A channel-scoped token: only that channel's members, and no writes.
+    scoped = mint("u-org", scope="organizers")
+    st, rows = call("GET", "/profiles?select=user_id", scoped)
+    check("Profiles: an Organizers-scoped token sees only Organizers members' profiles (Olive, not Pat)",
+          st == 200 and O in {r["user_id"] for r in rows} and P not in {r["user_id"] for r in rows}, str(rows))
+    pscoped = mint("u-pub", scope="festival")
+    st, rows = call("GET", f"/profiles?user_id=eq.{O}&select=user_id", pscoped)
+    check("Profiles: a #festival-scoped token for Pat still sees Olive (both in #festival; positive control)", st == 200 and len(rows) == 1, str(rows))
+    st, rows = call("PATCH", f"/profiles?user_id=eq.{O}", scoped, {"role": "via a scoped token"})
+    st2, _ = call("POST", "/profiles?on_conflict=user_id", pscoped, {"role": "via a scoped token"}, prefer=up)
+    st3, rows3 = call("DELETE", f"/profiles?user_id=eq.{O}", scoped)
+    check("Profiles: a channel-scoped token cannot change, save or clear even its own person's profile",
+          rows == [] and refused(st2) and rows3 == [] and prof(O).startswith("Festival lead|") and prof(P).startswith("Volunteer|"), f"{st} {st2} {st3}")
+    # The assistant reads, never writes.
+    helper = mint("u-org", assistant=True)
+    st, rows = call("GET", f"/profiles?user_id=eq.{P}&select=role", helper)
+    check("Profiles: the assistant (for Olive) can read Pat's profile (positive control)", st == 200 and len(rows) == 1, str(rows))
+    st, _ = call("DELETE", f"/profiles?user_id=eq.{O}", helper)
+    st2, _ = call("PATCH", f"/profiles?user_id=eq.{O}", helper, {"role": "by the assistant"})
+    st3, _ = call("POST", "/profiles", helper, {"role": "by the assistant"})
+    check("Profiles: the assistant cannot delete, change or add a profile", refused(st) and refused(st2) and refused(st3) and prof(O).startswith("Festival lead|"), f"{st} {st2} {st3}")
+    # A disabled account reads and writes nothing.
+    oq(f"update weft.users set disabled = true where id = '{P}'")
+    try:
+        st, rows = call("GET", "/profiles?select=user_id", pat)
+        st2, rows2 = call("PATCH", f"/profiles?user_id=eq.{P}", pat, {"role": "while disabled"})
+        check("Profiles: a disabled account reads no profiles and cannot change its own", rows == [] and rows2 == [] and prof(P).startswith("Volunteer|"), f"{st} {rows} {st2}")
+    finally:
+        oq(f"update weft.users set disabled = false where id = '{P}'")
+    # Limits.
+    bad = [{"skills": [f"s{i}" for i in range(13)]}, {"skills": ["x" * 41]}, {"role": "r" * 81}, {"reach": "r" * 301}, {"availability": "a" * 301}]
+    sts = [call("POST", "/profiles?on_conflict=user_id", vic, b, prefer=up)[0] for b in bad]
+    check("Profiles: 13 skills, a skill over 40 characters, a role over 80 or reach or availability over 300 are refused", all(x == 400 for x in sts), str(sts))
+    st, rows = call("POST", "/profiles?on_conflict=user_id", vic, {"skills": [f"s{i}" for i in range(12)] + ["s1", " S2 "]}, prefer=up)
+    check("Profiles: 12 skills plus repeats are fine (repeats are dropped before counting)", st in (200, 201) and rows and len(rows[0]["skills"]) == 12, f"{st} {rows}")
+    # Audit: under the person's personal space, so only they read the history.
+    call("PATCH", f"/profiles?user_id=eq.{O}", olive, {"availability": "Weekends only"})
+    st, rows = call("GET", f"/audit?table_name=eq.profiles&row_id=eq.{O}&select=op,space_id", olive)
+    st2, rows2 = call("GET", f"/audit?table_name=eq.profiles&row_id=eq.{O}&select=op", alex)
+    st3, rows3 = call("GET", f"/audit?table_name=eq.profiles&row_id=eq.{O}&select=op", pat)
+    check("Profiles: a change is audited under Olive's personal space, readable by her (positive control) and not by Alex or Pat",
+          len(rows or []) >= 1 and all(r["space_id"] == SID["personal-u-org"] for r in rows) and rows2 == [] and rows3 == [], f"{rows} {rows2} {rows3}")
+    # Clearing your own profile.
+    st, _ = call("DELETE", f"/profiles?user_id=eq.{V}", vic)
+    check("Profiles: Vic clears his own profile (positive control)", st in (200, 204) and oq(f"select count(*) from weft.profiles where user_id = '{V}'") == "0", str(st))
+    oq(f"delete from weft.profiles where user_id in ('{O}', '{P}')")
+
+
 def test_signin(email):
     req = urllib.request.Request(TEST_SIGNIN, method="POST", data=json.dumps({"email": email}).encode(),
                                  headers={"Content-Type": "application/json"})
@@ -2063,6 +2176,7 @@ if __name__ == "__main__":
     rsvps()
     bookings()
     shifts()
+    profiles()
     people()
     trees()
     prefs_and_files()

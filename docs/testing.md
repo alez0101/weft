@@ -25,7 +25,7 @@ where `npm install playwright` was done) and target the test stack's 3211 by def
 
 ## Suites
 
-- `tests/permissions.py`: row-level security, every user, table and action, accounts, channels, the wikis, search, tasks, polls, forms, links, announcements, boards, meetings, RSVPs, bookings, shifts, contacts, plus the teeth check (641).
+- `tests/permissions.py`: row-level security, every user, table and action, accounts, channels, the wikis, search, tasks, polls, forms, links, announcements, boards, meetings, RSVPs, bookings, shifts, contacts, profiles, plus the teeth check (668).
 - `services/svc/test/live.mjs`: live notices reach members only (25).
 - `services/svc/test/accounts.mjs`: Weft accounts: links, passwords, lockouts, sessions (43).
 - `services/assistant/test/assistant.mjs`: retrieval scoping, citations, settings, failover, proposals, meaning search, files, personal keys, search by meaning (109).
