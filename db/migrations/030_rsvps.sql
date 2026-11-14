@@ -80,13 +80,15 @@ drop trigger if exists rsvps_guard on weft.rsvps;
 create trigger rsvps_guard before insert or update or delete on weft.rsvps
   for each row execute function weft_private.rsvp_guard();
 
--- After a change: announce it (ids only) and keep the old row in the audit log.
+-- After a change: announce it (ids only) and keep the old row in the audit log. While an event is being
+-- moved (rsvp_event_moved below), the answers it drops are recorded and announced under the space it is
+-- moving FROM: they belonged there, and the new space's members must not learn who had answered.
 create or replace function weft_private.rsvp_changed() returns trigger
 language plpgsql security definer set search_path = weft, weft_private, pg_temp as $$
 declare r record; v_space uuid;
 begin
   r := coalesce(new, old);
-  v_space := weft_private.event_space(r.event_id);
+  v_space := coalesce(nullif(current_setting('weft.rsvp_moving_from', true), '')::uuid, weft_private.event_space(r.event_id));
   if v_space is null then return null; end if;   -- the event itself is being deleted
   perform pg_notify('weft_events', json_build_object('t', 'rsvps', 'op', tg_op, 'id', r.event_id, 'space', v_space,
                                                      'event', r.event_id, 'user', r.user_id)::text);
@@ -105,9 +107,11 @@ create trigger rsvps_changed after insert or update or delete on weft.rsvps
 create or replace function weft_private.rsvp_event_moved() returns trigger
 language plpgsql security definer set search_path = weft, weft_private, pg_temp as $$
 begin
+  perform set_config('weft.rsvp_moving_from', old.space_id::text, true);   -- see rsvp_changed
   delete from weft.rsvps r
    where r.event_id = new.id
      and not exists (select 1 from weft.members m where m.space_id = new.space_id and m.user_id = r.user_id);
+  perform set_config('weft.rsvp_moving_from', '', true);
   return null;
 end $$;
 drop trigger if exists events_rsvp_moved on weft.events;

@@ -1600,6 +1600,21 @@ def rsvps():
     call("DELETE", f"/rsvps?event_id=eq.{fest}&user_id=eq.{P}", pat)
 
 
+    # Moving an event must not leak the answers it drops into the new space (found by the independent review).
+    Q = uid("user", "u-quinn")
+    oq(f"insert into weft.users (id, email, display_name) values ('{Q}', 'quinn.org@example.com', 'Quinn Organizer') on conflict (id) do nothing")
+    oq(f"insert into weft.members (space_id, user_id, role) values ('{SID['organizers']}', '{Q}', 'viewer') on conflict do nothing")
+    mev = oq(f"insert into weft.events (space_id, title, starts_at, ends_at, created_by) values ('{SID['organizers']}', 'ORG-RSVP-MOVE planning', now() + interval '5 days', now() + interval '5 days 1 hour', '{O}') returning id").splitlines()[0]
+    st, _ = call("POST", "/rsvps", mint("u-quinn"), {"event_id": mev, "answer": "going"}, prefer="return=minimal")
+    check("RSVPs: Quinn (only in Organizers) answers an Organizers event", st in (200, 201) and mine(mev, Q) == "going", str(st))
+    call("PATCH", f"/events?id=eq.{mev}", olive, {"space_id": SID["festival"]})
+    check("RSVPs: moved to #festival, Quinn's answer (she is not in #festival) is dropped", oq(f"select space_id from weft.events where id = '{mev}'") == SID["festival"] and mine(mev, Q) == "none")
+    st, rows = call("GET", f"/audit?table_name=eq.rsvps&row_id=eq.{mev}&select=space_id,old_row", pat)
+    check("RSVPs: Pat (in #festival) cannot see the dropped answer in the audit log", st == 200 and not any(Q in str(r.get("old_row")) for r in rows), str(rows)[:200])
+    check("RSVPs: the drop is recorded under Organizers, where the answer was (positive control)",
+          oq(f"select count(*) from weft.audit where table_name = 'rsvps' and row_id = '{mev}' and space_id = '{SID['organizers']}' and old_row->>'user_id' = '{Q}'") == "1"
+          and oq(f"select count(*) from weft.audit where table_name = 'rsvps' and row_id = '{mev}' and space_id = '{SID['festival']}'") == "0")
+
 def teeth():
     """Loosen one policy on purpose and confirm the suite would catch it, then restore it."""
     owner_sql("create policy teeth_leak on weft.items for select to weft_user using (true)")
