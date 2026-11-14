@@ -506,6 +506,38 @@
 .cl-run summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2xs) var(--space-xs); cursor: pointer; list-style-position: inside; }
 .cl-run summary:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; border-radius: 3px; }
 .cl-run details[open] > summary { margin-bottom: var(--space-xs); }
+/* Expenses: who paid what (uses the Links layout and the Checklists grid), with balances and who pays whom
+   beside the list. */
+.exp-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--space-2xs) var(--space-sm); }
+.exp-title { margin: 0; font-size: var(--text-md); font-weight: 600; color: var(--color-ink); overflow-wrap: anywhere; }
+.exp-sum { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--color-ink); white-space: nowrap; }
+.exp-meta { margin: 0; font-size: var(--text-sm); color: var(--color-ink-2); overflow-wrap: anywhere; }
+.exp-meta strong { font-weight: 600; color: var(--color-ink); }
+.exp-form { align-items: start; }
+.exp-form > label, .exp-form-label { padding-top: calc((var(--ctl-h) - 1.4em) / 2); font-size: var(--text-sm); color: var(--color-ink-2); }
+.exp-form input[type="date"] { max-width: 12rem; }
+.exp-form input.exp-amount { max-width: 9rem; font-variant-numeric: tabular-nums; text-align: right; }
+.exp-form input[aria-invalid="true"] { border-color: var(--color-error); }
+.exp-form .toggle input { flex: none; min-height: 0; padding: 0; width: 1rem; height: 1rem; accent-color: var(--color-accent-deep); }
+.exp-form .toggle input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.exp-split { display: flex; flex-wrap: wrap; gap: var(--space-sm); min-height: var(--ctl-h); align-items: center; }
+.exp-people { margin: 0; padding: 0; border: 0; display: grid; gap: var(--space-3xs); min-width: 0; }
+.exp-person { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2xs) var(--space-sm); min-height: var(--ctl-h); }
+.exp-person .toggle { color: var(--color-ink); }
+.exp-left { margin: 0; font-size: var(--text-sm); color: var(--color-muted); }
+.exp-bal-list, .exp-settle { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3xs); }
+.exp-bal { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 var(--space-xs); padding: var(--space-2xs) var(--space-xs);
+  border-radius: var(--radius-input); background: var(--color-paper); border-left: 3px solid var(--color-rule); }
+.exp-bal.is-owed { border-left-color: var(--color-success); }
+.exp-bal.owes { border-left-color: var(--color-error); }
+.exp-bal-name { font-size: var(--text-sm); font-weight: 600; color: var(--color-ink); overflow-wrap: anywhere; }
+.exp-bal-net { font-size: var(--text-sm); color: var(--color-ink); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+.exp-bal-sub { grid-column: 1 / -1; font-size: var(--text-xs); color: var(--color-muted); font-variant-numeric: tabular-nums; }
+.exp-settle li { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-3xs) var(--space-2xs); padding: var(--space-2xs) var(--space-xs);
+  border-radius: var(--radius-input); background: var(--color-paper); font-size: var(--text-sm); color: var(--color-ink-2); }
+.exp-settle strong { font-weight: 600; color: var(--color-ink); }
+.exp-settle .exp-sum { margin-left: auto; }
+.exp-balances .docs-hint { margin: 0; padding: 0; }
 /* Announcements: notices pinned to a channel, in the chat header, the app and the Home widget. */
 .pinned { display: grid; gap: var(--space-2xs); margin-top: var(--space-xs); }
 .pinned-note { display: grid; gap: 2px; padding: var(--space-xs) var(--space-sm); border-radius: var(--radius-card);
