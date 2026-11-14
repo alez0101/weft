@@ -8,6 +8,7 @@ import { heldLabel } from './Meeting.jsx';
 import { span } from './Bookings.jsx';
 import { shiftSpan } from './Shifts.jsx';
 import { money } from './Expenses.jsx';
+import { addDays, dayKey, daysLabel, weekStart } from './TimeOff.jsx';
 
 const WIDGETS = {
   announcements: 'Announcements',
@@ -15,6 +16,7 @@ const WIDGETS = {
   yeses: 'Your upcoming yeses',
   bookings: 'Your bookings',
   shifts: 'Your shifts',
+  away: 'Out this week',
   tasks: 'Tasks due soon',
   polls: 'Polls to vote in',
   forms: 'Forms to fill in',
@@ -32,7 +34,7 @@ const WIDGETS = {
   files: 'Recent files',
   ask: 'Ask Weft',
 };
-const DEFAULT = ['announcements', 'upcoming', 'yeses', 'bookings', 'shifts', 'tasks', 'polls', 'forms', 'unread', 'recent', 'ask'];
+const DEFAULT = ['announcements', 'upcoming', 'yeses', 'bookings', 'shifts', 'away', 'tasks', 'polls', 'forms', 'unread', 'recent', 'ask'];
 const KIND = { document: 'Document', wiki: 'Wiki page', whiteboard: 'Whiteboard', table: 'Table', tasklist: 'Task list', poll: 'Poll', form: 'Form', linklist: 'Link list', addressbook: 'Address book', decisionlog: 'Decision log', qa: 'Q and A board', checklist: 'Checklist', expenselist: 'Expense list', inventory: 'Inventory', meeting: 'Meeting', file: 'File' };
 const where = (s) => (s?.kind === 'channel' ? `#${s.name}` : s?.kind === 'personal' ? 'Personal' : s?.name || '');
 const when = (iso) => new Date(iso).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -72,6 +74,22 @@ function MyShifts({ data, onOpenShifts }) {
     <li key={s.id}><button type="button" className="widget-row" onClick={() => onOpenShifts(s.id)}>
       <span className="widget-main">{s.title}</span>
       <span className="widget-sub">{new Date(s.starts_at).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}, {shiftSpan(s.starts_at, s.ends_at)}, {where(s.space)}, {s.signups.length} of {s.places} places taken</span>
+    </button></li>))}</ul>;
+}
+// Who is away at some point this week (Monday to Sunday), soonest first. The same person and days recorded in
+// two channels show once, with both channels. A row opens Time off.
+function OutThisWeek({ data, me, onOpenTimeOff }) {
+  if (!data.length) return <p className="widget-empty">Nobody is away this week.</p>;
+  const today = dayKey(new Date());
+  const rows = [];
+  for (const r of data) {
+    const same = rows.find((x) => x.user_id === r.user_id && x.starts_on === r.starts_on && x.ends_on === r.ends_on);
+    if (same) { if (!same.where.includes(where(r.space))) same.where.push(where(r.space)); } else rows.push({ ...r, where: [where(r.space)] });
+  }
+  return <ul className="widget-list">{rows.slice(0, 8).map((r) => (
+    <li key={r.id}><button type="button" className="widget-row" onClick={() => onOpenTimeOff()}>
+      <span className="widget-main">{r.user_id === me.id ? 'You' : r.who?.display_name ?? 'Someone'}{r.starts_on <= today && r.ends_on >= today ? ', away today' : ''}</span>
+      <span className="widget-sub">{daysLabel(r.starts_on, r.ends_on)}{r.note ? `, ${r.note}` : ''}, {r.where.join(', ')}</span>
     </button></li>))}</ul>;
 }
 // Open tasks due in the next seven days or overdue, yours first. A row opens its list.
@@ -232,10 +250,10 @@ function Ask({ assistantSpace, onAsked }) {
   );
 }
 
-export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpenEvent, onOpenNotices, onOpenBooking, onOpenShifts, onOpenProfiles, onOpenConvo }) {
+export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpenEvent, onOpenNotices, onOpenBooking, onOpenShifts, onOpenProfiles, onOpenTimeOff, onOpenConvo }) {
   const [order, setOrder] = useState(null);
   const [editing, setEditing] = useState(false);
-  const [data, setData] = useState({ announcements: [], upcoming: [], yeses: [], bookings: [], shifts: [], tasks: [], polls: [], forms: [], links: [], contacts: [], decisions: [], questions: [], checklists: [], balances: [], holding: [], profile: [], meetings: [], recent: [], files: [] });
+  const [data, setData] = useState({ announcements: [], upcoming: [], yeses: [], bookings: [], shifts: [], away: [], tasks: [], polls: [], forms: [], links: [], contacts: [], decisions: [], questions: [], checklists: [], balances: [], holding: [], profile: [], meetings: [], recent: [], files: [] });
   const [error, setError] = useState('');
   const timer = useRef(null);
 
@@ -255,7 +273,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
     const now = new Date(); const soon = new Date(now.getTime() + 14 * 86400000);
     try {
       const week = new Date(Date.now() + 7 * 86400000); week.setMinutes(week.getMinutes() - week.getTimezoneOffset());
-      const [upcoming, recent, files, due, open, openForms, links, announcements, meetings, yeses, bookings, onShifts, contacts, profile, decisions, questions, checklists, owed, holding] = await Promise.all([
+      const [upcoming, recent, files, due, open, openForms, links, announcements, meetings, yeses, bookings, onShifts, contacts, profile, decisions, questions, checklists, owed, holding, away] = await Promise.all([
         api(`/events?ends_at=gte.${now.toISOString()}&starts_at=lte.${soon.toISOString()}&select=id,title,starts_at,location,space:spaces(name,kind)&order=starts_at&limit=5`),
         api('/items?select=id,title,kind,updated_at,space:spaces(name,kind)&order=updated_at.desc&limit=6'),
         api('/items?kind=eq.file&select=id,title,kind,updated_at,space:spaces(name,kind)&order=updated_at.desc&limit=5'),
@@ -275,6 +293,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
         api('/checklist_runs?finished=is.false&select=id,label,started_at,checklist_id,checklist:items(title,space:spaces(name,kind)),steps:checklist_run_steps(done)&order=started_at.desc&limit=5'),
         api(`/expense_balances?user_id=eq.${me.id}&net_cents=neq.0&select=list_id,net_cents`),
         api(`/inventory_things?holder_id=eq.${me.id}&select=id,name,held_since,inventory_id,inventory:items(title,space:spaces(name,kind))&order=held_since&limit=6`),
+        (() => { const mon = weekStart(dayKey(now)); return api(`/time_off?starts_on=lte.${addDays(mon, 6)}&ends_on=gte.${mon}&select=id,user_id,starts_on,ends_on,note,who:users!time_off_user_id_fkey(display_name),space:spaces(name,kind)&order=starts_on,ends_on&limit=60`); })(),
       ]);
       const lists = owed.length ? await api(`/items?id=in.(${owed.map((b) => b.list_id).join(',')})&select=id,title,updated_at,space:spaces(name,kind)&order=updated_at.desc`) : [];
       const balances = lists.slice(0, 5).map((l) => ({ ...owed.find((b) => b.list_id === l.id), list: l }));
@@ -283,13 +302,13 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
       const isClosed = (p) => (Array.isArray(p.state) ? p.state[0]?.closed : p.state?.closed);
       const polls = open.filter((p) => !isClosed(p) && !p.mine?.length).slice(0, 5);
       const forms = openForms.filter((f) => !isClosed(f) && !f.mine?.length).slice(0, 5);
-      setData({ announcements, upcoming, yeses, bookings, shifts, tasks, polls, forms, links, contacts, decisions, questions, checklists, balances, holding, profile, meetings, recent, files }); setError('');
+      setData({ announcements, upcoming, yeses, bookings, shifts, away, tasks, polls, forms, links, contacts, decisions, questions, checklists, balances, holding, profile, meetings, recent, files }); setError('');
     } catch (e) { setError(`Widgets could not load: ${e.message}`); }
   }, [me.id]);
   useEffect(() => { load(); }, [load]);
   // Live: refresh shortly after anything they show changes (several notices in a row refresh once).
   useEffect(() => {
-    if (!notice || !['events', 'items', 'members', 'tasks', 'polls', 'forms', 'links', 'contacts', 'decisions', 'qa', 'checklists', 'expenses', 'inventory', 'announcements', 'meetings', 'rsvps', 'bookings', 'resources', 'shifts', 'shift_signups', 'profiles'].includes(notice.t)) return;
+    if (!notice || !['events', 'items', 'members', 'tasks', 'polls', 'forms', 'links', 'contacts', 'decisions', 'qa', 'checklists', 'expenses', 'inventory', 'announcements', 'meetings', 'rsvps', 'bookings', 'resources', 'shifts', 'shift_signups', 'profiles', 'time_off'].includes(notice.t)) return;
     clearTimeout(timer.current); timer.current = setTimeout(load, 400);
   }, [notice, load]);
 
@@ -300,6 +319,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
     : k === 'yeses' ? <Yeses data={data.yeses} onOpenEvent={onOpenEvent} />
     : k === 'bookings' ? <MyBookings data={data.bookings} onOpenBooking={onOpenBooking} />
     : k === 'shifts' ? <MyShifts data={data.shifts} onOpenShifts={onOpenShifts} />
+    : k === 'away' ? <OutThisWeek data={data.away} me={me} onOpenTimeOff={onOpenTimeOff} />
     : k === 'tasks' ? <TasksDue data={data.tasks} me={me} onOpenItem={onOpenItem} />
     : k === 'polls' ? <PollsToVote data={data.polls} onOpenItem={onOpenItem} />
     : k === 'forms' ? <FormsToFill data={data.forms} onOpenItem={onOpenItem} />

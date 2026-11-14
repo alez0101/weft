@@ -765,3 +765,36 @@
 .profile-list { grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr)); align-items: start; }
 .profile-without { margin: 0; padding: 0; }
 @media (max-width: 720px) { .profile-hint { grid-column: 1; } }
+/* Time off: a week grid of who is away (rows) by day (columns), then the list (uses the Shifts layout). */
+.away-weekbar { margin-bottom: var(--space-2xs); }
+.away-weekname { margin: 0 0 0 var(--space-xs); font-size: var(--text-md); }
+.away-week { overflow-x: auto; border-radius: var(--radius-card); background: var(--color-paper); box-shadow: 0 0 0 1px var(--color-rule); }
+.away-grid { width: 100%; min-width: 36rem; border-collapse: separate; border-spacing: 0; table-layout: fixed; font-size: var(--text-sm); }
+.away-grid th, .away-grid td { padding: var(--space-2xs) 0; border-bottom: 1px solid var(--color-rule); text-align: center; vertical-align: middle; }
+.away-grid tbody tr:last-child th, .away-grid tbody tr:last-child td { border-bottom: 0; }
+.away-grid thead th { padding-block: var(--space-xs); color: var(--color-ink-2); font-weight: 600; }
+.away-grid thead th.is-today { color: var(--color-accent-deep); }
+.away-grid .away-dnum { font-variant-numeric: tabular-nums; }
+.away-grid .away-name { width: 9rem; padding-inline: var(--space-sm); text-align: left; color: var(--color-ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.away-grid td.is-today { background: var(--color-paper-2); }
+.away-grid tr.is-mine .away-name { color: var(--color-accent-deep); }
+.away-bar { display: flex; align-items: center; height: 1.75rem; margin: 0 -1px; padding: 0 var(--space-2xs); background: var(--p-fri); color: var(--color-ink); overflow: hidden; }
+.away-grid td.is-away:has(+ td:not(.is-away)) .away-bar, .away-grid td.is-away:last-child .away-bar { border-top-right-radius: 6px; border-bottom-right-radius: 6px; margin-right: 2px; }
+.away-grid td:not(.is-away) + td.is-away .away-bar, .away-grid th + td.is-away .away-bar { border-top-left-radius: 6px; border-bottom-left-radius: 6px; margin-left: 2px; }
+.away-grid tr.is-mine .away-bar { background: var(--color-accent-soft); }
+.away-bar-text { min-width: 0; font-size: var(--text-xs); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.away-grid td.away-nobody { padding: var(--space-md); color: var(--color-muted); }
+.away-form select { height: var(--ctl-h); padding: 0 var(--space-xs); border: 1px solid var(--color-muted); border-radius: var(--radius-input);
+  background: var(--color-paper); color: var(--color-ink); font: inherit; }
+.away-form input[type="date"] { height: var(--ctl-h); padding: 0 var(--space-xs); border: 1px solid var(--color-muted); border-radius: var(--radius-input);
+  background: var(--color-paper); color: var(--color-ink); font: inherit; }
+.away-form .pair { flex-wrap: wrap; align-items: center; }
+.away-form .pair label { font-size: var(--text-sm); color: var(--color-ink-2); }
+.away-form select:focus-visible, .away-form input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+.away-me { font-size: var(--text-sm); color: var(--color-ink); font-weight: 600; }
+.away { border-left: 4px solid var(--p-fri); }
+.away.is-mine { border-left-color: var(--color-accent-deep); }
+.away-now { padding: 0 var(--space-xs); border-radius: var(--radius-pill); background: var(--p-fri); color: var(--color-ink); font-size: var(--text-xs); font-weight: 600; }
+.away-list { margin-top: 0; }
+.cal-main .cal-away { border-style: dashed; cursor: pointer; }
+.cal-aways { margin-top: var(--space-2xs); }

@@ -8,6 +8,7 @@ import Announcements from './Announcements.jsx';
 import Rsvps from './Rsvps.jsx';
 import Bookings from './Bookings.jsx';
 import Shifts from './Shifts.jsx';
+import TimeOff from './TimeOff.jsx';
 import Profiles from './Profiles.jsx';
 import Widgets from './Home.jsx';
 import ModelKey from './ModelKey.jsx';
@@ -34,6 +35,7 @@ const APPS = [
   { id: 'decisions', label: 'Decisions', tint: '--p-wed', real: true, glyph: <><path d="M20 6v28M12 34h16" /><path d="M9 11h22" /><path d="M9 11l-4 10a4 4 0 0 0 8 0zM31 11l-4 10a4 4 0 0 0 8 0z" /></> },
   { id: 'checklists', label: 'Checklists', tint: '--p-fri', real: true, glyph: <><rect x="9" y="6" width="22" height="28" rx="2" /><path d="M13 13l2 2 3.5-3.5M21 13h6M13 21l2 2 3.5-3.5M21 21h6M14 29h4M21 29h6" /></> },
   { id: 'expenses', label: 'Expenses', tint: '--p-sun', real: true, glyph: <><rect x="6" y="10" width="28" height="20" rx="2" /><circle cx="20" cy="20" r="4.5" /><path d="M6 15h4M30 25h4M11 30l-3 4M29 10l3-4" /></> },
+  { id: 'timeoff', label: 'Time off', tint: '--p-fri', real: true, glyph: <><rect x="7" y="9" width="26" height="24" rx="2" /><path d="M7 16h26M14 6v6M26 6v6" /><circle cx="20" cy="24.5" r="3" /><path d="M20 18.5v1.5M20 29v1.5M14 24.5h1.5M24.5 24.5H26M15.8 20.3l1 1M23.2 27.7l1 1M15.8 28.7l1-1M23.2 21.3l1-1" /></> },
   { id: 'inventory', label: 'Inventory', tint: '--p-sat', real: true, glyph: <><path d="M6 14l14-7 14 7v18H6z" /><path d="M6 14h28M12 32V20h16v12M12 24h16M12 28h16" /></> },
   { id: 'qa', label: 'Q and A', tint: '--p-tue', real: true, glyph: <><path d="M6 8h20v13H15l-5 4v-4H6z" /><path d="M14 12.5a2.5 2.5 0 1 1 3 2.4c-.7.2-1 .7-1 1.3M16 18.5v.5" /><path d="M29 15h5v13h-4v4l-5-4h-7v-3" /></> },
   { id: 'meetings', label: 'Meetings', tint: '--p-sat', real: true, glyph: <><rect x="9" y="8" width="22" height="26" rx="2" /><path d="M15 5.5h10v5H15zM14 17h12M14 22h12M14 27h6" /><path d="M23 27.5l1.8 1.8L28 26" /></> },
@@ -361,7 +363,7 @@ export default function App() {
                   </a></li>
                 ))}
               </ul>
-              <Widgets me={me} spaces={spaces} unread={unread} notice={notice} onOpenItem={openItem} onOpenEvent={openEvent} onOpenNotices={openNotices} onOpenBooking={openBooking} onOpenShifts={() => openTab('shifts')} onOpenProfiles={() => openTab('profiles')}
+              <Widgets me={me} spaces={spaces} unread={unread} notice={notice} onOpenItem={openItem} onOpenEvent={openEvent} onOpenNotices={openNotices} onOpenBooking={openBooking} onOpenShifts={() => openTab('shifts')} onOpenProfiles={() => openTab('profiles')} onOpenTimeOff={() => openTab('timeoff')}
                 onOpenConvo={(convo) => setUi((u) => ({ ...u, convo, rail: u.rail === 'collapsed' ? 'normal' : u.rail }))} />
             </div>
           ) : ui.active === 'settings' ? (isAdmin ? <AdminPanel me={me} info={mode} /> : null)
@@ -385,9 +387,10 @@ export default function App() {
             : ui.active === 'files' ? <Docs key="files" kind="file" me={me} members={members} notice={notice} openId={ui.file} setOpenId={(file) => setUi((u) => ({ ...u, file }))} />
             : ui.active === 'bookings' ? <Bookings me={me} spaces={spaces} members={members} notice={notice} openId={ui.booking} setOpenId={(booking) => setUi((u) => ({ ...u, booking }))} />
             : ui.active === 'profiles' ? <Profiles me={me} spaces={spaces} members={members} notice={notice} />
+            : ui.active === 'timeoff' ? <TimeOff me={me} spaces={spaces} members={members} notice={notice} />
             : ui.active === 'shifts' ? <Shifts me={me} spaces={spaces} members={members} notice={notice} />
             : ui.active === 'rsvps' ? <Rsvps me={me} notice={notice} onOpenEvent={openEvent} />
-            : ui.active === 'calendar' ? <Calendar me={me} members={members} notice={notice} onOpenItem={openItem} onOpenBooking={openBooking} focusId={ui.event} setFocusId={(event) => setUi((u) => ({ ...u, event }))} />
+            : ui.active === 'calendar' ? <Calendar me={me} members={members} notice={notice} onOpenItem={openItem} onOpenBooking={openBooking} onOpenTimeOff={() => openTab('timeoff')} focusId={ui.event} setFocusId={(event) => setUi((u) => ({ ...u, event }))} />
             : <AppPanel id={ui.active} />}
         </section>
       </main>
