@@ -2,6 +2,7 @@
 // Editors drag to create, move and resize; viewers only read. Live: an events notice refetches.
 // Each event shows its RSVPs (Going, Maybe, Not going) and lets anyone in its space answer for themselves.
 // Open tasks with a due date show as all-day entries (read-only here; clicking one opens its list).
+// Bookings of shared things show as entries too (read-only here; clicking one opens it in Bookings).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import FullCalendar from '@fullcalendar/react';
 import classicThemePlugin from '@fullcalendar/react/themes/classic';
@@ -22,12 +23,14 @@ const when = (a, b) => {
   return `${day}, ${t(s)} to ${t(e)}`;
 };
 
-export default function Calendar({ me, members, notice, focusId, setFocusId, onOpenItem }) {
+export default function Calendar({ me, members, notice, focusId, setFocusId, onOpenItem, onOpenBooking }) {
   const cal = useRef(null);
   const [spaces, setSpaces] = useState([]);
   const [events, setEvents] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [showTasks, setShowTasks] = useState(true);
+  const [bookings, setBookings] = useState([]);
+  const [showBookings, setShowBookings] = useState(true);
   const [range, setRange] = useState(null);
   const [hidden, setHidden] = useState(() => new Set());
   const [error, setError] = useState('');
@@ -73,6 +76,14 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
   }, [range]);
   useEffect(() => { loadTasks(); }, [loadTasks]);
   useEffect(() => { if (notice?.t === 'tasks' || notice?.t === 'items') loadTasks(); }, [notice, loadTasks]);
+  const loadBookings = useCallback(async () => {
+    if (!range) return;
+    try {
+      setBookings(await api(`/bookings?and=(starts_at.lt.${range.end},ends_at.gt.${range.start})&select=id,space_id,resource_id,starts_at,ends_at,note,thing:resources(name),who:users!bookings_booked_by_fkey(display_name)&order=starts_at&limit=1000`));
+    } catch (e) { setError(`Bookings could not load: ${e.message}`); }
+  }, [range]);
+  useEffect(() => { loadBookings(); }, [loadBookings]);
+  useEffect(() => { if (notice?.t === 'bookings' || notice?.t === 'resources') loadBookings(); }, [notice, loadBookings]);
 
   // A link from chat: jump to the event and open it (or say we cannot see it).
   useEffect(() => {
@@ -90,7 +101,10 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
   })).concat(showTasks ? tasks.filter((t) => t.list && !hidden.has(t.list.space_id)).map((t) => ({
     id: `task-${t.id}`, title: `Task: ${t.title}`, start: t.due_on, allDay: true, editable: false,
     className: `cal-task ev-t${tint(t.list.space_id)}`, extendedProps: { task: true, ...t },
-  })) : []), [events, tasks, showTasks, hidden, canEdit, tint]);
+  })) : []).concat(showBookings ? bookings.filter((b) => !hidden.has(b.space_id)).map((b) => ({
+    id: `booking-${b.id}`, title: `${b.thing?.name ?? 'Booked'}: ${b.who?.display_name ?? 'someone'}${b.note ? ` (${b.note})` : ''}`, start: b.starts_at, end: b.ends_at, editable: false,
+    className: `cal-booking ev-t${tint(b.space_id)}`, extendedProps: { booking: true, ...b },
+  })) : []), [events, tasks, showTasks, bookings, showBookings, hidden, canEdit, tint]);
 
   const editableSpaces = spaces.filter((s) => canEdit(s.id));
 
@@ -145,6 +159,7 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
           ))}
         </ul>
         <label className="toggle cal-tasks"><input type="checkbox" checked={showTasks} onChange={(e) => setShowTasks(e.target.checked)} /> Tasks due</label>
+        <label className="toggle cal-bookings"><input type="checkbox" checked={showBookings} onChange={(e) => setShowBookings(e.target.checked)} /> Bookings</label>
         <p className="cal-hint">{editableSpaces.length ? 'Drag across the calendar to add an event.' : 'You can view events here. Ask an owner to make you an editor to add them.'}</p>
         {error && <p className="send-error" role="alert">{error}</p>}
         {note && <p className="slot-status" role="status">{note}</p>}
@@ -206,7 +221,7 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
             events={fcEvents}
             datesSet={(info) => setRange({ start: info.start.toISOString(), end: info.end.toISOString(), day0: info.startStr.slice(0, 10), day1: info.endStr.slice(0, 10) })}
             select={(info) => { setOpen(null); setDraft({ start: info.start.toISOString(), end: info.end.toISOString() }); setForm((f) => ({ ...f, space: f.space || editableSpaces[0]?.id || '' })); }}
-            eventClick={(info) => { if (info.event.extendedProps.task) { onOpenItem(info.event.extendedProps.list_id); return; } setDraft(null); setNote(''); setOpen(info.event.extendedProps); }}
+            eventClick={(info) => { if (info.event.extendedProps.task) { onOpenItem(info.event.extendedProps.list_id); return; } if (info.event.extendedProps.booking) { onOpenBooking?.(info.event.extendedProps.resource_id); return; } setDraft(null); setNote(''); setOpen(info.event.extendedProps); }}
             eventDrop={move}
             eventResize={move}
           />
