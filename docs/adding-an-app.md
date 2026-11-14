@@ -26,6 +26,11 @@ assistant). Follow this for every app, by hand or by a scheduled build.
   audit log and notices under the space it moved **from**, never the new one: the new space's members must
   not learn what was there. Test it: someone only in Organizers acts, the thing moves to #festival, Pat
   sees no trace (and an Organizers member still sees the audit row).
+- **Anonymity covers side effects too.** If an app lets people act anonymously, every write it causes on
+  their behalf (refreshing an item's `body_text`, counters, summaries) must not record them: the audit
+  triggers stamp `weft_private.uid()` on every changed row. Run such system writes without the caller's
+  identity (`set_config('request.jwt.claims', '{}', true)`, then restore; an empty string is not valid JSON
+  and breaks `uid()`), and test that no audit row anywhere names the anonymous person.
 - **The assistant role** (`weft_assistant`) gets `select` only if the assistant should read the app, and
   never `delete`.
 - **Search and the assistant** read `weft.items.body_text`. If the app's content is text people will look
