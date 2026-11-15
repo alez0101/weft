@@ -6,9 +6,11 @@
 // Row-level security and the guard trigger decide; when they say no, the reason is shown and the retro is
 // reloaded. Live: changes to this retro, its notes, or tasks and lists in its space refetch it.
 // Weft (search and the assistant) reads the retro's text summary, kept by the database; it names no one.
+// Above the columns, the previous retro's actions in this space and their tasks (LastRetroActions, 064).
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
 import { dueLabel, today } from './TaskList.jsx';
+import LastRetroActions from './LastRetroActions.jsx';
 
 const COLUMNS = [
   ['went_well', 'Went well', 'Something that worked'],
@@ -161,6 +163,9 @@ export default function Retro({ item, me, members, editable, notice, onOpenItem 
         {editable && !lists.length && <p className="docs-hint meeting-hint">There is no task list in this space yet. Make one in Tasks, then choose it here.</p>}
         <p className="goal-meta" role="status">{notes.length} note{notes.length === 1 ? '' : 's'}, {actions.length} action{actions.length === 1 ? '' : 's'}{actions.length ? `, ${asTasks} made into tasks` : ''}</p>
       </section>
+
+      <LastRetroActions item={item} me={me} editable={editable} notes={notes} nameOf={nameOf} notice={notice} onOpenItem={onOpenItem}
+        onCarry={(body) => add('action', body, false)} onTick={tick} />
 
       <div className="retro-columns">
         {COLUMNS.map(([kind, label, hint]) => {
