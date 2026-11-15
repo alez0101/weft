@@ -977,3 +977,7 @@ select.idea-status:focus-visible { outline: 2px solid var(--color-focus); outlin
 .tl-card .link-form-actions { grid-column: 1; }
 @keyframes tl-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .tl-card { animation: none; } .tl-scroll { scroll-behavior: auto; } }
+/* Repeating events (049): the detail panel's buttons wrap; occurrences of a series carry a stripe at the start. */
+.cal-detail .pair, .cal-form .pair { flex-wrap: wrap; }
+.cal-repeats { font-size: var(--text-sm); color: var(--color-ink-2); }
+.cal-main .cal-repeat { box-shadow: inset 3px 0 0 var(--color-ink-2); }

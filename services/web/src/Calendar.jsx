@@ -4,6 +4,8 @@
 // Open tasks with a due date show as all-day entries (read-only here; clicking one opens its list).
 // Bookings of shared things show as entries too (read-only here; clicking one opens it in Bookings).
 // Time off shows as all-day "Away" entries (read-only here; clicking one opens Time off).
+// Repeating events: a new event can repeat every day, week or month until a date. Each occurrence is its own
+// event (with its own RSVPs and notes); changing, moving or deleting one asks "just this one" or "all of them".
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import FullCalendar from '@fullcalendar/react';
 import classicThemePlugin from '@fullcalendar/react/themes/classic';
@@ -23,6 +25,11 @@ const when = (a, b) => {
   const t = (d) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   return `${day}, ${t(s)} to ${t(e)}`;
 };
+const EVENT_COLS = 'id,space_id,title,starts_at,ends_at,location,item_id,series_id,series:event_series(repeats,until_on)';
+const EVERY = { daily: 'every day', weekly: 'every week', monthly: 'every month' };
+const ymd = (d) => { const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
+const longDay = (s) => new Date(`${s}T12:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+const zone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; } };
 
 export default function Calendar({ me, members, notice, focusId, setFocusId, onOpenItem, onOpenBooking, onOpenTimeOff }) {
   const cal = useRef(null);
@@ -38,7 +45,10 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
   const [hidden, setHidden] = useState(() => new Set());
   const [error, setError] = useState('');
   const [draft, setDraft] = useState(null);   // {start, end}
-  const [form, setForm] = useState({ title: '', space: '', location: '' });
+  const [form, setForm] = useState({ title: '', space: '', location: '', repeats: '', until: '' });
+  const [edit, setEdit] = useState(null);     // {title, location} while changing the open event
+  const [moving, setMoving] = useState(null); // a dragged occurrence of a repeating event, waiting for "this one or all"
+  const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(null);     // event row
   const [note, setNote] = useState('');
   const [initial, setInitial] = useState(null);
@@ -65,7 +75,7 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
   const load = useCallback(async () => {
     if (!range) return;
     try {
-      setEvents(await api(`/events?and=(starts_at.lt.${range.end},ends_at.gt.${range.start})&select=id,space_id,title,starts_at,ends_at,location,item_id&order=starts_at&limit=1000`));
+      setEvents(await api(`/events?and=(starts_at.lt.${range.end},ends_at.gt.${range.start})&select=${EVENT_COLS}&order=starts_at&limit=1000`));
       setError('');
     } catch (e) { setError(`Events could not load: ${e.message}`); }
   }, [range]);
@@ -100,7 +110,7 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
   // A link from chat: jump to the event and open it (or say we cannot see it).
   useEffect(() => {
     if (!focusId) return;
-    api(`/events?id=eq.${focusId}&select=id,space_id,title,starts_at,ends_at,location,item_id`).then((r) => {
+    api(`/events?id=eq.${focusId}&select=${EVENT_COLS}`).then((r) => {
       if (!r[0]) { setNote("You don't have access to that event, or it was deleted."); setOpen(null); return; }
       if (cal.current) cal.current.getApi().gotoDate(r[0].starts_at); else setInitial(r[0].starts_at);
       setOpen(r[0]); setNote('');
@@ -109,7 +119,7 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
 
   const fcEvents = useMemo(() => events.filter((e) => !hidden.has(e.space_id)).map((e) => ({
     id: e.id, title: e.title, start: e.starts_at, end: e.ends_at, editable: canEdit(e.space_id),
-    className: `ev-t${tint(e.space_id)}`, extendedProps: e, // FullCalendar 7: className (string), not v6 classNames
+    className: `ev-t${tint(e.space_id)}${e.series_id ? ' cal-repeat' : ''}`, extendedProps: e, // FullCalendar 7: className (string), not v6 classNames
   })).concat(showTasks ? tasks.filter((t) => t.list && !hidden.has(t.list.space_id)).map((t) => ({
     id: `task-${t.id}`, title: `Task: ${t.title}`, start: t.due_on, allDay: true, editable: false,
     className: `cal-task ev-t${tint(t.list.space_id)}`, extendedProps: { task: true, ...t },
@@ -131,19 +141,65 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
   async function save(e) {
     e.preventDefault();
     if (!form.title.trim() || !form.space || !draft) return;
+    if (form.repeats && !form.until) { setError('Choose the last day it repeats on.'); return; }
+    let row;
     try {
-      await api('/events', { method: 'POST', body: { space_id: form.space, title: form.title.trim(), starts_at: draft.start, ends_at: draft.end, location: form.location || null }, prefer: 'return=minimal' });
-      setDraft(null); setForm((f) => ({ ...f, title: '', location: '' })); load();
-    } catch (err) { setError(`Could not create the event: ${err.message}`); }
+      [row] = await api('/events', { method: 'POST', body: { space_id: form.space, title: form.title.trim(), starts_at: draft.start, ends_at: draft.end, location: form.location || null }, prefer: 'return=representation' });
+    } catch (err) { setError(`Could not create the event: ${err.message}`); return; }
+    if (form.repeats) {
+      try {
+        await api('/rpc/repeat_event', { method: 'POST', body: { p_event: row.id, p_repeats: form.repeats, p_until: form.until, p_tz: zone() } });
+      } catch (err) { setError(`The first event was added, but it does not repeat: ${err.message}`); }
+    }
+    setDraft(null); setForm((f) => ({ ...f, title: '', location: '', repeats: '', until: '' })); load();
+  }
+  async function reopen(id) {
+    const [r] = await api(`/events?id=eq.${id}&select=${EVENT_COLS}`).catch(() => []);
+    setOpen(r ?? null);
   }
   async function move(info) {
+    if (info.event.extendedProps.series_id) { setOpen(null); setDraft(null); setMoving(info); return; }
     try {
       await api(`/events?id=eq.${info.event.id}`, { method: 'PATCH', body: { starts_at: info.event.start.toISOString(), ends_at: (info.event.end || info.event.start).toISOString() }, prefer: 'return=minimal' });
     } catch (err) { info.revert(); setError(`Could not move it: ${err.message}`); }
   }
-  async function remove() {
-    if (!open || !window.confirm(`Delete "${open.title}"? Everyone in ${label(spaces.find((s) => s.id === open.space_id))} will lose it.`)) return;
-    try { await api(`/events?id=eq.${open.id}`, { method: 'DELETE', prefer: 'return=minimal' }); setOpen(null); load(); } catch (err) { setError(`Could not delete: ${err.message}`); }
+  // A dragged occurrence of a repeating event: move just it, or shift all of them by as much.
+  async function finishMove(which) {
+    const info = moving; setMoving(null);
+    if (which === 'cancel') { info.revert(); return; }
+    const ev = info.event;
+    const start = ev.start.toISOString(); const end = (ev.end || ev.start).toISOString();
+    try {
+      if (which === 'all') await api('/rpc/change_series', { method: 'POST', body: { p_event: ev.id, p_title: null, p_location: null, p_starts: start, p_ends: end } });
+      else await api(`/events?id=eq.${ev.id}`, { method: 'PATCH', body: { starts_at: start, ends_at: end }, prefer: 'return=minimal' });
+      load();
+    } catch (err) { info.revert(); setError(`Could not move it: ${err.message}`); }
+  }
+  async function saveEdit(which) {
+    if (!edit.title.trim()) return;
+    setBusy(true);
+    try {
+      if (which === 'all') await api('/rpc/change_series', { method: 'POST', body: { p_event: open.id, p_title: edit.title.trim(), p_location: edit.location, p_starts: open.starts_at, p_ends: open.ends_at } });
+      else await api(`/events?id=eq.${open.id}`, { method: 'PATCH', body: { title: edit.title.trim(), location: edit.location.trim() || null }, prefer: 'return=minimal' });
+      setEdit(null); await reopen(open.id); load();
+    } catch (err) { setError(`Could not save: ${err.message}`); }
+    setBusy(false);
+  }
+  async function remove(which = 'one') {
+    const where = label(spaces.find((s) => s.id === open?.space_id));
+    const ask = which === 'all' ? `Delete every "${open?.title}" in this series, past and coming? Everyone in ${where} will lose them.`
+      : `Delete "${open?.title}"${open?.series_id ? ' on this day only' : ''}? Everyone in ${where} will lose it.`;
+    if (!open || !window.confirm(ask)) return;
+    try {
+      if (which === 'all') await api('/rpc/delete_series', { method: 'POST', body: { p_event: open.id } });
+      else await api(`/events?id=eq.${open.id}`, { method: 'DELETE', prefer: 'return=minimal' });
+      setOpen(null); load();
+    } catch (err) { setError(`Could not delete: ${err.message}`); }
+  }
+  function pickRepeat(v) {
+    // Picking a repeat suggests a last day (eight weeks on for daily and weekly, six months for monthly).
+    const d = new Date(draft.start); if (v === 'monthly') d.setMonth(d.getMonth() + 6); else d.setDate(d.getDate() + 56);
+    setForm((f) => ({ ...f, repeats: v, until: v ? (f.until || ymd(d)) : '' }));
   }
   // Meeting notes linked to the open event (only those the person can see), and starting new ones from it.
   useEffect(() => {
@@ -185,6 +241,18 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
         {error && <p className="send-error" role="alert">{error}</p>}
         {note && <p className="slot-status" role="status">{note}</p>}
 
+        {moving && (
+          <section className="cal-detail cal-choice" aria-label="Move a repeating event">
+            <h3>Move a repeating event</h3>
+            <p className="cal-when">"{moving.event.title}" repeats {EVERY[moving.event.extendedProps.series?.repeats] ?? ''}. Move just this one, or all of them by the same amount?</p>
+            <span className="pair">
+              <button className="btn btn--primary btn--sm" type="button" onClick={() => finishMove('one')}>Just this one</button>
+              <button className="btn btn--sm" type="button" onClick={() => finishMove('all')}>All of them</button>
+              <button className="btn btn--sm" type="button" onClick={() => finishMove('cancel')}>Cancel</button>
+            </span>
+          </section>
+        )}
+
         {draft && (
           <form className="cal-form" onSubmit={save} aria-label="New event">
             <p className="cal-when">{when(draft.start, draft.end)}</p>
@@ -196,6 +264,18 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
             </select>
             <label htmlFor="ev-loc">Location</label>
             <input id="ev-loc" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
+            <label htmlFor="ev-repeat">Repeat</label>
+            <select id="ev-repeat" value={form.repeats} onChange={(e) => pickRepeat(e.target.value)}>
+              <option value="">Does not repeat</option>
+              <option value="daily">Every day</option>
+              <option value="weekly">Every week</option>
+              <option value="monthly">Every month</option>
+            </select>
+            {form.repeats && <>
+              <label htmlFor="ev-until">Until (last day)</label>
+              <input id="ev-until" type="date" value={form.until} min={ymd(new Date(draft.start))} onChange={(e) => setForm({ ...form, until: e.target.value })} />
+              <p className="cal-hint">Up to a year. Each one gets its own answers and notes.</p>
+            </>}
             <span className="pair"><button className="btn btn--primary btn--sm" type="submit" disabled={!form.title.trim()}>Add event</button>
               <button className="btn btn--sm" type="button" onClick={() => setDraft(null)}>Cancel</button></span>
           </form>
@@ -203,10 +283,34 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
 
         {open && (
           <section className="cal-detail" aria-label="Event">
-            <h3>{open.title}</h3>
-            <p className="cal-when">{when(open.starts_at, open.ends_at)}</p>
-            {open.location && <p>{open.location}</p>}
+            {edit ? (
+              <form className="cal-form cal-edit" aria-label="Change event" onSubmit={(e) => { e.preventDefault(); saveEdit('one'); }}>
+                <label htmlFor="ev-edit-title">Title</label>
+                <input id="ev-edit-title" autoFocus value={edit.title} onChange={(e) => setEdit({ ...edit, title: e.target.value })} />
+                <label htmlFor="ev-edit-loc">Location</label>
+                <input id="ev-edit-loc" value={edit.location} onChange={(e) => setEdit({ ...edit, location: e.target.value })} />
+                <span className="pair">
+                  <button className="btn btn--primary btn--sm" type="submit" disabled={busy || !edit.title.trim()}>{open.series_id ? 'Save this one' : 'Save'}</button>
+                  {open.series_id && <button className="btn btn--sm" type="button" disabled={busy || !edit.title.trim()} onClick={() => saveEdit('all')}>Save all of them</button>}
+                  <button className="btn btn--sm" type="button" onClick={() => setEdit(null)}>Cancel</button>
+                </span>
+              </form>
+            ) : <>
+              <h3>{open.title}</h3>
+              <p className="cal-when">{when(open.starts_at, open.ends_at)}</p>
+              {open.location && <p>{open.location}</p>}
+            </>}
+            {open.series && <p className="cal-repeats">Repeats {EVERY[open.series.repeats]} until {longDay(open.series.until_on)}</p>}
             <p className="docs-meta"><span>{label(spaces.find((s) => s.id === open.space_id))}</span>{!canEdit(open.space_id) && <span className="docs-status">View only</span>}</p>
+            {canEdit(open.space_id) && !edit && (
+              <span className="pair cal-actions">
+                <button className="btn btn--sm" onClick={() => setEdit({ title: open.title, location: open.location ?? '' })}>Change</button>
+                {open.series_id ? <>
+                  <button className="btn btn--sm" onClick={() => remove('one')}>Delete this one</button>
+                  <button className="btn btn--sm" onClick={() => remove('all')}>Delete all of them</button>
+                </> : <button className="btn btn--sm" onClick={() => remove('one')}>Delete</button>}
+              </span>
+            )}
             <EventRsvps key={open.id} event={open} me={me} notice={notice} />
             {notes.map((n) => <button key={n.id} type="button" className="btn btn--sm cal-notes" onClick={() => onOpenItem(n.id)}>Meeting notes: {n.item?.title}</button>)}
             {!notes.length && canEdit(open.space_id) && <button type="button" className="btn btn--sm cal-notes" onClick={startNotes}>Start meeting notes</button>}
@@ -216,8 +320,7 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
                 <option value="">Share to a channel…</option>
                 {spaces.filter((s) => s.kind === 'channel').map((c) => <option key={c.id} value={c.id}>#{c.name}</option>)}
               </select>
-              {canEdit(open.space_id) && <button className="btn btn--sm" onClick={remove}>Delete</button>}
-              <button className="btn btn--sm" onClick={() => { setOpen(null); setFocusId(null); }}>Close</button>
+              <button className="btn btn--sm" onClick={() => { setOpen(null); setEdit(null); setFocusId(null); }}>Close</button>
             </span>
           </section>
         )}
@@ -241,8 +344,8 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
             selectMirror
             events={fcEvents}
             datesSet={(info) => setRange({ start: info.start.toISOString(), end: info.end.toISOString(), day0: info.startStr.slice(0, 10), day1: info.endStr.slice(0, 10) })}
-            select={(info) => { setOpen(null); setDraft({ start: info.start.toISOString(), end: info.end.toISOString() }); setForm((f) => ({ ...f, space: f.space || editableSpaces[0]?.id || '' })); }}
-            eventClick={(info) => { if (info.event.extendedProps.task) { onOpenItem(info.event.extendedProps.list_id); return; } if (info.event.extendedProps.booking) { onOpenBooking?.(info.event.extendedProps.resource_id); return; } if (info.event.extendedProps.away) { onOpenTimeOff?.(); return; } setDraft(null); setNote(''); setOpen(info.event.extendedProps); }}
+            select={(info) => { setOpen(null); setEdit(null); setDraft({ start: info.start.toISOString(), end: info.end.toISOString() }); setForm((f) => ({ ...f, space: f.space || editableSpaces[0]?.id || '' })); }}
+            eventClick={(info) => { if (info.event.extendedProps.task) { onOpenItem(info.event.extendedProps.list_id); return; } if (info.event.extendedProps.booking) { onOpenBooking?.(info.event.extendedProps.resource_id); return; } if (info.event.extendedProps.away) { onOpenTimeOff?.(); return; } setDraft(null); setNote(''); setEdit(null); setOpen(info.event.extendedProps); }}
             eventDrop={move}
             eventResize={move}
           />
