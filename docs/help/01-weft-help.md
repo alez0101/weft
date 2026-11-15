@@ -3,7 +3,7 @@ title: Weft help
 parent:
 summary: What Weft is and how to find your way around.
 ---
-Weft puts chat, documents, a wiki, whiteboards, tables, task lists (with repeating tasks and comments), polls, forms, link lists, shared address books, decision logs, Q and A boards, reusable checklists, shared expenses, an inventory of shared things (with back-by dates), meeting notes (with their decisions sent to a decision log in one press), announcements, bookings of shared things (repeating every week if you like), shift sign-ups, time off (with a note when someone you pick is away), goals, retrospectives, a glossary of your group's words, ideas boards, kudos (thank-yous), a timeline of milestones for each channel, a private journal and a calendar with repeating events and RSVPs in one place, with an assistant that answers from what you can see.
+Weft puts chat, documents, a wiki, whiteboards, tables, task lists (with repeating tasks and comments), polls, forms, link lists, shared address books, decision logs, Q and A boards, reusable checklists, shared expenses, an inventory of shared things (with back-by dates), meeting notes (with their decisions sent to a decision log in one press), announcements, bookings of shared things (repeating every week if you like), shift sign-ups (copy a day or a week of them), time off (with a note when someone you pick is away), goals, retrospectives, a glossary of your group's words, ideas boards, kudos (thank-yous), a timeline of milestones for each channel, a private journal and a calendar with repeating events and RSVPs in one place, with an assistant that answers from what you can see.
 
 ### Finding your way around
 

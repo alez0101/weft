@@ -19,6 +19,8 @@ If you are an editor or owner of a channel, press **New shift**. Choose the chan
 
 Press **Change** to move a shift or change its places. You cannot give a shift fewer places than the people already on it; take someone off first. To take someone off a shift, press the × next to their name. **Delete** removes the shift and its sign-ups.
 
+To repeat a rota, press **Copy shifts** to copy all of a day's or a week's shifts to a later date, with nobody signed up, or **Copy this day** next to a day's heading. See the help page **Copy a week of shifts**.
+
 Once a shift has ended it stays as it was: nobody signs up, gives back or is taken off, and it cannot be changed.
 
 ### On Home
