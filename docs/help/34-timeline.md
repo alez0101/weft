@@ -26,6 +26,8 @@ Press **Add milestone**. It takes its place on the line by date, and everyone in
 
 Timelines are only for channels, not for your personal space or direct messages. Milestones appear in search, and Weft answers questions from them, for the people in the channel only.
 
+Milestones also show on the **Calendar** as all-day entries ("Milestone: …") in the channel's colour; untick **Milestones** there to hide them. Click one to open the channel's timeline.
+
 ### Who can see what
 
 Everyone in the channel sees its timeline, viewers included; nobody else can. Editors and owners of the channel add, change and delete milestones. Viewers read the timeline but cannot change it. Weft (the assistant) cannot add, change or delete milestones.

@@ -428,7 +428,7 @@ export default function App() {
             : ui.active === 'timeoff' ? <TimeOff me={me} spaces={spaces} members={members} notice={notice} />
             : ui.active === 'shifts' ? <Shifts me={me} spaces={spaces} members={members} notice={notice} />
             : ui.active === 'rsvps' ? <Rsvps me={me} notice={notice} onOpenEvent={openEvent} />
-            : ui.active === 'calendar' ? <Calendar me={me} members={members} notice={notice} onOpenItem={openItem} onOpenBooking={openBooking} onOpenTimeOff={() => openTab('timeoff')} focusId={ui.event} setFocusId={(event) => setUi((u) => ({ ...u, event }))} />
+            : ui.active === 'calendar' ? <Calendar me={me} members={members} notice={notice} onOpenItem={openItem} onOpenBooking={openBooking} onOpenTimeOff={() => openTab('timeoff')} onOpenTimeline={openTimeline} onOpenShifts={() => openTab('shifts')} focusId={ui.event} setFocusId={(event) => setUi((u) => ({ ...u, event }))} />
             : <AppPanel id={ui.active} />}
         </section>
       </main>

@@ -4593,6 +4593,95 @@ def repeating_tasks():
           oq(f"select count(*) from weft.tasks where list_id in ('{org}', '{fest}')") == "0")
 
 
+# ---------------------------------------------------------------- more on the calendar
+def more_on_the_calendar():
+    """Milestones and your shifts on the Calendar (the exact queries Calendar.jsx makes), and the saved switches."""
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, V, O = uid("user", "u-pub"), uid("user", "u-vol"), uid("user", "u-org")
+    oq = lambda sql: owner_sql(sql)
+    day0, day1 = "2031-03-03", "2031-03-10"
+    start, end = "2031-03-03T00:00:00Z", "2031-03-10T00:00:00Z"
+    ms_q = f"/milestones?and=(day.gte.{day0},day.lt.{day1})&select=id,space_id,title,day,note&order=day&limit=1000"
+    sh_q = lambda who: f"/shifts?and=(starts_at.lt.{end},ends_at.gt.{start})&select=id,space_id,title,starts_at,ends_at,mine:shift_signups!inner(user_id)&mine.user_id=eq.{who}&order=starts_at&limit=1000"
+    st, rows = call("POST", "/milestones", olive, {"space_id": SID["organizers"], "title": "CAL-MS-ORG-SECRET", "day": "2031-03-04"})
+    m_org = rows[0]["id"] if st == 201 else None
+    st, rows = call("POST", "/milestones", olive, {"space_id": SID["festival"], "title": "CAL-MS-FEST", "day": "2031-03-05"})
+    m_fest = rows[0]["id"] if st == 201 else None
+    st, rows = call("POST", "/shifts", olive, {"space_id": SID["organizers"], "title": "CAL-SHIFT-ORG-SECRET", "starts_at": "2031-03-04T10:00:00Z", "ends_at": "2031-03-04T12:00:00Z", "places": 3})
+    s_org = rows[0]["id"] if st == 201 else None
+    st, rows = call("POST", "/shifts", olive, {"space_id": SID["festival"], "title": "CAL-SHIFT-FEST", "starts_at": "2031-03-05T10:00:00Z", "ends_at": "2031-03-05T12:00:00Z", "places": 3})
+    s_fest = rows[0]["id"] if st == 201 else None
+    check("Calendar: Olive sets up milestones and shifts in Organizers and #festival (positive control)", all((m_org, m_fest, s_org, s_fest)), f"{st} {rows}")
+    call("POST", "/shift_signups", olive, {"shift_id": s_org}, prefer="return=minimal")
+    call("POST", "/shift_signups", olive, {"shift_id": s_fest}, prefer="return=minimal")
+    st, _ = call("POST", "/shift_signups", pat, {"shift_id": s_fest}, prefer="return=minimal")
+    check("Calendar: Pat (viewer) signs up for the #festival shift (positive control)", st == 201, str(st))
+    # Milestones: members only, through the Calendar's own query.
+    st, rows = call("GET", ms_q, pat)
+    check("Calendar: Pat's milestones for the week are #festival's only, never Organizers'",
+          st == 200 and m_fest in {r["id"] for r in rows} and all(r["space_id"] != SID["organizers"] and "SECRET" not in r["title"] for r in rows), str(rows))
+    st, rows = call("GET", ms_q, olive)
+    check("Calendar: Olive sees both milestones (positive control)", st == 200 and {m_org, m_fest} <= {r["id"] for r in rows}, str(rows))
+    st, rows = call("GET", ms_q, mint("u-org", scope="festival"))
+    check("Calendar: a #festival-scoped token sees only #festival milestones", st == 200 and m_fest in {r["id"] for r in rows}
+          and all(r["space_id"] == SID["festival"] for r in rows), str(rows))
+    # Your shifts: only your own sign-ups, and only where you are a member.
+    st, rows = call("GET", sh_q(P), pat)
+    check("Calendar: Pat's shifts are the one she signed up for", st == 200 and [r["id"] for r in rows] == [s_fest], str(rows))
+    st, rows = call("GET", sh_q(O), pat)
+    check("Calendar: asking for Olive's shifts, Pat still gets no Organizers shift", st == 200 and all(r["space_id"] != SID["organizers"] for r in rows), str(rows))
+    st, rows = call("GET", sh_q(V), vic)
+    check("Calendar: Vic, signed up for nothing, gets no shifts that week", st == 200 and rows == [], str(rows))
+    st, rows = call("GET", sh_q(O), olive)
+    check("Calendar: Olive sees both of her shifts (positive control)", st == 200 and {r["id"] for r in rows} == {s_org, s_fest}, str(rows))
+    st, rows = call("GET", sh_q(O), mint("u-org", scope="festival"))
+    check("Calendar: with a #festival-scoped token Olive sees only her #festival shift", st == 200 and [r["id"] for r in rows] == [s_fest], str(rows))
+    # Nothing on the Calendar writes them: Pat cannot change or delete them there; the assistant cannot delete.
+    st, rows = call("PATCH", f"/milestones?id=eq.{m_fest}", pat, {"day": "2031-03-06"})
+    st2, rows2 = call("DELETE", f"/shifts?id=eq.{s_fest}", pat)
+    check("Calendar: Pat (viewer) cannot move a #festival milestone or delete a shift",
+          rows == [] and rows2 == [] and oq(f"select day::text from weft.milestones where id = '{m_fest}'") == "2031-03-05"
+          and oq(f"select count(*) from weft.shifts where id = '{s_fest}'") == "1", f"{st} {st2}")
+    helper = mint("u-org", assistant=True)
+    st, _ = call("DELETE", f"/milestones?id=eq.{m_org}", helper)
+    st2, _ = call("DELETE", f"/shifts?id=eq.{s_org}", helper)
+    st3, _ = call("DELETE", "/user_prefs", helper)
+    check("Calendar: the assistant cannot delete milestones, shifts or anyone's switches",
+          all(refused(x) for x in (st, st2, st3)) and oq(f"select count(*) from weft.milestones where id = '{m_org}'") == "1"
+          and oq(f"select count(*) from weft.shifts where id = '{s_org}'") == "1", f"{st} {st2} {st3}")
+    st, rows = call("GET", "/user_prefs?select=calendar", helper)
+    check("Calendar: the assistant cannot read anyone's switches", refused(st) or rows == [], f"{st} {rows}")
+    # The switches: your own row only, a checked shape, and saving them keeps your Home layout.
+    call("POST", "/user_prefs?on_conflict=user_id", pat, {"home": {"widgets": ["recent"]}}, prefer="resolution=merge-duplicates,return=minimal")
+    st, _ = call("POST", "/user_prefs?on_conflict=user_id", pat, {"calendar": {"off": ["milestones", "away"]}}, prefer="resolution=merge-duplicates,return=minimal")
+    st2, rows = call("GET", "/user_prefs?select=user_id,home,calendar", pat)
+    check("Calendar: Pat saves her switches and reads them back; her Home layout is kept (positive control)", st in (200, 201)
+          and rows == [{"user_id": P, "home": {"widgets": ["recent"]}, "calendar": {"off": ["milestones", "away"]}}], f"{st} {rows}")
+    st, rows = call("GET", "/user_prefs?select=user_id,calendar", olive)
+    check("Calendar: Olive cannot read Pat's switches", st == 200 and all(r["user_id"] != P for r in rows), str(rows))
+    st, _ = call("POST", "/user_prefs", olive, {"user_id": P, "calendar": {"off": []}}, prefer="return=minimal")
+    st2, rows2 = call("PATCH", f"/user_prefs?user_id=eq.{P}", olive, {"calendar": {"off": ["tasks"]}})
+    check("Calendar: Olive cannot write Pat's switches", refused(st) and (refused(st2) or rows2 == [])
+          and oq(f"select calendar::text from weft.user_prefs where user_id = '{P}'") == '{"off": ["milestones", "away"]}', f"{st} {st2}")
+    st, _ = call("PATCH", f"/user_prefs?user_id=eq.{P}", pat, {"user_id": O})
+    check("Calendar: Pat cannot move her switches to another person", refused(st), str(st))
+    st, rows = call("PATCH", f"/user_prefs?user_id=eq.{P}", mint("u-pub", scope="festival"), {"calendar": {"off": []}})
+    check("Calendar: a channel-scoped token cannot change the switches", (refused(st) or rows == [])
+          and oq(f"select calendar::text from weft.user_prefs where user_id = '{P}'") == '{"off": ["milestones", "away"]}', f"{st} {rows}")
+    bad = [{"off": ["secrets"]}, {"off": "tasks"}, {"off": ["tasks"], "note": "x" * 5000}, ["tasks"], {"off": ["tasks"] * 6}]
+    sts = [call("PATCH", f"/user_prefs?user_id=eq.{P}", pat, {"calendar": b})[0] for b in bad]
+    check("Calendar: switches of any other shape are refused (an unknown kind, not a list, extra keys, not an object, too long)",
+          all(x == 400 for x in sts), str(sts))
+    st, rows = call("PATCH", f"/user_prefs?user_id=eq.{P}", pat, {"calendar": {}})
+    check("Calendar: Pat switches everything back on (positive control)", st == 200 and rows and rows[0]["calendar"] == {}, f"{st} {rows}")
+    # Clean up: deleting the channel's things takes them off the Calendar.
+    for t, i in (("milestones", m_org), ("milestones", m_fest), ("shifts", s_org), ("shifts", s_fest)):
+        call("DELETE", f"/{t}?id=eq.{i}", olive)
+    st, rows = call("GET", sh_q(P), pat)
+    st2, rows2 = call("GET", ms_q, pat)
+    check("Calendar: once deleted, the shift and milestone are gone from Pat's Calendar", rows == [] and all(r["id"] != m_fest for r in rows2), f"{rows} {rows2}")
+
+
 def teeth():
     """Loosen one policy on purpose and confirm the suite would catch it, then restore it."""
     owner_sql("create policy teeth_leak on weft.items for select to weft_user using (true)")
@@ -4643,6 +4732,7 @@ if __name__ == "__main__":
     people()
     trees()
     prefs_and_files()
+    more_on_the_calendar()
     search()
     index_the_rest()
     wikis()

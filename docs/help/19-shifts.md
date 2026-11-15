@@ -25,6 +25,8 @@ Once a shift has ended it stays as it was: nobody signs up, gives back or is tak
 
 The **Your shifts** widget lists the shifts you are on that have not ended, soonest first, with how full each one is. Click one to open Shifts. If you chose your widgets before this widget existed, add it with **Customize**.
 
+The shifts you are on also show on the **Calendar** at their times ("Shift: …"); untick **Your shifts** there to hide them. Click one to open Shifts.
+
 ### Who can see what
 
 Everyone in the channel sees its shifts and who is on each one; nobody else can. Every member signs up, viewers included, but only themselves. Editors and owners add, change and delete shifts and can take anyone off. Shifts never move to another channel. If you leave a channel, or are removed from it, you come off its shifts. Deleting a channel deletes its shifts. Weft (the assistant) can read shifts but cannot sign anyone up or change anything. Shifts, with who is on them, appear in search for the people in the channel.
