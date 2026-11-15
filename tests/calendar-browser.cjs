@@ -16,7 +16,7 @@ const SHOTS = process.env.WEFT_SHOTS || require('os').tmpdir(); // where screens
   const olive = await open('Olive Organizer'); const pat = await open('Pat Public');
   const evs = (p) => p.locator('.cal-main [class*="ev-t"]');
   console.log('Olive sees events this week:', await evs(olive).count(), '| Pat:', await evs(pat).count());
-  console.log('Pat hint:', await pat.locator('.cal-hint').innerText());
+  console.log('Pat hint:', await pat.locator('.cal-hint').last().innerText());
   // Olive drags across Wednesday 10:00-11:00 to create an event.
   const grid = olive.locator('.cal-main [role="grid"], .cal-main table').last();
   const colHead = olive.getByText('Wed 14', { exact: true }); const hb = await colHead.boundingBox();
