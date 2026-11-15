@@ -589,6 +589,13 @@
 .goal-update input { width: 6.5rem; }
 .goal-update input:focus-visible, .goal-kr-nums input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
 .goal-actions { justify-content: flex-start; }
+.goal-kr-from-list { justify-self: start; max-width: 100%; min-height: var(--ctl-h); padding: var(--space-2xs) var(--space-xs); font: inherit; font-size: var(--text-sm);
+  border: 1px solid var(--color-muted); border-radius: var(--radius-input); background: var(--color-paper); color: var(--color-ink); }
+.goal-kr-from-list:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+.goal-kr-note { grid-column: 2; margin: 0; font-size: var(--text-sm); color: var(--color-ink-2); }
+@media (max-width: 720px) { .goal-kr-note { grid-column: 1; } }
+.goal-kr-source { font-size: var(--text-xs); color: var(--color-ink-2); overflow-wrap: anywhere; }
+.goal-kr-source strong { font-weight: 600; color: var(--color-ink); }
 .widget-goal { gap: var(--space-2xs); }
 .widget-goal-pct { color: var(--color-ink-2); font-variant-numeric: tabular-nums; }
 /* Retros: a retrospective, three columns of notes (Went well, To improve, Actions), each with its own add

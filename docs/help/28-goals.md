@@ -1,7 +1,7 @@
 ---
 title: Goals
 parent: Weft help
-summary: Goals for a channel, each with key results you can count, updated by hand, and one view of how far along everything is.
+summary: Goals for a channel, each with key results you can count, updated by hand or counted from a task list, and one view of how far along everything is.
 ---
 **Goals** keeps what a group is aiming for and how far it has got: sell out the festival, cut waste, find three sponsors. Each goal has one or more **key results**, numbers you can count ("tickets sold: 120 of 400"), and Weft works out the progress from them. A goal set belongs to a space (a channel, or your personal space), and only the people in that space can see it.
 
@@ -25,7 +25,7 @@ Under a goal, press **Add a key result** and fill in:
 
 ### Updating progress
 
-Progress is updated by hand. Type the new number in the box on a key result and press **Update**. Weft shows who updated it last and when, and everyone looking at the set sees the change at once.
+Progress is updated by hand, or counted from a task list in the same channel (see Key results from tasks). Type the new number in the box on a key result and press **Update**. Weft shows who updated it last and when, and everyone looking at the set sees the change at once.
 
 - A key result's progress is how far it has come from **From** towards **Target**, between 0 % and 100 %. Going past the target counts as 100 %.
 - A goal's progress is the average of its key results. When it reaches 100 % it is marked **Reached**.
