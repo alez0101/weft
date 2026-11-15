@@ -294,7 +294,9 @@
 .task.is-done input.task-title, .task.is-done .task-title--read { text-decoration: line-through; color: var(--color-muted); }
 .is-late, .task .task-due.is-late { color: var(--color-error); font-weight: 500; }
 .task .task-due.is-late { border-color: var(--color-error); }
-.cal-tasks { margin-top: var(--space-xs); }
+.cal-kinds { border: 0; margin: var(--space-xs) 0 0; padding: 0; min-width: 0; display: grid; gap: var(--space-2xs); }
+.cal-kinds legend { padding: 0; margin-bottom: var(--space-2xs); }
+.cal-kinds .toggle input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 .cal-main .cal-task { font-style: italic; border-style: dashed; cursor: pointer; }
 @media (max-width: 720px) {
   .task-add, .task, .task:has(.task-title--read) { grid-template-columns: auto minmax(0, 1fr); }
@@ -814,7 +816,6 @@ select.idea-status:focus-visible { outline: 2px solid var(--color-focus); outlin
 .booking.is-mine { border-left-color: var(--color-accent-deep); }
 .booking-when { margin: 0; font-weight: 600; color: var(--color-ink); font-variant-numeric: tabular-nums; }
 .cal-main .cal-booking { border-style: dotted; cursor: pointer; }
-.cal-bookings { margin-top: var(--space-2xs); }
 .booking-meta { align-items: center; }
 .booking-scale span:first-child { transform: none; }
 .booking-scale span:last-child { transform: translateX(-100%); }
@@ -897,7 +898,8 @@ select.idea-status:focus-visible { outline: 2px solid var(--color-focus); outlin
 .away-now { padding: 0 var(--space-xs); border-radius: var(--radius-pill); background: var(--p-fri); color: var(--color-ink); font-size: var(--text-xs); font-weight: 600; }
 .away-list { margin-top: 0; }
 .cal-main .cal-away { border-style: dashed; cursor: pointer; }
-.cal-aways { margin-top: var(--space-2xs); }
+.cal-main .cal-milestone { font-weight: 600; border-left-width: 4px; cursor: pointer; }
+.cal-main .cal-shift { border-style: double; border-width: 3px; cursor: pointer; }
 /* Kudos: a wall of thank-yous per channel (uses the Links layout and form); each card is tinted by the person thanked. */
 .kudos-head { margin-block: 0; }
 .kudos-form select { min-height: var(--ctl-h); padding: var(--space-2xs) var(--space-xs); min-width: 0; font: inherit; font-size: var(--text-sm);

@@ -4,6 +4,9 @@
 // Open tasks with a due date show as all-day entries (read-only here; clicking one opens its list).
 // Bookings of shared things show as entries too (read-only here; clicking one opens it in Bookings).
 // Time off shows as all-day "Away" entries (read-only here; clicking one opens Time off).
+// Timeline milestones show as all-day entries (clicking one opens that channel's Timeline), and the shifts
+// you signed up for show at their times (clicking one opens Shifts). Both read-only here.
+// Which of these kinds show is remembered per person (weft.user_prefs.calendar, {"off": [...]}).
 // Repeating events: a new event can repeat every day, week or month until a date. Each occurrence is its own
 // event (with its own RSVPs and notes); changing, moving or deleting one asks "just this one" or "all of them".
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -31,16 +34,26 @@ const ymd = (d) => { const p = (n) => String(n).padStart(2, '0'); return `${d.ge
 const longDay = (s) => new Date(`${s}T12:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
 const zone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; } };
 
-export default function Calendar({ me, members, notice, focusId, setFocusId, onOpenItem, onOpenBooking, onOpenTimeOff }) {
+// The kinds of entries besides events, each with a switch. Keys are what user_prefs.calendar.off may hold.
+const KINDS = [
+  { key: 'tasks', label: 'Tasks due' },
+  { key: 'milestones', label: 'Milestones' },
+  { key: 'shifts', label: 'Your shifts' },
+  { key: 'bookings', label: 'Bookings' },
+  { key: 'away', label: 'Time off' },
+];
+
+export default function Calendar({ me, members, notice, focusId, setFocusId, onOpenItem, onOpenBooking, onOpenTimeOff, onOpenTimeline, onOpenShifts }) {
   const cal = useRef(null);
   const [spaces, setSpaces] = useState([]);
   const [events, setEvents] = useState([]);
   const [tasks, setTasks] = useState([]);
-  const [showTasks, setShowTasks] = useState(true);
   const [bookings, setBookings] = useState([]);
-  const [showBookings, setShowBookings] = useState(true);
   const [away, setAway] = useState([]);
-  const [showAway, setShowAway] = useState(true);
+  const [milestones, setMilestones] = useState([]);
+  const [shifts, setShifts] = useState([]);
+  const [off, setOff] = useState(() => new Set());   // kinds switched off (saved per person)
+  const show = (k) => !off.has(k);
   const [range, setRange] = useState(null);
   const [hidden, setHidden] = useState(() => new Set());
   const [error, setError] = useState('');
@@ -56,6 +69,7 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
 
   useEffect(() => {
     api('/spaces?kind=in.(channel,personal)&select=id,kind,name&order=kind.desc,name').then(setSpaces).catch((e) => setError(e.message));
+    api('/user_prefs?select=calendar').then(([p]) => { if (Array.isArray(p?.calendar?.off)) setOff(new Set(p.calendar.off)); }).catch(() => {});
     // Open on the next upcoming event or open task due, whichever is sooner, so a far-off schedule is not hidden.
     const now = new Date(); const d = new Date(now); d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
     Promise.all([
@@ -106,6 +120,31 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
   }, [range]);
   useEffect(() => { loadAway(); }, [loadAway]);
   useEffect(() => { if (notice?.t === 'time_off' || notice?.t === 'members') loadAway(); }, [notice, loadAway]);
+  const loadMilestones = useCallback(async () => {
+    if (!range) return;
+    try {
+      setMilestones(await api(`/milestones?and=(day.gte.${range.day0},day.lt.${range.day1})&select=id,space_id,title,day,note&order=day&limit=1000`));
+    } catch (e) { setError(`Milestones could not load: ${e.message}`); }
+  }, [range]);
+  useEffect(() => { loadMilestones(); }, [loadMilestones]);
+  useEffect(() => { if (notice?.t === 'milestones') loadMilestones(); }, [notice, loadMilestones]);
+  // Your shifts: only shifts with your own sign-up (the inner join keeps just those).
+  const loadShifts = useCallback(async () => {
+    if (!range) return;
+    try {
+      setShifts(await api(`/shifts?and=(starts_at.lt.${range.end},ends_at.gt.${range.start})&select=id,space_id,title,starts_at,ends_at,mine:shift_signups!inner(user_id)&mine.user_id=eq.${me.id}&order=starts_at&limit=1000`));
+    } catch (e) { setError(`Shifts could not load: ${e.message}`); }
+  }, [range, me.id]);
+  useEffect(() => { loadShifts(); }, [loadShifts]);
+  useEffect(() => { if (notice?.t === 'shifts' || notice?.t === 'shift_signups') loadShifts(); }, [notice, loadShifts]);
+
+  async function toggleKind(key) {
+    const next = new Set(off); if (next.has(key)) next.delete(key); else next.add(key);
+    setOff(next);
+    try {
+      await api('/user_prefs?on_conflict=user_id', { method: 'POST', body: { calendar: { off: KINDS.map((k) => k.key).filter((k) => next.has(k)) } }, prefer: 'resolution=merge-duplicates,return=minimal' });
+    } catch (e) { setError(`Your choice shows now, but could not be saved: ${e.message}`); }
+  }
 
   // A link from chat: jump to the event and open it (or say we cannot see it).
   useEffect(() => {
@@ -120,13 +159,19 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
   const fcEvents = useMemo(() => events.filter((e) => !hidden.has(e.space_id)).map((e) => ({
     id: e.id, title: e.title, start: e.starts_at, end: e.ends_at, editable: canEdit(e.space_id),
     className: `ev-t${tint(e.space_id)}${e.series_id ? ' cal-repeat' : ''}`, extendedProps: e, // FullCalendar 7: className (string), not v6 classNames
-  })).concat(showTasks ? tasks.filter((t) => t.list && !hidden.has(t.list.space_id)).map((t) => ({
+  })).concat(show('tasks') ? tasks.filter((t) => t.list && !hidden.has(t.list.space_id)).map((t) => ({
     id: `task-${t.id}`, title: `Task: ${t.title}`, start: t.due_on, allDay: true, editable: false,
     className: `cal-task ev-t${tint(t.list.space_id)}`, extendedProps: { task: true, ...t },
-  })) : []).concat(showBookings ? bookings.filter((b) => !hidden.has(b.space_id)).map((b) => ({
+  })) : []).concat(show('milestones') ? milestones.filter((m) => !hidden.has(m.space_id)).map((m) => ({
+    id: `milestone-${m.id}`, title: `Milestone: ${m.title}`, start: m.day, allDay: true, editable: false,
+    className: `cal-milestone ev-t${tint(m.space_id)}`, extendedProps: { milestone: true, ...m },
+  })) : []).concat(show('shifts') ? shifts.filter((x) => !hidden.has(x.space_id)).map((x) => ({
+    id: `shift-${x.id}`, title: `Shift: ${x.title}`, start: x.starts_at, end: x.ends_at, editable: false,
+    className: `cal-shift ev-t${tint(x.space_id)}`, extendedProps: { shift: true, ...x },
+  })) : []).concat(show('bookings') ? bookings.filter((b) => !hidden.has(b.space_id)).map((b) => ({
     id: `booking-${b.id}`, title: `${b.thing?.name ?? 'Booked'}: ${b.who?.display_name ?? 'someone'}${b.note ? ` (${b.note})` : ''}`, start: b.starts_at, end: b.ends_at, editable: false,
     className: `cal-booking ev-t${tint(b.space_id)}`, extendedProps: { booking: true, ...b },
-  })) : []).concat(showAway ? away.filter((a) => !hidden.has(a.space_id)).map((a) => {
+  })) : []).concat(show('away') ? away.filter((a) => !hidden.has(a.space_id)).map((a) => {
     const end = new Date(`${a.ends_on}T12:00`); end.setDate(end.getDate() + 1);   // all-day ends are exclusive
     const pad = (n) => String(n).padStart(2, '0');
     return {
@@ -134,7 +179,7 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
       start: a.starts_on, end: `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}`, allDay: true, editable: false,
       className: `cal-away ev-t${tint(a.space_id)}`, extendedProps: { away: true, ...a },
     };
-  }) : []), [events, tasks, showTasks, bookings, showBookings, away, showAway, hidden, canEdit, tint, me.id]);
+  }) : []), [events, tasks, bookings, away, milestones, shifts, off, hidden, canEdit, tint, me.id]);
 
   const editableSpaces = spaces.filter((s) => canEdit(s.id));
 
@@ -234,9 +279,12 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
             </li>
           ))}
         </ul>
-        <label className="toggle cal-tasks"><input type="checkbox" checked={showTasks} onChange={(e) => setShowTasks(e.target.checked)} /> Tasks due</label>
-        <label className="toggle cal-bookings"><input type="checkbox" checked={showBookings} onChange={(e) => setShowBookings(e.target.checked)} /> Bookings</label>
-        <label className="toggle cal-aways"><input type="checkbox" checked={showAway} onChange={(e) => setShowAway(e.target.checked)} /> Time off</label>
+        <fieldset className="cal-kinds">
+          <legend className="tree-group">Also show</legend>
+          {KINDS.map((k) => (
+            <label key={k.key} className={`toggle cal-${k.key === 'away' ? 'aways' : k.key}`}><input type="checkbox" checked={show(k.key)} onChange={() => toggleKind(k.key)} /> {k.label}</label>
+          ))}
+        </fieldset>
         <p className="cal-hint">{editableSpaces.length ? 'Drag across the calendar to add an event.' : 'You can view events here. Ask an owner to make you an editor to add them.'}</p>
         {error && <p className="send-error" role="alert">{error}</p>}
         {note && <p className="slot-status" role="status">{note}</p>}
@@ -345,7 +393,7 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
             events={fcEvents}
             datesSet={(info) => setRange({ start: info.start.toISOString(), end: info.end.toISOString(), day0: info.startStr.slice(0, 10), day1: info.endStr.slice(0, 10) })}
             select={(info) => { setOpen(null); setEdit(null); setDraft({ start: info.start.toISOString(), end: info.end.toISOString() }); setForm((f) => ({ ...f, space: f.space || editableSpaces[0]?.id || '' })); }}
-            eventClick={(info) => { if (info.event.extendedProps.task) { onOpenItem(info.event.extendedProps.list_id); return; } if (info.event.extendedProps.booking) { onOpenBooking?.(info.event.extendedProps.resource_id); return; } if (info.event.extendedProps.away) { onOpenTimeOff?.(); return; } setDraft(null); setNote(''); setEdit(null); setOpen(info.event.extendedProps); }}
+            eventClick={(info) => { if (info.event.extendedProps.task) { onOpenItem(info.event.extendedProps.list_id); return; } if (info.event.extendedProps.booking) { onOpenBooking?.(info.event.extendedProps.resource_id); return; } if (info.event.extendedProps.away) { onOpenTimeOff?.(); return; } if (info.event.extendedProps.milestone) { onOpenTimeline?.(info.event.extendedProps.space_id); return; } if (info.event.extendedProps.shift) { onOpenShifts?.(); return; } setDraft(null); setNote(''); setEdit(null); setOpen(info.event.extendedProps); }}
             eventDrop={move}
             eventResize={move}
           />
