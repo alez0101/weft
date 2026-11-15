@@ -24,7 +24,7 @@ Everyone in the list's space can be chosen. **Edit** changes an expense and **De
 
 Beside the expenses, **Balances** shows each person's total paid, their share and the difference: who **is owed** money and who **owes** it. **To settle up** lists the fewest payments that would make everyone even.
 
-When someone pays someone back, write it down as an expense too: paid by the person who paid back, split **by amounts** to the person they paid. For example, if Pat gives Olive 25.00, add "Pat paid Olive back", 25.00, paid by Pat, by amounts: Olive 25.00. Their balances move towards even.
+When someone pays someone back as suggested, press **Record payment** next to that line (see Settle up in one press). It writes the pay-back down as an expense for you. For any other payment, add it as an expense by hand: paid by the person who paid back, split **by amounts** to the person they paid. For example, if Pat gives Olive 25.00, add "Pat paid Olive back", 25.00, paid by Pat, by amounts: Olive 25.00. Their balances move towards even.
 
 Someone who leaves the space stays in the expenses they were part of, so the record and the balances stay right.
 

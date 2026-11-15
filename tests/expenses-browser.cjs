@@ -28,7 +28,8 @@ const BASE = process.env.WEFT_BASE || 'http://localhost:3211/';
   const form = (p) => p.locator('form[aria-label="Add an expense"]');
   const person = (f, name) => f.locator('.exp-person', { hasText: name });
   const balance = (p, name) => p.locator('.exp-bal', { hasText: name }).locator('.exp-bal-net').innerText();
-  const settle = (p) => p.locator('.exp-settle li').allInnerTexts();
+  // Each settle-up line's text, without its Record payment button (tests/settle-up-browser.cjs checks that).
+  const settle = (p) => p.locator('.exp-settle li').evaluateAll((ls) => ls.map((l) => [...l.children].filter((c) => c.tagName !== 'BUTTON').map((c) => c.innerText).join(' ')));
   const flat = (a) => a.map((s) => s.replace(/\s+/g, ' ').trim());
 
   const olive = await open('Olive Organizer');

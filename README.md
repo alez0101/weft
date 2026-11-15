@@ -11,7 +11,7 @@ allowed to see, with links to where each answer came from.
 - **Coordinate people:** a calendar with repeating events and RSVPs, bookings of shared things (weekly, skipping the weeks that clash), shift sign-ups (a day or a week copied on in one go), time off (with "away then" notes where people are picked),
   contacts, profiles (who knows what: find people by skill or by channel; recent kudos on each card)
 - **Ask and decide together:** polls and forms (that can close by themselves at a set time), Q and A, ideas boards (planned ideas become tasks, declined ones say why), announcements (with a Got it button and a count of who has seen them), kudos
-- **Keep track:** files, link lists, shared expenses with who owes whom, an inventory with check out and
+- **Keep track:** files, link lists, shared expenses with who owes whom (pay-backs recorded in one press), an inventory with check out and
   check in (with back-by dates, overdue in red), a private journal
 - **Around it all:** chat, search across everything, Home widgets, and a connector for AI apps (MCP)
 

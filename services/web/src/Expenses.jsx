@@ -1,6 +1,8 @@
 // An expense list: who paid what for the group, each expense split evenly between some people or by exact
 // amounts, with everyone's running balance and a short list of who should pay whom to settle up. Nothing is
-// paid here: paying someone back is written down as another expense. Editors and owners add, change and
+// paid here: paying someone back is written down as another expense, typed by hand or written in one press
+// with "Record payment" next to a suggested payment (weft.record_payment, 065, which refuses a payment
+// that is more than is owed now, so a double press records it once). Editors and owners add, change and
 // delete expenses; viewers read. The database keeps the sums right (the shares always add up to the amount,
 // and an even split is worked out there); when it says no, its reason is shown and the list is reloaded.
 // Live: any change to this list's expenses refetches it. Weft (search and the assistant) reads the list's
@@ -106,6 +108,7 @@ export default function ExpenseList({ item, me, members, editable, notice }) {
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(null);
   const [adding, setAdding] = useState(false);
+  const [paying, setPaying] = useState('');
 
   const load = useCallback(() => api(`/expenses?list_id=eq.${item.id}&select=${SELECT}&order=spent_on.desc,created_at.desc`).then(setExpenses), [item.id]);
   useEffect(() => { load().catch((e) => setError(`The expenses could not load: ${e.message}`)); }, [load]);
@@ -124,6 +127,14 @@ export default function ExpenseList({ item, me, members, editable, notice }) {
   const remove = (x) => {
     if (!window.confirm(`Delete "${x.title}" (${money(x.amount_cents)})? Everyone's balances change.`)) return;
     change('Could not delete', () => api(`/expenses?id=eq.${x.id}`, { method: 'DELETE', prefer: 'return=minimal' }));
+  };
+
+  const record = async (s) => {
+    if (paying || !window.confirm(`Record that ${s.from.name} paid ${s.to.name} ${money(s.cents)}? It is added as an expense, paid by ${s.from.name}, all of it to ${s.to.name}.`)) return;
+    setPaying(`${s.from.id}-${s.to.id}`);
+    await change('The payment was not recorded', () => api('/rpc/record_payment', { method: 'POST',
+      body: { p_list: item.id, p_from: s.from.id, p_to: s.to.id, p_amount_cents: s.cents } }));
+    setPaying('');
   };
 
   if (!expenses) return error ? <p className="send-error" role="alert">{error}</p> : <div className="skeleton" aria-label="Loading the expenses"><span /><span /><span /></div>;
@@ -163,7 +174,7 @@ export default function ExpenseList({ item, me, members, editable, notice }) {
       {editable ? (adding
         ? <ExpenseForm initial={blank()} people={people} onSave={(b) => save(b)} onCancel={() => setAdding(false)} label="Add an expense" idp="exp-new" submit="Add expense" />
         : <div className="links-bar"><button className="btn btn--primary btn--sm" type="button" onClick={() => setAdding(true)}>Add an expense</button>
-            <p className="docs-hint">A record of who paid what. To pay someone back, add it as an expense paid by you, split by amounts to them.</p></div>)
+            <p className="docs-hint">A record of who paid what. When someone pays back, press Record payment under To settle up.</p></div>)
         : <p className="docs-hint">You can read these expenses and balances. Ask an owner of the space to make you an editor to add or change them.</p>}
       {error && <p className="send-error" role="alert">{error}</p>}
       <div className="cl-grid">
@@ -211,9 +222,23 @@ export default function ExpenseList({ item, me, members, editable, notice }) {
           {settle.length > 0 && (<>
             <h3 className="cl-section">To settle up</h3>
             <ul className="exp-settle" aria-label="To settle up">
-              {settle.map((s) => <li key={`${s.from.id}-${s.to.id}`}><strong>{s.from.name}</strong> pays <strong>{s.to.name}</strong> <span className="exp-sum">{money(s.cents)}</span></li>)}
+              {settle.map((s) => {
+                const key = `${s.from.id}-${s.to.id}`;
+                // The payer and the receiver must still be in the space to be written into a new expense.
+                const can = editable && inSpace.has(s.from.id) && inSpace.has(s.to.id);
+                return (
+                  <li key={key}>
+                    <span className="exp-settle-who"><strong>{s.from.name}</strong> pays <strong>{s.to.name}</strong></span>
+                    <span className="exp-sum">{money(s.cents)}</span>
+                    {can && <button className="btn btn--sm exp-settle-pay" type="button" disabled={!!paying} aria-busy={paying === key}
+                      aria-label={`Record payment: ${s.from.name} pays ${s.to.name} ${money(s.cents)}`} onClick={() => record(s)}>
+                      {paying === key ? 'Recording…' : 'Record payment'}
+                    </button>}
+                  </li>
+                );
+              })}
             </ul>
-            <p className="docs-hint">The fewest payments that make everyone even. Nothing is paid through Weft.</p>
+            <p className="docs-hint">The fewest payments that make everyone even. Nothing is paid through Weft{editable ? ': once the money has changed hands, Record payment writes it down as an expense.' : '.'}</p>
           </>)}
         </section>
       </div>
