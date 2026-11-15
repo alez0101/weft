@@ -6,10 +6,12 @@
 // Row-level security decides; when it says no, the reason is shown and the set is reloaded.
 // Live: any change to this set's goals or key results refetches it. Weft (search and the assistant) reads the
 // set's text summary, kept by the database.
+// A key result can instead count from a task list in the same space (059): the database keeps its numbers as
+// done tasks out of all tasks, so it has no Update box and its form shows only the title and the list.
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
 
-const KRS = 'id,goal_id,title,start_value,target_value,current_value,unit,position,progress,value_updated_at,updated_by:users!key_results_value_updated_by_fkey(display_name)';
+const KRS = 'id,goal_id,tasklist_id,list:items!key_results_tasklist_id_fkey(title),title,start_value,target_value,current_value,unit,position,progress,value_updated_at,updated_by:users!key_results_value_updated_by_fkey(display_name)';
 const GOALS = `id,title,note,due_on,position,created_at,krs:key_results(${KRS})`;
 const day = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
 const stamp = (iso) => new Date(iso).toLocaleDateString([], { day: 'numeric', month: 'short' });
@@ -52,16 +54,31 @@ function GoalForm({ initial, onSave, onCancel, label, idp, submit }) {
   );
 }
 
-function ResultForm({ initial, onSave, onCancel, label, idp, submit }) {
-  const [f, setF] = useState(initial);
+function ResultForm({ initial, onSave, onCancel, label, idp, submit, lists }) {
+  const [f, setF] = useState({ tasklist_id: '', ...initial });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const linked = !!f.tasklist_id;
   const same = isNum(f.start_value) && isNum(f.target_value) && Number(f.start_value) === Number(f.target_value);
-  const ok = f.title.trim() && isNum(f.start_value) && isNum(f.target_value) && isNum(f.current_value) && !same;
+  const ok = f.title.trim() && (linked || (isNum(f.start_value) && isNum(f.target_value) && isNum(f.current_value) && !same));
+  const pick = (e) => {
+    const id = e.target.value;
+    const list = (lists || []).find((l) => l.id === id);
+    setF({ ...f, tasklist_id: id, title: f.title.trim() || !list ? f.title : `Tasks done in ${list.title}`.slice(0, 200) });
+  };
+  // Unlinking keeps the numbers the list last gave, unless the person typed new ones here.
+  const typed = () => ({ start_value: Number(f.start_value), target_value: Number(f.target_value), current_value: Number(f.current_value), unit: f.unit.trim() });
   return (
     <form className="link-form goal-kr-form" aria-label={label} noValidate
-      onSubmit={(e) => { e.preventDefault(); if (ok) onSave({ title: f.title.trim(), unit: f.unit.trim(), start_value: Number(f.start_value), target_value: Number(f.target_value), current_value: Number(f.current_value) }); }}>
+      onSubmit={(e) => { e.preventDefault(); if (ok) onSave(linked ? { title: f.title.trim(), tasklist_id: f.tasklist_id } : { title: f.title.trim(), ...(initial.tasklist_id ? {} : typed()), tasklist_id: null }); }}>
       <label htmlFor={`${idp}-title`}>Key result</label>
       <input id={`${idp}-title`} value={f.title} onChange={set('title')} maxLength={200} autoComplete="off" placeholder="Something you can count" required />
+      <label htmlFor={`${idp}-from`}>Count from</label>
+      <select id={`${idp}-from`} className="goal-kr-from-list" value={f.tasklist_id} onChange={pick}>
+        <option value="">Numbers typed by hand</option>
+        {(lists || []).map((l) => <option key={l.id} value={l.id}>Done tasks in {l.title}</option>)}
+      </select>
+      {linked ? <p className="goal-kr-note">Progress follows the list: done tasks out of all its tasks, updated whenever a task changes.</p>
+        : initial.tasklist_id ? <p className="goal-kr-note">It keeps the numbers the list last gave; update them by hand from now on.</p> : (<>
       <span className="goal-kr-nums">
         <label htmlFor={`${idp}-start`}>From</label>
         <input id={`${idp}-start`} type="number" step="any" inputMode="decimal" value={f.start_value} onChange={set('start_value')} />
@@ -73,6 +90,7 @@ function ResultForm({ initial, onSave, onCancel, label, idp, submit }) {
         <input id={`${idp}-unit`} value={f.unit} onChange={set('unit')} maxLength={20} autoComplete="off" placeholder="tickets, €, %" />
       </span>
       {same && <p className="goal-kr-hint">The target has to differ from where you start.</p>}
+      </>)}
       <div className="link-form-actions">
         <button className="btn btn--primary btn--sm" type="submit" disabled={!ok}>{submit}</button>
         {onCancel && <button className="btn btn--sm" type="button" onClick={onCancel}>Cancel</button>}
@@ -95,8 +113,10 @@ function UpdateValue({ kr, onSave }) {
   );
 }
 
-export default function GoalSet({ item, editable, notice }) {
+export default function GoalSet({ item, editable, notice, onOpenItem }) {
   const [goals, setGoals] = useState(null);
+  const [lists, setLists] = useState([]);           // task lists in this space, for "Count from"
+
   const [error, setError] = useState('');
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);     // goal id being edited
@@ -106,6 +126,10 @@ export default function GoalSet({ item, editable, notice }) {
   const load = useCallback(() => api(`/goals?set_id=eq.${item.id}&select=${GOALS}&order=position,created_at&krs.order=position,created_at`)
     .then(setGoals), [item.id]);
   useEffect(() => { load().catch((e) => setError(`The goals could not load: ${e.message}`)); }, [load]);
+  useEffect(() => {
+    if (!editable) return;
+    api(`/items?space_id=eq.${item.space_id}&kind=eq.tasklist&select=id,title&order=title`).then(setLists).catch(() => setLists([]));
+  }, [editable, item.space_id]);
   useEffect(() => { if (notice?.t === 'goals' && notice.set === item.id) load().catch(() => {}); }, [notice, item.id, load]);
 
   const change = async (what, run) => {
@@ -192,20 +216,25 @@ export default function GoalSet({ item, editable, notice }) {
                     {g.krs.map((k) => (
                       <li key={k.id} className="goal-kr">
                         {editingKr === k.id ? (
-                          <ResultForm initial={{ title: k.title, unit: k.unit, start_value: String(Number(k.start_value)), target_value: String(Number(k.target_value)), current_value: String(Number(k.current_value)) }}
-                            onSave={(b) => saveKr(k, b)} onCancel={() => setEditingKr(null)} label={`Edit ${k.title}`} idp={`kr-${k.id}`} submit="Save" />
+                          <ResultForm initial={{ title: k.title, unit: k.unit, tasklist_id: k.tasklist_id || '', start_value: String(Number(k.start_value)), target_value: String(Number(k.target_value)), current_value: String(Number(k.current_value)) }}
+                            lists={lists} onSave={(b) => saveKr(k, b)} onCancel={() => setEditingKr(null)} label={`Edit ${k.title}`} idp={`kr-${k.id}`} submit="Save" />
                         ) : (<>
                           <div className="goal-kr-head">
                             <span className="goal-kr-title">{k.title}</span>
-                            <span className="goal-kr-value"><strong>{num(k.current_value)}</strong> of {num(k.target_value)}{k.unit ? ` ${k.unit}` : ''}
-                              {Number(k.start_value) !== 0 && <span className="goal-kr-from"> (from {num(k.start_value)})</span>}</span>
+                            {k.tasklist_id
+                              ? <span className="goal-kr-value"><strong>{num(k.current_value)}</strong> of {num(k.target_value)} task{Number(k.target_value) === 1 ? '' : 's'} done</span>
+                              : <span className="goal-kr-value"><strong>{num(k.current_value)}</strong> of {num(k.target_value)}{k.unit ? ` ${k.unit}` : ''}
+                                  {Number(k.start_value) !== 0 && <span className="goal-kr-from"> (from {num(k.start_value)})</span>}</span>}
                             <span className="goal-pct">{pct(k.progress)}%</span>
                           </div>
                           <Bar value={k.progress} label={`Progress of ${k.title}`} />
                           <div className="link-foot">
+                            {k.tasklist_id && <span className="goal-kr-source">Counts from {onOpenItem
+                              ? <button type="button" className="link-btn" onClick={() => onOpenItem(k.tasklist_id)}>{k.list?.title || 'a task list'}</button>
+                              : <strong>{k.list?.title || 'a task list'}</strong>}</span>}
                             <span className="link-by">{k.value_updated_at ? `Updated ${stamp(k.value_updated_at)}${k.updated_by?.display_name ? ` by ${k.updated_by.display_name}` : ''}` : ''}</span>
                             {editable && <>
-                              <UpdateValue kr={k} onSave={(v) => updateValue(k, v)} />
+                              {!k.tasklist_id && <UpdateValue kr={k} onSave={(v) => updateValue(k, v)} />}
                               <button className="btn btn--sm" type="button" onClick={() => setEditingKr(k.id)}>Edit<span className="visually-hidden"> {k.title}</span></button>
                               <button className="btn btn--sm" type="button" onClick={() => removeKr(k)}>Delete<span className="visually-hidden"> {k.title}</span></button>
                             </>}
@@ -216,7 +245,7 @@ export default function GoalSet({ item, editable, notice }) {
                   </ul>
                 )}
                 {editable && editing !== g.id && (addingKr === g.id
-                  ? <ResultForm initial={{ title: '', unit: '', start_value: '0', target_value: '', current_value: '0' }} onSave={(b) => addKr(g, b)} onCancel={() => setAddingKr(null)}
+                  ? <ResultForm initial={{ title: '', unit: '', start_value: '0', target_value: '', current_value: '0' }} lists={lists} onSave={(b) => addKr(g, b)} onCancel={() => setAddingKr(null)}
                       label={`Add a key result to ${g.title}`} idp={`kr-new-${g.id}`} submit="Add key result" />
                   : <div className="link-foot goal-actions">
                       <button className="btn btn--sm" type="button" onClick={() => setAddingKr(g.id)}>Add a key result<span className="visually-hidden"> to {g.title}</span></button>

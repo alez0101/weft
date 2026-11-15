@@ -5568,6 +5568,141 @@ def poll_form_deadlines():
           oq(f"select (select count(*) from weft.polls where id in ('{org}', '{fest}')) + (select count(*) from weft.forms where id in ('{form}', '{orgform}'))") == "0")
 
 
+def key_results_from_tasks():
+    """059: a key result can count done tasks out of all tasks in a task list in the goal set's own space. Members
+    see the link, editors set and clear it (the 041 rules); the numbers are kept by the database from the tasks;
+    moves and deletes clear the link, and a moved set's clean-up is recorded under the space it left."""
+    pat, vic, olive = mint("u-pub"), mint("u-vol"), mint("u-org")
+    O, P = uid("user", "u-org"), uid("user", "u-pub")
+    oq = lambda sql: owner_sql(sql)
+    mk = lambda space, kind, title: (lambda r: r[1][0]["id"] if r[0] == 201 else None)(call("POST", "/items", olive, {"space_id": SID[space], "kind": kind, "title": title}))
+    task = lambda lst, title, **kw: (lambda r: r[1][0]["id"] if r[0] == 201 else None)(call("POST", "/tasks", olive, {"list_id": lst, "title": title, **kw}))
+    kr = lambda i: (lambda r: r[0] if r else {})(json.loads(oq(f"select coalesce(json_agg(k), '[]') from weft.key_results k where id = '{i}'") or "[]"))
+    nums = lambda i: (lambda k: (k.get("tasklist_id"), float(k.get("current_value", -1)), float(k.get("target_value", -1)), float(k.get("start_value", -1)), k.get("unit")))(kr(i))
+    fest, org = mk("festival", "goalset", "KRT festival goals"), mk("organizers", "goalset", "KRT-SECRET org goals")
+    fl, ol, vl = mk("festival", "tasklist", "KRT festival prep"), mk("organizers", "tasklist", "KRT-SECRET org list"), mk("volunteers", "tasklist", "KRT volunteer list")
+    empty, doc = mk("festival", "tasklist", "KRT empty list"), mk("festival", "document", "KRT a document")
+    st, rows = call("POST", "/goals", olive, {"set_id": fest, "title": "Get the festival ready"})
+    fg = rows[0]["id"] if st == 201 else None
+    st, rows = call("POST", "/goals", olive, {"set_id": org, "title": "KRT-SECRET org goal"})
+    og = rows[0]["id"] if st == 201 else None
+    check("KR from tasks: Olive makes goal sets, goals and task lists in #festival and Organizers", all((fest, org, fl, ol, vl, empty, doc, fg, og)))
+    t1, t2 = task(fl, "Book the stage", done=True), task(fl, "Print the posters")
+    t3 = task(fl, "Hang the bunting", assignee_id=P)
+    task(ol, "KRT-SECRET contract", done=True)
+
+    # Linking: editors yes; the numbers come from the list, whatever the client sends.
+    st, rows = call("POST", "/key_results", olive, {"goal_id": fg, "title": "Prep tasks done", "tasklist_id": fl, "start_value": 5, "target_value": 99, "current_value": 50, "unit": "x"})
+    fk = rows[0]["id"] if st == 201 else None
+    check("KR from tasks: Olive links a key result to a #festival task list (positive control); 1 of 3 done, from 0, unit tasks, numbers sent are ignored",
+          fk and rows[0]["tasklist_id"] == fl and float(rows[0]["current_value"]) == 1 and float(rows[0]["target_value"]) == 3
+          and float(rows[0]["start_value"]) == 0 and rows[0]["unit"] == "tasks" and abs(float(rows[0]["progress"]) - 1 / 3) < 1e-9 and rows[0]["value_updated_by"] == O, f"{st} {rows}")
+    st, rows = call("GET", f"/key_results?id=eq.{fk}&select=tasklist_id,list:items!key_results_tasklist_id_fkey(title)", pat)
+    check("KR from tasks: Pat (viewer) reads the link and the list's name (positive control)", st == 200 and rows and rows[0]["tasklist_id"] == fl and rows[0]["list"]["title"] == "KRT festival prep", f"{st} {rows}")
+    for target, why in ((ol, "a task list in another space (Organizers)"), (vl, "a task list in Volunteers"), (doc, "an item that is not a task list"), (uid("item", "no-such-list"), "an id that is nothing")):
+        st, rows = call("POST", "/key_results", olive, {"goal_id": fg, "title": "bad link", "tasklist_id": target})
+        check(f"KR from tasks: linking to {why} is refused", st == 400 and "same space" in json.dumps(rows), f"{st} {rows}")
+    st, rows = call("PATCH", f"/key_results?id=eq.{fk}", olive, {"tasklist_id": ol})
+    check("KR from tasks: nor can an existing link be pointed at an Organizers list", st == 400 and nums(fk)[0] == fl, f"{st} {rows}")
+    st, rows = call("POST", "/key_results", olive, {"goal_id": og, "title": "KRT-SECRET signed", "tasklist_id": ol})
+    ok_ = rows[0]["id"] if st == 201 else None
+    check("KR from tasks: Olive links an Organizers key result to an Organizers list (positive control)", ok_ and nums(ok_)[1:3] == (1.0, 1.0), f"{st} {rows}")
+
+    # Viewers, outsiders, scope and the assistant.
+    st, rows = call("POST", "/key_results", pat, {"goal_id": fg, "title": "pwned", "tasklist_id": fl})
+    st2, rows2 = call("PATCH", f"/key_results?id=eq.{fk}", pat, {"tasklist_id": None})
+    st3, rows3 = call("PATCH", f"/key_results?id=eq.{fk}", vic, {"tasklist_id": empty})
+    check("KR from tasks: Pat and Vic (viewers in #festival) cannot add, clear or change a link", refused(st) and rows2 == [] and rows3 == [] and nums(fk)[0] == fl, f"{st} {st2} {st3}")
+    st, rows = call("GET", f"/key_results?tasklist_id=eq.{ol}&select=id", pat)
+    st2, rows2 = call("GET", "/key_results?tasklist_id=not.is.null&select=id", vic)
+    check("KR from tasks: Pat and Vic find no Organizers key result by filtering on its list", st == 200 and rows == [] and ok_ not in [r["id"] for r in rows2 or []], f"{rows} {rows2}")
+    st, rows = call("POST", "/key_results", pat, {"goal_id": og, "title": "x", "tasklist_id": ol})
+    check("KR from tasks: Pat cannot link in Organizers either, and is not told why beyond no", refused(st) and "same space" not in json.dumps(rows), f"{st} {rows}")
+    scoped = mint("u-org", scope="festival")
+    st, rows = call("PATCH", f"/key_results?id=eq.{ok_}", scoped, {"tasklist_id": None})
+    st2, rows2 = call("GET", f"/key_results?id=in.({fk},{ok_})&select=id", scoped)
+    check("KR from tasks: a #festival-scoped token neither sees nor clears the Organizers link", rows == [] and nums(ok_)[0] == ol
+          and st2 == 200 and [r["id"] for r in rows2] == [fk], f"{st} {rows} {rows2}")
+    helper = mint("u-org", assistant=True)
+    st, rows = call("GET", f"/key_results?id=eq.{ok_}&select=tasklist_id", helper)
+    st2, _ = call("PATCH", f"/key_results?id=eq.{ok_}", helper, {"tasklist_id": None})
+    st3, _ = call("DELETE", f"/key_results?id=eq.{ok_}", helper)
+    check("KR from tasks: the assistant reads a link but cannot clear it or delete", st == 200 and rows and rows[0]["tasklist_id"] == ol
+          and refused(st2) and refused(st3) and nums(ok_)[0] == ol, f"{st} {st2} {st3}")
+    st, _ = call("POST", "/key_results", olive, {"goal_id": fg, "title": "forged", "tasklist_id": fl, "created_by": P})
+    st2, _ = call("POST", "/key_results", olive, {"goal_id": fg, "title": "forged", "tasklist_id": fl, "value_updated_by": P})
+    check("KR from tasks: authorship and the value stamp of a linked key result cannot be forged", refused(st) and refused(st2), f"{st} {st2}")
+
+    # The numbers follow the tasks, stamped by whoever changed them.
+    call("PATCH", f"/tasks?id=eq.{t2}", olive, {"done": True})
+    k = kr(fk)
+    check("KR from tasks: Olive ticks off a task; the key result is 2 of 3 at once, stamped by her", nums(fk)[1:3] == (2.0, 3.0) and k["value_updated_by"] == O, str(k))
+    st, rows = call("PATCH", f"/tasks?id=eq.{t3}", pat, {"done": True})
+    k = kr(fk)
+    check("KR from tasks: Pat (a viewer) ticks off the task assigned to Pat; 3 of 3 = 100%, stamped by Pat", st == 200 and rows and nums(fk)[1:3] == (3.0, 3.0)
+          and float(k["progress"]) == 1 and k["value_updated_by"] == P, f"{st} {k}")
+    t4 = task(fl, "Sweep up")
+    check("KR from tasks: a new task counts at once (3 of 4)", nums(fk)[1:3] == (3.0, 4.0), str(nums(fk)))
+    call("PATCH", f"/tasks?id=eq.{t1}", olive, {"done": False})
+    call("DELETE", f"/tasks?id=eq.{t4}", olive)
+    check("KR from tasks: reopening and deleting tasks count too (2 of 3)", nums(fk)[1:3] == (2.0, 3.0), str(nums(fk)))
+    call("PATCH", f"/tasks?id=eq.{t1}", olive, {"title": "Book the main stage"})
+    st, rows = call("GET", f"/audit?row_id=eq.{fk}&select=op", olive)
+    n_audit = len(rows or [])
+    call("PATCH", f"/tasks?id=eq.{t1}", olive, {"title": "Book the stage"})
+    st, rows = call("GET", f"/audit?row_id=eq.{fk}&select=op", olive)
+    check("KR from tasks: renaming a task does not touch the key result", len(rows or []) == n_audit and nums(fk)[1:3] == (2.0, 3.0), f"{n_audit} {len(rows or [])}")
+    st, rows = call("PATCH", f"/key_results?id=eq.{fk}", olive, {"current_value": 40, "target_value": 50})
+    check("KR from tasks: typing numbers into a linked key result changes nothing (they come from the list)", st == 200 and nums(fk)[1:3] == (2.0, 3.0), f"{st} {rows}")
+    body = oq(f"select body_text from weft.items where id = '{fest}'") or ""
+    check("KR from tasks: the set's summary reads the counted numbers", "- Prep tasks done: 2 of 3 tasks (from 0), 67%" in body, body)
+
+    # An empty list, unlinking, and the typed rule still in force.
+    st, rows = call("POST", "/key_results", olive, {"goal_id": fg, "title": "Empty", "tasklist_id": empty})
+    ek = rows[0]["id"] if st == 201 else None
+    check("KR from tasks: a key result can follow an empty list: 0 of 0 is 0%", ek and float(rows[0]["target_value"]) == 0 and float(rows[0]["progress"]) == 0, f"{st} {rows}")
+    st, rows = call("PATCH", f"/key_results?id=eq.{ek}", olive, {"tasklist_id": None})
+    check("KR from tasks: unlinking an empty one leaves a valid typed key result (0 of 1)", st == 200 and rows and rows[0]["tasklist_id"] is None
+          and float(rows[0]["target_value"]) == 1 and float(rows[0]["current_value"]) == 0, f"{st} {rows}")
+    st, _ = call("POST", "/key_results", olive, {"goal_id": fg, "title": "typed", "target_value": 0})
+    check("KR from tasks: a typed key result with target equal to start is still refused", st == 400, str(st))
+    st, rows = call("PATCH", f"/key_results?id=eq.{ek}", olive, {"current_value": 1})
+    check("KR from tasks: once unlinked, its value is updated by hand again (positive control)", st == 200 and rows and float(rows[0]["progress"]) == 1, f"{st} {rows}")
+
+    # Deleting the list clears the link and keeps the last numbers.
+    st, rows = call("POST", "/key_results", olive, {"goal_id": fg, "title": "Prep again", "tasklist_id": fl})
+    fk2 = rows[0]["id"] if st == 201 else None
+    tmp = mk("festival", "tasklist", "KRT short-lived list")
+    task(tmp, "a", done=True); task(tmp, "b")
+    call("PATCH", f"/key_results?id=eq.{fk2}", olive, {"tasklist_id": tmp})
+    check("KR from tasks: Olive points a link at another #festival list (positive control)", nums(fk2)[:3] == (tmp, 1.0, 2.0), str(nums(fk2)))
+    st, _ = call("DELETE", f"/items?id=eq.{tmp}", olive)
+    check("KR from tasks: deleting the list clears the link and keeps 1 of 2", st in (200, 204) and nums(fk2)[:3] == (None, 1.0, 2.0), str(nums(fk2)))
+
+    # Moves follow the space.
+    call("PATCH", f"/key_results?id=eq.{fk2}", olive, {"tasklist_id": fl})
+    st, _ = call("PATCH", f"/items?id=eq.{fl}", olive, {"space_id": SID["volunteers"]})
+    st2, rows = call("GET", f"/key_results?id=in.({fk},{fk2})&select=tasklist_id,current_value", pat)
+    check("KR from tasks: a task list moved to Volunteers stops counting for #festival goals; Pat sees the links gone, the numbers kept",
+          st == 200 and len(rows) == 2 and all(r["tasklist_id"] is None and float(r["current_value"]) == 2 for r in rows), f"{st} {rows}")
+    t5 = call("POST", "/tasks", olive, {"list_id": fl, "title": "after the move", "done": True})
+    check("KR from tasks: and tasks added to it there no longer move them", nums(fk)[1:3] == (2.0, 3.0), str(nums(fk)))
+    st, _ = call("PATCH", f"/items?id=eq.{org}", olive, {"space_id": SID["festival"]})
+    st2, rows = call("GET", f"/key_results?id=eq.{ok_}&select=tasklist_id,current_value,target_value", pat)
+    check("KR from tasks: an Organizers set moved into #festival loses its link to the Organizers list; Pat sees the key result unlinked",
+          st == 200 and rows and rows[0]["tasklist_id"] is None and nums(ok_)[0] is None, f"{st} {rows}")
+    st, rows = call("GET", "/audit?table_name=eq.key_results&select=row_id,space_id,old_row", pat)
+    st2, rows2 = call("GET", f"/audit?row_id=eq.{ok_}&select=space_id,old_row", olive)
+    st3, rows3 = call("GET", f"/items?id=eq.{ol}&select=id", pat)
+    check("KR from tasks: Pat finds no trace of the Organizers list, not in the audit log nor by id", st == 200 and ol not in json.dumps(rows) and ok_ not in [r["row_id"] for r in rows]
+          and rows3 == [], f"{[r['row_id'] for r in rows or []]}")
+    check("KR from tasks: the clean-up is in the audit log under Organizers, for Olive (positive control)",
+          any(r["space_id"] == SID["organizers"] and (r["old_row"] or {}).get("tasklist_id") == ol for r in rows2 or []), str(rows2))
+    for i in (fest, org, fl, ol, vl, empty, doc):
+        call("DELETE", f"/items?id=eq.{i}", olive)
+    check("KR from tasks: deleting the sets removes their key results", oq(f"select count(*) from weft.key_results where id in ('{fk}', '{fk2}', '{ok_}', '{ek}')") == "0")
+
+
 def teeth():
     """Loosen one policy on purpose and confirm the suite would catch it, then restore it."""
     owner_sql("create policy teeth_leak on weft.items for select to weft_user using (true)")
@@ -5603,6 +5738,7 @@ if __name__ == "__main__":
     inventory()
     due_back_dates()
     goals()
+    key_results_from_tasks()
     announcements()
     kudos()
     timeline()

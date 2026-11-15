@@ -415,7 +415,7 @@ export default function App() {
             : ui.active === 'inventory' ? <Docs key="inventory" kind="inventory" me={me} members={members} notice={notice} openId={ui.inventory} setOpenId={(inventory) => setUi((u) => ({ ...u, inventory }))} />
             : ui.active === 'retros' ? <Docs key="retros" kind="retro" me={me} members={members} notice={notice} onOpenItem={openItem} openId={ui.retro} setOpenId={(retro) => setUi((u) => ({ ...u, retro }))} />
             : ui.active === 'glossary' ? <Docs key="glossary" kind="glossary" me={me} members={members} notice={notice} openId={ui.glossary} setOpenId={(glossary) => setUi((u) => ({ ...u, glossary }))} />
-            : ui.active === 'goals' ? <Docs key="goals" kind="goalset" me={me} members={members} notice={notice} openId={ui.goals} setOpenId={(goals) => setUi((u) => ({ ...u, goals }))} />
+            : ui.active === 'goals' ? <Docs key="goals" kind="goalset" me={me} members={members} notice={notice} onOpenItem={openItem} openId={ui.goals} setOpenId={(goals) => setUi((u) => ({ ...u, goals }))} />
             : ui.active === 'ideas' ? <Docs key="ideas" kind="ideaboard" me={me} members={members} notice={notice} openId={ui.ideas} setOpenId={(ideas) => setUi((u) => ({ ...u, ideas }))} />
             : ui.active === 'qa' ? <Docs key="qa" kind="qa" me={me} members={members} notice={notice} openId={ui.qa} setOpenId={(qa) => setUi((u) => ({ ...u, qa }))} />
             : ui.active === 'kudos' ? <Kudos me={me} spaces={spaces} members={members} notice={notice} openId={ui.kudos} setOpenId={(kudos) => setUi((u) => ({ ...u, kudos }))} />
