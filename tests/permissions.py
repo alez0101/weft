@@ -4287,6 +4287,163 @@ def retros():
         call("DELETE", f"/items?id=eq.{i}", olive)
 
 
+
+# ---------------------------------------------------------------- repeating events (049)
+def repeating_events():
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, O, A = uid("user", "u-pub"), uid("user", "u-org"), uid("user", "u-alex")
+    oq = lambda sql: owner_sql(sql)
+    rpc = lambda name, tok, body: call("POST", f"/rpc/{name}", tok, body)
+    def event(tok, space, title, start, end, **extra):
+        st, rows = call("POST", "/events", tok, {"space_id": SID[space], "title": title, "starts_at": start, "ends_at": end, **extra})
+        return rows[0]["id"] if st == 201 else None
+    # Olive makes a weekly Organizers meeting repeat, in Berlin time, across the clock change of 28 March 2027.
+    org = event(olive, "organizers", "REPEAT-ORG-SECRET budget call", "2027-03-10T17:00:00Z", "2027-03-10T18:00:00Z", location="Back room")
+    st, sid = rpc("repeat_event", olive, {"p_event": org, "p_repeats": "weekly", "p_until": "2027-04-07", "p_tz": "Europe/Berlin"})
+    times = oq(f"select string_agg(to_char(starts_at at time zone 'UTC', 'MM-DD HH24:MI'), ',' order by starts_at) from weft.events where series_id = '{sid}'") if st == 200 else ""
+    check("Repeating: Olive (editor) makes an Organizers event repeat weekly until a date, 5 occurrences (positive control)",
+          st == 200 and times.count(",") == 4, f"{st} {sid} {times}")
+    check("Repeating: occurrences keep the local time across a clock change (18:00 Berlin is 17:00 UTC, then 16:00 UTC)",
+          times == "03-10 17:00,03-17 17:00,03-24 17:00,03-31 16:00,04-07 16:00", times)
+    check("Repeating: the series is in the event's space, made by Olive (set by the database), and copies keep title, place and length",
+          oq(f"select space_id::text || created_by::text || repeats || until_on::text from weft.event_series where id = '{sid}'") == f"{SID['organizers']}{O}weekly2027-04-07"
+          and oq(f"select count(*) from weft.events where series_id = '{sid}' and title = 'REPEAT-ORG-SECRET budget call' and location = 'Back room' and ends_at - starts_at = interval '1 hour' and created_by = '{O}'") == "5", sid)
+    # Reading follows membership.
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = call("GET", f"/event_series?id=eq.{sid}", tok)
+        st2, rows2 = call("GET", f"/events?series_id=eq.{sid}&select=id", tok)
+        check(f"Repeating: {who} sees no Organizers series nor its occurrences", st == 200 and rows == [] and st2 == 200 and rows2 == [], f"{rows} {rows2}")
+    st, rows = call("GET", f"/events?id=eq.{org}&select=id,series:event_series(repeats,until_on)", olive)
+    check("Repeating: Olive reads the event with how it repeats (positive control)", st == 200 and rows and rows[0]["series"] == {"repeats": "weekly", "until_on": "2027-04-07"}, str(rows))
+    # Outsiders cannot make, change or delete Organizers series.
+    st, _ = rpc("repeat_event", vic, {"p_event": org, "p_repeats": "daily", "p_until": "2027-03-20", "p_tz": "UTC"})
+    st2, _ = rpc("change_series", vic, {"p_event": org, "p_title": "pwned", "p_location": "", "p_starts": "2027-03-10T17:00:00Z", "p_ends": "2027-03-10T18:00:00Z"})
+    st3, _ = rpc("delete_series", pat, {"p_event": org})
+    st4, rows4 = call("DELETE", f"/event_series?id=eq.{sid}", vic)
+    check("Repeating: Vic and Pat cannot repeat, change or delete an Organizers series", refused(st) and refused(st2) and refused(st3) and rows4 == []
+          and oq(f"select count(*) from weft.events where series_id = '{sid}' and title like 'REPEAT-ORG%'") == "5", f"{st} {st2} {st3} {st4}")
+    # #festival: viewers read, but only editors write.
+    fest = event(olive, "festival", "Rehearsal", "2027-05-03T18:00:00Z", "2027-05-03T20:00:00Z")
+    st, fsid = rpc("repeat_event", olive, {"p_event": fest, "p_repeats": "daily", "p_until": "2027-05-07", "p_tz": "UTC"})
+    check("Repeating: Olive makes a #festival rehearsal repeat daily (positive control)", st == 200
+          and oq(f"select count(*) from weft.events where series_id = '{fsid}'") == "5", f"{st} {fsid}")
+    st, rows = call("GET", f"/events?series_id=eq.{fsid}&select=id,series:event_series(repeats)", pat)
+    check("Repeating: Pat (viewer) reads the #festival series and its 5 occurrences (positive control)", st == 200 and len(rows) == 5 and rows[0]["series"]["repeats"] == "daily", str(rows))
+    single = event(olive, "festival", "One-off", "2027-05-10T18:00:00Z", "2027-05-10T19:00:00Z")
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, _ = rpc("repeat_event", tok, {"p_event": single, "p_repeats": "weekly", "p_until": "2027-06-10", "p_tz": "UTC"})
+        st2, _ = rpc("change_series", tok, {"p_event": fest, "p_title": "pwned", "p_location": "", "p_starts": "2027-05-03T18:00:00Z", "p_ends": "2027-05-03T20:00:00Z"})
+        st3, _ = rpc("delete_series", tok, {"p_event": fest})
+        st4, _ = call("POST", "/event_series", tok, {"space_id": SID["festival"], "repeats": "weekly", "until_on": "2027-06-01"})
+        st5, rows5 = call("DELETE", f"/event_series?id=eq.{fsid}", tok)
+        st6, rows6 = call("PATCH", f"/events?id=eq.{single}", tok, {"series_id": fsid})
+        check(f"Repeating: {who} (viewer in #festival) cannot repeat, change or delete there, add or delete a series, or attach an event",
+              refused(st) and refused(st2) and refused(st3) and refused(st4) and rows5 == [] and rows6 == []
+              and oq(f"select count(*) from weft.events where series_id = '{fsid}' and title = 'Rehearsal'") == "5"
+              and oq(f"select count(*) from weft.events where id = '{single}' and series_id is null") == "1", f"{st} {st2} {st3} {st4} {st5} {st6}")
+    # Authorship cannot be forged.
+    st, _ = call("POST", "/event_series", olive, {"space_id": SID["festival"], "repeats": "weekly", "until_on": "2027-06-01", "created_by": A})
+    st2, _ = call("PATCH", f"/event_series?id=eq.{fsid}", olive, {"until_on": "2027-12-01"})
+    check("Repeating: a series' author cannot be forged, and a series is not changed directly", refused(st) and refused(st2)
+          and oq(f"select created_by::text || until_on::text from weft.event_series where id = '{fsid}'") == f"{O}2027-05-07", f"{st} {st2}")
+    # A series never spans two spaces.
+    st, body = call("POST", "/events", olive, {"space_id": SID["festival"], "title": "sneak", "starts_at": "2027-05-20T10:00:00Z", "ends_at": "2027-05-20T11:00:00Z", "series_id": sid})
+    st2, body2 = call("PATCH", f"/events?id=eq.{single}", olive, {"series_id": sid})
+    pev = event(pat, "personal-u-pub", "Pat's own", "2027-05-04T08:00:00Z", "2027-05-04T09:00:00Z")
+    st3, _ = call("PATCH", f"/events?id=eq.{pev}", pat, {"series_id": fsid})
+    check("Repeating: an event cannot join a series in another space (Organizers series in #festival, #festival series in Pat's personal space)",
+          st == 400 and st2 == 400 and st3 == 400 and oq(f"select count(*) from weft.events where series_id = '{sid}'") == "5"
+          and oq(f"select count(*) from weft.events where title = 'sneak'") == "0", f"{st} {st2} {st3} {body}")
+    st, rows = call("POST", "/events", olive, {"space_id": SID["festival"], "title": "Rehearsal extra", "starts_at": "2027-05-08T18:00:00Z", "ends_at": "2027-05-08T20:00:00Z", "series_id": fsid})
+    check("Repeating: an editor may add an event to a series in the same space (positive control)", st == 201 and rows[0]["series_id"] == fsid, f"{st} {rows}")
+    # Moving one occurrence to another space takes it out of the series; the rest stay.
+    moved = oq(f"select id from weft.events where series_id = '{sid}' order by starts_at limit 1 offset 1")
+    st, rows = call("PATCH", f"/events?id=eq.{moved}", olive, {"space_id": SID["festival"], "title": "Moved to festival"})
+    check("Repeating: an occurrence moved to #festival leaves the series; the other 4 stay in Organizers", st == 200 and rows and rows[0]["series_id"] is None
+          and oq(f"select count(*) from weft.events where series_id = '{sid}' and space_id = '{SID['organizers']}'") == "4", f"{st} {rows}")
+    st, rows = call("GET", f"/events?id=eq.{moved}&select=series_id,series:event_series(id)", pat)
+    check("Repeating: Pat sees the moved event but no link to the Organizers series", st == 200 and len(rows) == 1 and rows[0]["series_id"] is None and rows[0]["series"] is None, str(rows))
+    # What a repeat may be.
+    bad = [({"p_repeats": "hourly", "p_until": "2027-06-01", "p_tz": "UTC"}, "hourly"),
+           ({"p_repeats": "weekly", "p_until": "2028-06-01", "p_tz": "UTC"}, "more than a year"),
+           ({"p_repeats": "weekly", "p_until": "2027-05-10", "p_tz": "UTC"}, "until the first day"),
+           ({"p_repeats": "weekly", "p_until": "2027-06-01", "p_tz": "Mars/Olympus"}, "unknown time zone")]
+    for body, what in bad:
+        st, _ = rpc("repeat_event", olive, {"p_event": single, **body})
+        check(f"Repeating: refused, {what}", st == 400, str(st))
+    st, _ = rpc("repeat_event", olive, {"p_event": fest, "p_repeats": "weekly", "p_until": "2027-06-01", "p_tz": "UTC"})
+    check("Repeating: an event that already repeats cannot be repeated again", st == 400
+          and oq(f"select count(*) from weft.event_series where space_id = '{SID['festival']}'") == "1", str(st))
+    # Monthly on the 31st lands on the last day of shorter months, and returns to the 31st.
+    m31 = event(olive, "festival", "Month end", "2027-01-31T12:00:00Z", "2027-01-31T13:00:00Z")
+    st, msid = rpc("repeat_event", olive, {"p_event": m31, "p_repeats": "monthly", "p_until": "2027-05-31", "p_tz": "UTC"})
+    days = oq(f"select string_agg(to_char(starts_at at time zone 'UTC', 'MM-DD'), ',' order by starts_at) from weft.events where series_id = '{msid}'")
+    check("Repeating: monthly on the 31st (Jan 31, Feb 28, Mar 31, Apr 30, May 31)", st == 200 and days == "01-31,02-28,03-31,04-30,05-31", days)
+    st, rows = rpc("repeat_event", olive, {"p_event": single, "p_repeats": "daily", "p_until": "2028-05-10", "p_tz": "UTC"})
+    check("Repeating: daily for exactly a year is allowed (367 days, first and last included)", st == 200
+          and oq(f"select count(*) from weft.events where series_id = '{rows}'") == "367", f"{st} {rows}")
+    rpc("delete_series", olive, {"p_event": single})
+    # Change all of them: rename and shift by an hour, from any occurrence.
+    third = oq(f"select id from weft.events where series_id = '{sid}' order by starts_at limit 1 offset 2")
+    st, n = rpc("change_series", olive, {"p_event": third, "p_title": "  Budget call (new time) ", "p_location": " ", "p_starts": "2027-03-31T17:00:00Z", "p_ends": "2027-03-31T18:30:00Z"})
+    times = oq(f"select string_agg(to_char(starts_at at time zone 'UTC', 'MM-DD HH24:MI') || '+' || (ends_at - starts_at), ',' order by starts_at) from weft.events where series_id = '{sid}'")
+    check("Repeating: Olive changes all of them: title, no place, an hour later in local time and 90 minutes long (positive control)",
+          st == 200 and n == 4 and times == "03-10 18:00+01:30:00,03-24 18:00+01:30:00,03-31 17:00+01:30:00,04-07 17:00+01:30:00"
+          and oq(f"select count(*) from weft.events where series_id = '{sid}' and title = 'Budget call (new time)' and location is null") == "4", f"{st} {n} {times}")
+    st, _ = rpc("change_series", olive, {"p_event": third, "p_title": " ", "p_location": "", "p_starts": "2027-03-31T17:00:00Z", "p_ends": "2027-03-31T18:30:00Z"})
+    st2, _ = rpc("change_series", olive, {"p_event": third, "p_title": "x", "p_location": "", "p_starts": "2027-03-31T17:00:00Z", "p_ends": "2027-03-31T16:00:00Z"})
+    st3, _ = rpc("change_series", olive, {"p_event": moved, "p_title": "x", "p_location": "", "p_starts": "2027-03-17T17:00:00Z", "p_ends": "2027-03-17T18:00:00Z"})
+    check("Repeating: changing all is refused with no title, an end before the start, or an event that does not repeat", st == 400 and st2 == 400 and st3 == 400, f"{st} {st2} {st3}")
+    # Just this one: an ordinary change or delete leaves the others alone.
+    st, rows = call("PATCH", f"/events?id=eq.{third}", olive, {"title": "Budget call (moved room)", "location": "Hall"})
+    st2, rows2 = call("DELETE", f"/events?id=eq.{oq(f'''select id from weft.events where series_id = '{sid}' order by starts_at desc limit 1''')}", olive)
+    check("Repeating: changing or deleting just one occurrence leaves the others as they were (positive control)",
+          st == 200 and len(rows2 or []) == 1 and oq(f"select string_agg(title, '|' order by starts_at) from weft.events where series_id = '{sid}'") == "Budget call (new time)|Budget call (new time)|Budget call (moved room)", f"{st} {st2}")
+    st, n = rpc("change_series", olive, {"p_event": third, "p_title": None, "p_location": None, "p_starts": "2027-03-31T17:30:00Z", "p_ends": "2027-03-31T19:00:00Z"})
+    check("Repeating: moving all of them with no title or place given keeps each one's own (positive control)",
+          st == 200 and n == 3 and oq(f"select string_agg(title || '@' || coalesce(location, '-') || '@' || to_char(starts_at at time zone 'UTC', 'MM-DD HH24:MI'), '|' order by starts_at) from weft.events where series_id = '{sid}'")
+          == "Budget call (new time)@-@03-10 18:30|Budget call (new time)@-@03-24 18:30|Budget call (moved room)@Hall@03-31 17:30", f"{st} {n}")
+    # Channel scope and the assistant.
+    scoped = mint("u-org", scope="festival")
+    st, rows = call("GET", "/event_series?select=space_id", scoped)
+    check("Repeating: a #festival-scoped token sees only #festival series", st == 200 and rows and {r["space_id"] for r in rows} == {SID["festival"]}, str(rows))
+    st, _ = rpc("change_series", scoped, {"p_event": third, "p_title": "scoped", "p_location": "", "p_starts": "2027-03-31T17:00:00Z", "p_ends": "2027-03-31T18:00:00Z"})
+    st2, _ = rpc("delete_series", scoped, {"p_event": third})
+    st3, rows3 = call("DELETE", f"/event_series?id=eq.{sid}", scoped)
+    check("Repeating: nor changes or deletes the Organizers series", refused(st) and refused(st2) and rows3 == []
+          and oq(f"select count(*) from weft.events where series_id = '{sid}'") == "3", f"{st} {st2} {st3}")
+    helper = mint("u-org", assistant=True)
+    st, rows = call("GET", f"/event_series?id=eq.{sid}&select=id", helper)
+    check("Repeating: the assistant (for Olive) reads the Organizers series (positive control)", st == 200 and len(rows) == 1, str(rows))
+    st, _ = call("DELETE", f"/event_series?id=eq.{sid}", helper)
+    st2, _ = rpc("delete_series", helper, {"p_event": third})
+    st3, _ = rpc("repeat_event", helper, {"p_event": moved, "p_repeats": "weekly", "p_until": "2027-06-01", "p_tz": "UTC"})
+    st4, _ = rpc("change_series", helper, {"p_event": third, "p_title": "by the assistant", "p_location": "", "p_starts": "2027-03-31T17:00:00Z", "p_ends": "2027-03-31T18:00:00Z"})
+    st5, _ = call("PATCH", f"/events?id=eq.{moved}", helper, {"series_id": fsid})
+    st6, _ = call("POST", "/event_series", helper, {"space_id": SID["organizers"], "repeats": "weekly", "until_on": "2027-06-01"})
+    check("Repeating: the assistant cannot delete, make or change series, or set an event's series", all(refused(x) for x in (st, st2, st3, st4, st5, st6))
+          and oq(f"select count(*) from weft.events where series_id = '{sid}'") == "3", f"{st} {st2} {st3} {st4} {st5} {st6}")
+    st, rows = call("GET", f"/event_series?id=eq.{sid}&select=id", mint("u-pub", assistant=True))
+    check("Repeating: the assistant for Pat sees no Organizers series", st == 200 and rows == [], str(rows))
+    # Delete all of them: every occurrence goes, kept in the audit log under Organizers, which Pat cannot read.
+    st, n = rpc("delete_series", olive, {"p_event": third})
+    check("Repeating: Olive deletes all of them (positive control); the series goes too", st == 200 and n == 3
+          and oq(f"select count(*) from weft.events where series_id = '{sid}'") == "0" and oq(f"select count(*) from weft.event_series where id = '{sid}'") == "0", f"{st} {n}")
+    check("Repeating: the deleted occurrences (3 together, 1 on its own) are in the audit log, under Organizers, by Olive",
+          oq(f"select count(*) from weft.audit where table_name = 'events' and op = 'DELETE' and old_row->>'series_id' = '{sid}' and space_id = '{SID['organizers']}' and actor_id = '{O}'") == "4")
+    st, rows = call("GET", "/audit?old_row->>title=like.*Budget%20call*&select=id", pat)
+    st2, rows2 = call("GET", "/audit?select=id&old_row->>title=like.*Budget%20call*", olive)
+    check("Repeating: Pat reads none of those audit rows; Olive (an organizer) does (positive control)", st == 200 and rows == [] and st2 == 200 and len(rows2) >= 3, f"{rows} {len(rows2 or [])}")
+    # Bulk writes send one live notice, not one per occurrence: weft.quiet is set only for the function's own transaction.
+    check("Repeating: the quiet setting does not outlive the function", oq("select coalesce(current_setting('weft.quiet', true), '')") == "")
+    # Tidy up, so later suites see the seeded calendar.
+    for e in (fest, m31):
+        rpc("delete_series", olive, {"p_event": e})
+    for e in (moved, pev):
+        oq(f"delete from weft.events where id = '{e}'")
+    check("Repeating: tidied up", oq("select count(*) from weft.event_series") == "0" and oq("select count(*) from weft.events where title in ('One-off', 'Moved to festival', 'Rehearsal extra')") == "0")
+
+
 def teeth():
     """Loosen one policy on purpose and confirm the suite would catch it, then restore it."""
     owner_sql("create policy teeth_leak on weft.items for select to weft_user using (true)")
@@ -4327,6 +4484,7 @@ if __name__ == "__main__":
     journal()
     meetings()
     rsvps()
+    repeating_events()
     bookings()
     shifts()
     time_off()
