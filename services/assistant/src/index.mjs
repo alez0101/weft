@@ -6,6 +6,9 @@
 //   PUT  /assistant/admin/providers/:slot/key    admin only; {key} write-only, encrypted here
 //   DELETE /assistant/admin/providers/:slot/key  admin only
 //   POST /assistant/admin/providers/:slot/test   admin only; a tiny live call
+//   POST /assistant/agents/ask               {message_id}  ask one of your own agents (202; the reply arrives live)
+//   GET/POST /assistant/admin/agents, PUT/DELETE /assistant/admin/agents/:id, PUT/DELETE .../:id/key,
+//   POST .../:id/test                        admin only; personal agents
 //
 // The assistant never reads the database directly. For each question it mints a short-lived
 // weft_assistant token for the asker (and, in a channel, scoped to that channel) and goes through
@@ -603,6 +606,141 @@ async function admin(user, method, parts, body) {
   return [404, { error: 'not found' }];
 }
 
+// ---------------------------------------------------------------- personal agents (067)
+// Someone's own agent (any OpenAI-compatible chat endpoint, such as Hermes Agent's API server). An admin
+// sets its address; only its owner can ask it anything. Each Weft conversation (or channel) is its own
+// thread on the agent's side: the agent is sent X-Hermes-Session-Id = weft-<space id> and keeps the
+// history itself, so Weft sends only the new message (plus, in a channel, the recent messages there).
+const AGENT_TIMEOUT_MS = Number(env('AGENT_TIMEOUT_MS', '600000'));
+const AGENT_CONTEXT = 15;
+const agentBusy = new Set();   // spaces with a question in flight
+const AGENT_HANDLE = /^[a-z][a-z0-9-]{1,29}$/;
+const agentUrlOk = (u) => { try { const x = new URL(u); return ['http:', 'https:'].includes(x.protocol) && !x.username && !x.password && !x.search && !x.hash; } catch { return false; } };
+const agentPublic = (a) => ({ id: a.id, display_name: a.display_name, handle: a.handle, owner_id: a.owner_id, owner_name: a.owner_name,
+  base_url: a.base_url, model: a.model, enabled: a.enabled, has_key: !!a.key_ciphertext, key_hint: a.key_hint,
+  last_used_at: a.last_used_at, last_error: a.last_error, updated_at: a.updated_at });
+const agentsAll = async () => (await db.query('select * from weft_private.agents_list()')).rows;
+const agentHeaders = (a, extra = {}) => ({ 'Content-Type': 'application/json', ...(a.key_ciphertext ? { Authorization: `Bearer ${decrypt(a.key_ciphertext)}` } : {}), ...extra });
+const agentBase = (a) => a.base_url.replace(/\/+$/, '');
+
+async function agentCall(a, sessionId, content) {
+  const t0 = Date.now();
+  const r = await fetch(`${agentBase(a)}/chat/completions`, {
+    method: 'POST', signal: AbortSignal.timeout(AGENT_TIMEOUT_MS),
+    // The same thread id three ways, so each conversation is its own session on the agent: Hermes Agent
+    // reads X-Hermes-Session-Id, OpenClaw reads x-openclaw-session-key (or the OpenAI `user` field).
+    headers: agentHeaders(a, { 'X-Hermes-Session-Id': sessionId, 'x-openclaw-session-key': sessionId }),
+    body: JSON.stringify({ model: a.model, stream: false, user: sessionId, messages: [{ role: 'user', content }] }),
+  });
+  const text = await r.text();
+  if (!r.ok) throw new Error(`HTTP ${r.status}${text ? `: ${text.slice(0, 160)}` : ''}`);
+  let j; try { j = JSON.parse(text); } catch { throw new Error('the reply was not JSON'); }
+  const out = j.choices?.[0]?.message?.content;
+  if (typeof out !== 'string' || !out.trim()) throw new Error('the reply was empty');
+  return { text: out.trim().slice(0, 20000), ms: Date.now() - t0 };
+}
+
+async function agentAsk(user, messageId) {
+  if (!/^[0-9a-f-]{36}$/.test(messageId || '')) return [400, { error: 'message_id required' }];
+  const [q] = await rest(user.token, `/messages?id=eq.${messageId}&select=id,space_id,author_id,body,space:spaces(kind,name,agent_id)`);
+  if (!q) return [404, { error: 'no such message' }];
+  if (q.author_id !== user.id) return [403, { error: 'you can only ask with your own message' }];
+  const mineAll = (await agentsAll()).filter((a) => a.owner_id === user.id && !a.owner_disabled);
+  let agent;
+  if (q.space.kind === 'agent') agent = mineAll.find((a) => a.id === q.space.agent_id);
+  else if (['channel', 'dm', 'personal'].includes(q.space.kind)) {
+    const handles = [...q.body.matchAll(/@([a-z][a-z0-9-]{1,29})\b/gi)].map((m) => m[1].toLowerCase());
+    agent = handles.map((h) => mineAll.find((a) => a.handle === h)).find(Boolean);
+  }
+  if (!agent) return [q.space.kind === 'agent' ? 403 : 400, { error: q.space.kind === 'agent' ? 'that is not one of your agents' : 'mention one of your agents to ask it here' }];
+  if (!agent.enabled) return [409, { error: `${agent.display_name} is turned off` }];
+  if (agentBusy.has(q.space_id)) return [429, { error: `${agent.display_name} is still answering here` }];
+  agentBusy.add(q.space_id);
+  agentRun(user, q, agent).catch((e) => log('agent run failed', e.message)).finally(() => agentBusy.delete(q.space_id));
+  return [202, { agent: agent.id, name: agent.display_name }];
+}
+
+async function agentRun(user, q, agent) {
+  let content = q.body;
+  if (q.space.kind !== 'agent') {
+    // In a channel or direct message the agent sees only that space, and only its recent messages.
+    const token = await assistantToken(user.id, q.space_id);
+    const recent = await rest(token, `/messages?space_id=eq.${q.space_id}&id=neq.${q.id}&select=body,created_at,author:users(display_name)&order=created_at.desc&limit=${AGENT_CONTEXT}`);
+    const [me] = await rest(token, `/users?id=eq.${user.id}&select=display_name`);
+    const where = q.space.kind === 'channel' ? `the #${q.space.name} channel` : q.space.kind === 'dm' ? 'a direct message' : 'their personal space';
+    const ask = q.body.replace(new RegExp(`@${agent.handle}\\b`, 'gi'), '').trim() || q.body;
+    content = `(Sent from Weft, a team workspace, in ${where}. Everyone there will read your reply.)\n`
+      + (recent.length ? `Recent messages there, oldest first:\n${recent.reverse().map((m) => `${m.author?.display_name ?? 'Someone'}: ${m.body}`).join('\n')}\n\n` : '\n')
+      + `${me?.display_name ?? 'Your owner'} asks you: ${ask}`;
+  }
+  let body; let meta;
+  try {
+    const r = await agentCall(agent, `weft-${q.space_id}`, content);
+    body = r.text; meta = { agent: true, asker: user.id, question_id: q.id, ms: r.ms };
+    await db.query('update weft_private.agents set last_used_at = now(), last_error = null where id = $1', [agent.id]);
+  } catch (e) {
+    const why = e.name === 'TimeoutError' ? 'it took too long to answer' : e.message;
+    log(`agent ${agent.handle}: ${why}`);
+    body = `I couldn't answer that (${why}). Try again in a moment.`;
+    meta = { agent: true, asker: user.id, question_id: q.id, error: true };
+    await db.query('update weft_private.agents set last_used_at = now(), last_error = $2 where id = $1', [agent.id, why.slice(0, 300)]);
+  }
+  const token = await assistantToken(user.id, q.space_id);   // fresh: the run may have taken minutes
+  await rest(token, '/messages', { method: 'POST', body: { space_id: q.space_id, author_id: agent.id, body, meta } });
+}
+
+async function agentAdmin(user, method, parts, body) {
+  const { rows } = await db.query('select weft_private.assist_is_admin($1) as a', [user.id]);
+  if (!rows[0].a) return [403, { error: 'admins only' }];
+  if (method === 'GET' && parts.length === 0) return [200, (await agentsAll()).map(agentPublic)];
+  const save = async (id) => {
+    const b = body || {};
+    const handle = String(b.handle || '').trim().toLowerCase();
+    if (!String(b.display_name || '').trim()) return [400, { error: 'Give the agent a name.' }];
+    if (!AGENT_HANDLE.test(handle) || handle === 'weft') return [400, { error: 'The @name is 2 to 30 lowercase letters, numbers or dashes, starting with a letter (not "weft").' }];
+    if (!agentUrlOk(String(b.base_url || '').trim())) return [400, { error: 'The address must start with http:// or https:// (for example http://host:8642/v1).' }];
+    if (!/^[0-9a-f-]{36}$/.test(String(b.owner_id || ''))) return [400, { error: 'Choose whose agent it is.' }];
+    try {
+      const { rows: [r] } = await db.query('select weft_private.agent_save($1,$2,$3,$4,$5,$6,$7,$8) as id',
+        [id, b.owner_id, String(b.display_name), handle, String(b.base_url).trim(), String(b.model || '').slice(0, 200), b.enabled !== false, user.id]);
+      return [200, { ok: true, id: r.id }];
+    } catch (e) {
+      if (e.code === '23505') return [409, { error: `@${handle} is already taken.` }];
+      if (e.code === 'WD005' || e.code === '22023' || e.code === '23514') return [400, { error: e.code === '23514' ? 'Check the @name and address.' : e.message }];
+      throw e;
+    }
+  };
+  if (method === 'POST' && parts.length === 0) return save(null);
+  const id = parts[0];
+  if (!/^[0-9a-f-]{36}$/.test(id || '')) return [404, { error: 'not found' }];
+  const a = (await agentsAll()).find((x) => x.id === id);
+  if (!a) return [404, { error: 'no such agent' }];
+  if (method === 'PUT' && parts.length === 1) return save(id);
+  if (method === 'DELETE' && parts.length === 1) { await db.query('select weft_private.agent_delete($1)', [id]); return [200, { ok: true }]; }
+  if (parts[1] === 'key' && method === 'PUT') {
+    const key = String(body?.key || '').trim();
+    if (key.length < 8 || key.length > 400) return [400, { error: 'That does not look like a key.' }];
+    await db.query('update weft_private.agents set key_ciphertext = $2, key_hint = $3, updated_at = now() where id = $1', [id, encrypt(key), key.slice(-4)]);
+    return [200, { ok: true, key_hint: key.slice(-4) }];
+  }
+  if (parts[1] === 'key' && method === 'DELETE') {
+    await db.query('update weft_private.agents set key_ciphertext = null, key_hint = null, updated_at = now() where id = $1', [id]);
+    return [200, { ok: true }];
+  }
+  if (parts[1] === 'test' && method === 'POST') {
+    // Lists the endpoint's models: proves the address and key work without starting a conversation.
+    const t0 = Date.now();
+    try {
+      const r = await fetch(`${agentBase(a)}/models`, { headers: agentHeaders(a), signal: AbortSignal.timeout(15000) });
+      if (!r.ok) return [200, { ok: false, error: `HTTP ${r.status}` }];
+      const j = await r.json().catch(() => ({}));
+      const models = (j.data || []).map((m) => m.id).filter(Boolean).slice(0, 10);
+      return [200, { ok: true, ms: Date.now() - t0, models, has_model: models.includes(a.model) }];
+    } catch (e) { return [200, { ok: false, error: e.name === 'TimeoutError' ? 'no answer in 15 seconds' : e.message }]; }
+  }
+  return [404, { error: 'not found' }];
+}
+
 // ---------------------------------------------------------------- embeddings
 async function embed(texts) {
   if (!EMBED_URL) throw new Error('meaning search is off (no EMBED_URL)');
@@ -696,6 +834,9 @@ http.createServer(async (req, res) => {
     if (!user) return send(res, 401, { error: 'sign in first' });
     const body = ['POST', 'PUT'].includes(req.method) ? await readBody(req) : null;
     if (req.method === 'POST' && url.pathname === '/assistant/ask') return send(res, ...(await ask(user, body.message_id, body.tz)));
+    if (req.method === 'POST' && url.pathname === '/assistant/agents/ask') return send(res, ...(await agentAsk(user, body.message_id)));
+    const am = /^\/assistant\/admin\/agents(?:\/(.*))?$/.exec(url.pathname);
+    if (am) return send(res, ...(await agentAdmin(user, req.method, (am[1] || '').split('/').filter(Boolean), body)));
     const pm = /^\/assistant\/proposals(?:\/(.*))?$/.exec(url.pathname);
     if (pm) return send(res, ...(await proposals(user, req.method, (pm[1] || '').split('/').filter(Boolean), url)));
     if (req.method === 'GET' && url.pathname === '/assistant/search/related') return send(res, ...(await related(user, url.searchParams.get('q'))));

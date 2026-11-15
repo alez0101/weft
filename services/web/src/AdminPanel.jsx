@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { assistant } from './api.js';
+import { api, assistant } from './api.js';
 import { AdminUsers } from './People.jsx';
 
 const KIND_LABEL = { anthropic: 'Anthropic', openai: 'OpenAI-compatible', ollama: 'Ollama' };
@@ -97,6 +97,7 @@ export default function AdminPanel({ me, info }) {
         : !rows ? <div className="skeleton" aria-label="Loading settings"><span /><span /><span /></div>
         : <div className="slots">{rows.map((r) => <Slot key={`${r.slot}-${r.updated_at}`} slot={r.slot} initial={r} onSaved={load} />)}</div>}
       <PersonalKeys />
+      <Agents />
     </div>
   );
 }
@@ -120,6 +121,103 @@ function PersonalKeys() {
           }} /> Allow</label>
       </header>
       <p className="admin-lead">When allowed, each person can add their own Anthropic or OpenAI key from the menu on their initial. It answers only their own questions, before the models above, and is billed to them. Nobody else can see or use it, admins included. {s.personal_keys} {s.personal_keys === 1 ? 'person has' : 'people have'} a key saved.</p>
+    </section>
+  );
+}
+
+// Personal agents (067): someone's own AI agent (any OpenAI-compatible chat address, such as a Hermes
+// Agent's API server). Only admins set the address; only the owner can talk to it.
+const BLANK = { display_name: '', handle: '', owner_id: '', base_url: '', model: 'hermes-agent', enabled: true };
+function Agents() {
+  const [rows, setRows] = useState(null);
+  const [people, setPeople] = useState([]);
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState('');
+  const load = useCallback(() => assistant('/admin/agents').then(setRows).catch((e) => setError(e.message)), []);
+  useEffect(() => { load(); api('/rpc/admin_users').then((u) => setPeople(u.filter((x) => !x.disabled))).catch(() => {}); }, [load]);
+  return (
+    <>
+      <h2 className="admin-sub">Personal agents</h2>
+      <p className="admin-lead">Bring someone's own AI agent into Weft. It appears in their chat list, where they can start as many conversations with it as they like, and they can @mention it in channels they are in. Only its owner can talk to it. It sees only what is sent to it: the conversation, or in a channel that channel's recent messages.</p>
+      {error && <p className="send-error" role="alert">Agents could not load: {error}</p>}
+      {!rows ? (!error && <div className="skeleton" aria-label="Loading agents"><span /><span /></div>) : (
+        <div className="slots">
+          {rows.map((a) => <AgentForm key={`${a.id}-${a.updated_at}`} initial={a} people={people} onSaved={load} />)}
+          {adding ? <AgentForm initial={BLANK} people={people} onSaved={() => { setAdding(false); load(); }} onCancel={() => setAdding(false)} />
+            : <p><button className="btn btn--sm" type="button" onClick={() => setAdding(true)}>Add an agent</button></p>}
+        </div>
+      )}
+    </>
+  );
+}
+
+function AgentForm({ initial, people, onSaved, onCancel }) {
+  const isNew = !initial.id;
+  const [f, setF] = useState({ ...initial });
+  const [key, setKey] = useState('');
+  const [status, setStatus] = useState('');
+  const [busy, setBusy] = useState(false);
+  const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
+  const id = (k) => `agent-${initial.id || 'new'}-${k}`;
+  const run = async (label, fn, reload = true) => {
+    setBusy(true); setStatus('');
+    try { setStatus(await fn()); if (reload) onSaved(); } catch (e) { setStatus(`${label} failed: ${e.message}`); }
+    setBusy(false);
+  };
+  const body = { display_name: f.display_name, handle: f.handle, owner_id: f.owner_id, base_url: f.base_url, model: f.model, enabled: f.enabled };
+  return (
+    <section className="slot" aria-labelledby={id('title')}>
+      <header className="slot-head">
+        <h3 id={id('title')}>{isNew ? 'New agent' : initial.display_name}</h3>
+        {!isNew && <label className="toggle"><input type="checkbox" checked={f.enabled} onChange={set('enabled')} /> Enabled</label>}
+      </header>
+      <div className="fields">
+        <label htmlFor={id('name')}>Name</label>
+        <input id={id('name')} value={f.display_name} maxLength={60} onChange={set('display_name')} placeholder="Sam's Hermes" />
+        <label htmlFor={id('handle')}>@name (for channels)</label>
+        <input id={id('handle')} value={f.handle} maxLength={30} onChange={set('handle')} placeholder="hermes" />
+        <label htmlFor={id('owner')}>Whose agent</label>
+        <select id={id('owner')} value={f.owner_id} onChange={set('owner_id')}>
+          <option value="">Choose a person</option>
+          {people.map((p) => <option key={p.id} value={p.id}>{p.display_name}</option>)}
+        </select>
+        <label htmlFor={id('url')}>Address</label>
+        <input id={id('url')} value={f.base_url} onChange={set('base_url')} placeholder="http://host:8642/v1" />
+        <label htmlFor={id('model')}>Model</label>
+        <input id={id('model')} value={f.model} onChange={set('model')} />
+      </div>
+      {!isNew && <p className="slot-usage">{initial.last_used_at ? `Last asked ${new Date(initial.last_used_at).toLocaleString()}.` : 'Not asked yet.'}{initial.last_error ? ` Last error: ${initial.last_error}.` : ''}</p>}
+      <div className="slot-actions">
+        <button className="btn btn--primary btn--sm" disabled={busy} onClick={() => run('Save', async () => {
+          await assistant(isNew ? '/admin/agents' : `/admin/agents/${initial.id}`, { method: isNew ? 'POST' : 'PUT', body });
+          return isNew ? 'Added. Now save its key.' : 'Saved.';
+        })}>{isNew ? 'Add agent' : 'Save settings'}</button>
+        {isNew && <button className="btn btn--sm" disabled={busy} onClick={onCancel}>Cancel</button>}
+        {!isNew && <button className="btn btn--sm" disabled={busy} onClick={() => run('Test', async () => {
+          const r = await assistant(`/admin/agents/${initial.id}/test`, { method: 'POST', body: {} });
+          return !r.ok ? `Not connected: ${r.error}.` : r.has_model ? `Connected in ${r.ms} ms.` : `Connected, but it does not list the model "${f.model}" (it lists: ${r.models.join(', ') || 'none'}).`;
+        }, false)}>Test connection</button>}
+        {!isNew && <button className="btn btn--sm" disabled={busy} onClick={() => {
+          if (window.confirm(`Remove ${initial.display_name}? ${initial.owner_name}'s conversations with it are deleted from Weft. Its replies in channels stay.`)) run('Remove', async () => { await assistant(`/admin/agents/${initial.id}`, { method: 'DELETE' }); return 'Removed.'; });
+        }}>Remove</button>}
+      </div>
+      {!isNew && (
+        <div className="keybox">
+          <label htmlFor={id('key')}>Key</label>
+          <p className="key-state">{initial.has_key ? `Set, ending in ${initial.key_hint}. It cannot be shown again.` : 'Not set. Most agents need one (for Hermes: its API server key).'}</p>
+          <span className="pair">
+            <input id={id('key')} type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder={initial.has_key ? 'Replace the key' : 'Paste the key'} />
+            <button className="btn btn--sm" disabled={busy || key.trim().length < 8} onClick={() => run('Saving the key', async () => {
+              const r = await assistant(`/admin/agents/${initial.id}/key`, { method: 'PUT', body: { key } });
+              setKey(''); return `Key saved, ending in ${r.key_hint}.`;
+            })}>Save key</button>
+            {initial.has_key && <button className="btn btn--sm" disabled={busy} onClick={() => run('Removing the key', async () => {
+              await assistant(`/admin/agents/${initial.id}/key`, { method: 'DELETE' }); return 'Key removed.';
+            })}>Remove</button>}
+          </span>
+        </div>
+      )}
+      {status && <p className="slot-status" role="status">{status}</p>}
     </section>
   );
 }

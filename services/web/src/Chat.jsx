@@ -22,12 +22,15 @@ function Body({ text, onOpenItem, onOpenEvent }) {
   })}</p>;
 }
 
-export default function Chat({ me, spaces, members, unread, active: activeRaw, setActive, rail, setRail, notice, live, onOpenItem, onOpenEvent, onOpenNotices, onOpenRecord, onSpacesChanged, jump }) {
+export default function Chat({ me, spaces, agents = [], agentSpaces = [], members, unread, active: activeRaw, setActive, rail, setRail, notice, live, onOpenItem, onOpenEvent, onOpenNotices, onOpenRecord, onSpacesChanged, jump }) {
   const [peopleOpen, setPeopleOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const assistantSpace = spaces.find((s) => s.kind === 'assistant');
   const active = activeRaw === ASSISTANT ? (assistantSpace?.id ?? ASSISTANT) : activeRaw;
   const [thinking, setThinking] = useState(false);
+  // Agent questions in flight, by space: { [spaceId]: agent name }. Several at once, one per conversation.
+  const [working, setWorking] = useState({});
+  const [renaming, setRenaming] = useState(null);
   const [focus, setFocus] = useState(null);
   useEffect(() => { if (jump?.id) setFocus(jump.id); }, [jump]); // a message chosen in search
   const [messages, setMessages] = useState([]);
@@ -45,7 +48,10 @@ export default function Chat({ me, spaces, members, unread, active: activeRaw, s
 
   const channels = spaces.filter((s) => s.kind === 'channel');
   const dms = spaces.filter((s) => s.kind === 'dm');
-  const current = spaces.find((s) => s.id === active);
+  const current = spaces.find((s) => s.id === active) ?? agentSpaces.find((s) => s.id === active);
+  const agentOf = (space) => agents.find((a) => a.id === space?.agent_id);
+  const curAgent = current?.kind === 'agent' ? agentOf(current) : null;
+  const busy = !!(current && working[current.id]);
   const count = (id) => unread.find((u) => u.space_id === id);
 
   const load = useCallback(async (spaceId) => {
@@ -85,7 +91,23 @@ export default function Chat({ me, spaces, members, unread, active: activeRaw, s
       }).catch(() => {});
   }, [notice, active]);
 
+  // An agent's reply landing in a space (open or not) ends that space's "working" line.
+  useEffect(() => {
+    if (!notice || notice.t !== 'messages' || notice.op !== 'INSERT' || !working[notice.space]) return;
+    api(`/messages?id=eq.${notice.id}&select=author_id`).then((rows) => {
+      if (rows[0] && agents.some((a) => a.id === rows[0].author_id)) setWorking((w) => { const n = { ...w }; delete n[notice.space]; return n; });
+    }).catch(() => {});
+  }, [notice, working, agents]);
+
   useEffect(() => { const el = listRef.current; if (el && !focus) el.scrollTop = el.scrollHeight; }, [messages, focus]);
+
+  async function askAgent(messageId, spaceId, name) {
+    setWorking((w) => ({ ...w, [spaceId]: name }));
+    const stop = () => setWorking((w) => { const n = { ...w }; delete n[spaceId]; return n; });
+    setTimeout(stop, 11 * 60 * 1000);   // the service gives up after 10 minutes and posts an error reply
+    try { await assistant('/agents/ask', { method: 'POST', body: { message_id: messageId } }); }
+    catch (err) { stop(); setError(`${name} couldn't answer: ${err.message}`); }
+  }
 
   async function send(e) {
     e.preventDefault();
@@ -98,6 +120,16 @@ export default function Chat({ me, spaces, members, unread, active: activeRaw, s
       setDraft(''); // the live notice brings the message back into the list
     } catch (err) { setError(`Not sent: ${err.message}`); }
     setSending(false);
+    if (sent && current.kind === 'agent' && curAgent) {
+      if (current.name === 'New conversation' && messages.length === 0) {   // name it after its first message
+        const name = body.replace(/\s+/g, ' ').slice(0, 60);
+        api(`/spaces?id=eq.${current.id}`, { method: 'PATCH', body: { name }, prefer: 'return=minimal' }).then(onSpacesChanged).catch(() => {});
+      }
+      await askAgent(sent.id, current.id, curAgent.display_name);
+      return;
+    }
+    const mentioned = current.kind === 'assistant' ? null : agents.find((a) => a.enabled && new RegExp(`@${a.handle}\\b`, 'i').test(body));
+    if (sent && mentioned) askAgent(sent.id, current.id, mentioned.display_name);
     if (sent && (current.kind === 'assistant' || /@weft\b/i.test(body))) {
       setThinking(true);
       try { await assistant('/ask', { method: 'POST', body: { message_id: sent.id, tz: Intl.DateTimeFormat().resolvedOptions().timeZone } }); } catch (err) { setError(`Weft couldn't answer: ${err.message}`); }
@@ -123,9 +155,31 @@ export default function Chat({ me, spaces, members, unread, active: activeRaw, s
     );
   };
 
-  const title = current?.kind === 'assistant' || active === ASSISTANT ? 'Weft' : current ? (current.kind === 'channel' ? `# ${current.name}` : nameOf(current)) : '';
+  const title = current?.kind === 'assistant' || active === ASSISTANT ? 'Weft' : current ? (current.kind === 'channel' ? `# ${current.name}` : current.kind === 'agent' ? current.name : nameOf(current)) : '';
   const sub = current?.kind === 'assistant' ? 'Answers from everything you can open, with links to where each answer came from. In a channel, @Weft answers only from that channel.'
+    : current?.kind === 'agent' ? `With ${curAgent?.display_name ?? 'your agent'}. Only you can see this conversation.`
     : current?.kind === 'channel' ? null : 'Direct message';
+
+  async function newConversation(agent) {
+    setError('');
+    try {
+      const id = await api('/rpc/create_agent_conversation', { method: 'POST', body: { p_agent: agent.id } });
+      await onSpacesChanged(); setActive(id);
+      if (rail === 'normal') setRail('wide');   // a conversation with an agent wants room
+    } catch (err) { setError(`Could not start a conversation: ${err.message}`); }
+  }
+  async function renameConversation(e) {
+    e.preventDefault();
+    const name = renaming.trim();
+    if (!name) return;
+    try { await api(`/spaces?id=eq.${current.id}`, { method: 'PATCH', body: { name: name.slice(0, 80) }, prefer: 'return=minimal' }); setRenaming(null); await onSpacesChanged(); }
+    catch (err) { setError(`Could not rename: ${err.message}`); }
+  }
+  async function deleteConversation() {
+    if (!window.confirm(`Delete the conversation "${current.name}"? Its messages are removed from Weft.`)) return;
+    try { await api(`/spaces?id=eq.${current.id}`, { method: 'DELETE', prefer: 'return=minimal' }); await onSpacesChanged(); setActive(ASSISTANT); }
+    catch (err) { setError(`Could not delete: ${err.message}`); }
+  }
   const memberCount = current?.kind === 'channel' ? members.filter((m) => m.space_id === current.id).length : 0;
 
   return (
@@ -142,6 +196,21 @@ export default function Chat({ me, spaces, members, unread, active: activeRaw, s
         <ul className="convo-list">
           <li><ConvoButton id={assistantSpace?.id ?? ASSISTANT} icon={<span className="who who--agent" aria-hidden="true">W</span>} label="Weft" meta="assistant" /></li>
         </ul>
+        {agents.map((a) => {
+          const convos = agentSpaces.filter((s) => s.agent_id === a.id);
+          return (
+            <div key={a.id} className="agent-group">
+              <div className="convo-group convo-group--action">
+                <p>{a.display_name}{a.enabled ? '' : ' (turned off)'}</p>
+                {rail !== 'collapsed' && a.enabled && <button className="icon-btn" type="button" aria-label={`New conversation with ${a.display_name}`} title="New conversation" onClick={() => newConversation(a)}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4.5v11M4.5 10h11" /></svg></button>}
+              </div>
+              <ul className="convo-list">
+                {convos.map((s) => <li key={s.id}><ConvoButton id={s.id} icon={<span className="who who--agent" aria-hidden="true">{a.display_name.charAt(0)}</span>} label={s.name} meta={working[s.id] ? 'working' : undefined} /></li>)}
+                {!convos.length && <li className="convo-empty">{a.enabled ? 'No conversations yet. Press + to start one.' : 'Turned off by an admin.'}</li>}
+              </ul>
+            </div>
+          );
+        })}
         <div className="convo-group convo-group--action">
           <p>Channels</p>
           {rail !== 'collapsed' && !creating && <button className="icon-btn" type="button" aria-label="New channel" title="New channel" onClick={() => setCreating(true)}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4.5v11M4.5 10h11" /></svg></button>}
@@ -161,9 +230,17 @@ export default function Chat({ me, spaces, members, unread, active: activeRaw, s
       <section className="thread" aria-live="polite">
         <header className="thread-head">
           <h3>{title}</h3>
-          <p className="thread-sub">{sub ?? <button type="button" className="link-btn" onClick={() => setPeopleOpen(true)} aria-haspopup="dialog">{memberCount} {memberCount === 1 ? 'member' : 'members'}, see people</button>}{live !== 'live' && active !== ASSISTANT ? ' (reconnecting)' : ''}</p>
+          <p className="thread-sub">{current?.kind === 'agent' && renaming === null ? <>{sub} <button type="button" className="link-btn" onClick={() => setRenaming(current.name)}>Rename</button> · <button type="button" className="link-btn" onClick={deleteConversation}>Delete</button></> : sub ?? <button type="button" className="link-btn" onClick={() => setPeopleOpen(true)} aria-haspopup="dialog">{memberCount} {memberCount === 1 ? 'member' : 'members'}, see people</button>}{live !== 'live' && active !== ASSISTANT ? ' (reconnecting)' : ''}</p>
           {peopleOpen && current?.kind === 'channel' && <ChannelPeople key={current.id} me={me} space={current} onClose={() => { setPeopleOpen(false); onSpacesChanged().catch(() => {}); }}
             onGone={async () => { setPeopleOpen(false); await onSpacesChanged().catch(() => {}); setActive(ASSISTANT); }} />}
+          {current?.kind === 'agent' && renaming !== null && (
+            <form className="pair agent-rename" onSubmit={renameConversation}>
+              <label className="visually-hidden" htmlFor="agent-rename">Conversation name</label>
+              <input id="agent-rename" value={renaming} maxLength={80} autoFocus onChange={(e) => setRenaming(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') setRenaming(null); }} />
+              <button className="btn btn--primary btn--sm" type="submit" disabled={!renaming.trim()}>Save</button>
+              <button className="btn btn--sm" type="button" onClick={() => setRenaming(null)}>Cancel</button>
+            </form>
+          )}
           {current?.kind === 'channel' && <Pinned spaceId={current.id} notice={notice} me={me} onOpenAll={() => onOpenNotices(current.id)} />}
         </header>
         {active === ASSISTANT ? (
@@ -174,11 +251,13 @@ export default function Chat({ me, spaces, members, unread, active: activeRaw, s
           <div className="thread-empty" role="alert"><p>Messages could not load: {error}</p><button className="btn btn--sm" onClick={() => load(active)}>Try again</button></div>
         ) : (
           <ol className="messages" ref={listRef}>
-            {messages.length === 0 && <li className="thread-empty"><p>{current?.kind === 'assistant' ? 'Ask Weft about anything in your channels and messages.' : 'No messages yet. Say hello.'}</p></li>}
+            {messages.length === 0 && <li className="thread-empty"><p>{current?.kind === 'assistant' ? 'Ask Weft about anything in your channels and messages.'
+              : current?.kind === 'agent' ? `Ask ${curAgent?.display_name ?? 'your agent'} anything. Each conversation is its own thread, so you can keep different jobs apart.`
+              : 'No messages yet. Say hello.'}</p></li>}
             {messages.map((m) => {
               const mine = m.author_id === me.id;
               return (
-                <li key={m.id} id={`msg-${m.id}`} className={`msg${mine ? ' msg--me' : ''}${m.author?.is_assistant ? ' msg--agent' : ''}`}>
+                <li key={m.id} id={`msg-${m.id}`} className={`msg${mine ? ' msg--me' : ''}${m.author?.is_assistant ? ' msg--agent' : ''}${m.meta?.agent ? ' msg--own-agent' : ''}${m.meta?.agent && m.meta.error ? ' msg--failed' : ''}`}>
                   <p className="msg-who">{mine ? 'You' : m.author?.display_name} <time dateTime={m.created_at}>{time(m.created_at)}</time></p>
                   <Body text={m.body} onOpenItem={onOpenItem} onOpenEvent={onOpenEvent} />
                   {m.meta?.citations?.length > 0 && (
@@ -195,7 +274,7 @@ export default function Chat({ me, spaces, members, unread, active: activeRaw, s
                     ))}</p>
                   )}
                   {m.meta?.proposals?.length > 0 && <Proposals list={m.meta.proposals} mine={m.meta.asker === me.id} members={members} asker={m.meta.asker} notice={notice} />}
-                  {m.author?.is_assistant && m.meta && (
+                  {m.author?.is_assistant && m.meta && !m.meta.agent && (
                     <p className="served-by">{m.meta.served_by ? `Answered by ${m.meta.served_by.model}${m.meta.served_by.slot === 'personal' ? (m.meta.asker === me.id ? ' with your own key' : " with the asker's own key") : ''}` : 'No model answered'}{m.meta.fallback ? ` (fallback: ${m.meta.fallback})` : ''}</p>
                   )}
                 </li>
@@ -204,13 +283,15 @@ export default function Chat({ me, spaces, members, unread, active: activeRaw, s
           </ol>
         )}
         {thinking && <p className="thinking" role="status">Weft is looking through what you can see…</p>}
+        {busy && <p className="thinking" role="status">{working[current.id]} is working on it. You can switch to another conversation in the meantime.</p>}
         {error && state === 'ready' && <p className="send-error" role="alert">{error}</p>}
         <form className="composer" onSubmit={send}>
           <label className="visually-hidden" htmlFor="compose">Message</label>
           <input id="compose" autoComplete="off" value={draft} onChange={(e) => setDraft(e.target.value)}
-            disabled={active === ASSISTANT || sending || thinking}
-            placeholder={current?.kind === 'assistant' ? 'Ask Weft' : `Message ${title}${current?.kind === 'channel' ? ' (@Weft to ask)' : ''}`} />
-          <button className="btn btn--primary btn--sm" type="submit" disabled={active === ASSISTANT || sending || thinking || !draft.trim()}>Send</button>
+            disabled={active === ASSISTANT || sending || thinking || busy}
+            placeholder={current?.kind === 'assistant' ? 'Ask Weft' : current?.kind === 'agent' ? `Message ${curAgent?.display_name ?? 'your agent'}`
+              : `Message ${title}${current?.kind === 'channel' ? ` (@Weft${agents.some((a) => a.enabled) ? ` or @${agents.find((a) => a.enabled).handle}` : ''} to ask)` : ''}`} />
+          <button className="btn btn--primary btn--sm" type="submit" disabled={active === ASSISTANT || sending || thinking || busy || !draft.trim()}>Send</button>
         </form>
       </section>
     </aside>

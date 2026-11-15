@@ -31,7 +31,7 @@ Status: a working prototype for small teams. Not hardened for large or hostile m
 | Co-editing | Hocuspocus and Yjs; BlockNote documents, Excalidraw whiteboards |
 | Tables and calendar | AG Grid Community, FullCalendar |
 | Files | stored in Postgres; text read from PDF (pdf.js), Word (mammoth) and text files |
-| Assistant | Claude through the Anthropic API, with an optional Ollama fallback, meaning search, and optional personal keys |
+| Assistant | Claude through the Anthropic API, with an optional Ollama fallback, meaning search, optional personal keys, and personal agents (someone's own OpenAI-compatible agent, such as Hermes Agent, with its own conversations) |
 | AI apps | an MCP connector at `/mcp` with its own OAuth sign-in, so Claude and other apps work in Weft as the person who connected them |
 | App | React and Vite, served by nginx |
 

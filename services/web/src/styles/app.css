@@ -299,3 +299,10 @@ body { height: 100dvh; background: var(--color-paper-2); }
   .messages { max-height: 50dvh; }
   .wiki-app { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Personal agents (067): their replies keep line breaks; a failed reply is quieter. */
+.msg--own-agent p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg--failed p { color: var(--color-muted); font-style: italic; }
+.agent-rename { margin-top: var(--space-2xs); }
+.agent-rename input { flex: 1; min-width: 0; }
+.shell[data-rail="collapsed"] .agent-group .convo-empty { display: none; }
