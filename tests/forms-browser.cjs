@@ -116,7 +116,7 @@ const BASE = process.env.WEFT_BASE || 'http://localhost:3211/';
   const w = olive.locator('.widget:has(h3:has-text("Forms to fill in"))');
   const wrows = await w.locator('.widget-main').allInnerTexts();
   expect('Widget: lists the forms Olive has not answered', wrows.includes('Volunteer T-shirts') && wrows.includes('Caterer quotes'), wrows.join(', '));
-  await olive.locator('.app:has-text("Sheets")').click(); await olive.waitForSelector('.docs-list');
+  await olive.locator('.app:has-text("Tables")').click(); await olive.waitForSelector('.docs-list');
   await olive.locator('.doc-link', { hasText: 'Volunteer T-shirts (answers)' }).click();
   await olive.waitForSelector('.ag-row[row-index="1"]', { timeout: 8000 });
   await olive.waitForTimeout(500);

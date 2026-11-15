@@ -167,3 +167,20 @@ export async function fetchFile(id, download = false) {
   if (!r.ok) throw new Error(r.status === 404 ? 'No such file, or you cannot see it.' : `${r.status}`);
   return r.blob();
 }
+
+// Spreadsheets (the spreadsheet engine, through the files service).
+async function filesJson(path, { method = 'GET', body, contentType } = {}) {
+  const r = await fetch(`/files${path}`, {
+    method, body, headers: { Authorization: `Bearer ${token}`, ...(contentType ? { 'Content-Type': contentType } : {}) },
+  });
+  if (r.status === 401 && reauth) { schedule(await reauth()); return filesJson(path, { method, body, contentType }); }
+  let data = null;
+  try { data = await r.json(); } catch { /* empty */ }
+  if (!r.ok) throw new Error(data?.error || (r.status === 413 ? 'That file is too large.' : `${r.status}`));
+  return data;
+}
+export const officeStatus = () => filesJson('/office');
+export const editorConfig = (id, { dark = false, lang = 'en' } = {}) => filesJson(`/${id}/editor?dark=${dark ? 1 : 0}&lang=${encodeURIComponent(lang)}`);
+// A new spreadsheet in a space; with a file (.xlsx, .xls, .ods, .csv, .tsv), made from it.
+export const newSpreadsheet = (spaceId, name, file) => filesJson(`/spreadsheets?space=${encodeURIComponent(spaceId)}&name=${encodeURIComponent(name)}`,
+  { method: 'POST', body: file, contentType: file ? 'application/octet-stream' : undefined });

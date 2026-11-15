@@ -44,6 +44,8 @@ echo "seed"
 if [ "$sample" = yes ]; then python3 -I "$repo/tools/gen_seed.py" | psql_owner; fi
 python3 -I "$repo/tools/sync_wikis.py" | psql_owner >/dev/null   # the help and admin wikis, from docs/help and docs/admin
 dc up -d --build postgrest svc assistant collab files mcp web >/dev/null
+# The spreadsheet engine, if this stack runs it (COMPOSE_PROFILES=office). It keeps no data, so a reset leaves it be.
+if dc config --services | grep -qx office; then dc up -d office >/dev/null; fi
 for i in $(seq 1 60); do
   curl -sf -o /dev/null "$api/" -H "Accept: application/openapi+json" && break
   [ "$i" = 60 ] && { echo "PostgREST did not come up"; dc logs postgrest --tail 20; exit 1; }

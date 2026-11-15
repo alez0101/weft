@@ -1,15 +1,18 @@
 // One file: what it is, a preview when the browser can show it safely, download, and the text Weft
 // can read from it (which is what search and the assistant use).
 import { useEffect, useState } from 'react';
-import { api, fetchFile } from './api.js';
+import { api, fetchFile, newSpreadsheet } from './api.js';
 
 const size = (n) => (n < 1024 ? `${n} bytes` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`);
 const KIND = { 'application/pdf': 'PDF', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'Word document',
   'text/plain': 'Text', 'text/markdown': 'Markdown', 'text/csv': 'CSV', 'application/json': 'JSON', 'image/png': 'Picture', 'image/jpeg': 'Picture',
-  'image/gif': 'Picture', 'image/webp': 'Picture' };
+  'image/gif': 'Picture', 'image/webp': 'Picture', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'Excel workbook',
+  'text/tab-separated-values': 'TSV' };
+const AS_SHEET = /\.(xlsx|xls|ods|csv|tsv)$/i;
 const PREVIEW = (m) => m === 'application/pdf' || m.startsWith('image/');
 
-export default function FileView({ item }) {
+export default function FileView({ item, onOpenItem }) {
+  const [sheetNote, setSheetNote] = useState('');
   const [info, setInfo] = useState(null);
   const [text, setText] = useState(null);
   const [url, setUrl] = useState(null);
@@ -44,12 +47,25 @@ export default function FileView({ item }) {
     } catch (e) { setError(e.message); }
   }
 
+  // A copy of this file as a spreadsheet, in the same space, that people can edit together.
+  async function openAsSheet() {
+    setSheetNote('Making a spreadsheet…');
+    try {
+      const blob = await fetchFile(item.id, true);
+      const row = await newSpreadsheet(item.space_id, item.title, blob);
+      setSheetNote('');
+      if (onOpenItem) onOpenItem(row.id); else setSheetNote(`Made the spreadsheet "${row.title}". Open it in Spreadsheets.`);
+    } catch (e) { setSheetNote(''); setError(e.message); }
+  }
+
   if (error) return <p className="send-error" role="alert">{error}</p>;
   if (!info) return <div className="skeleton" aria-label="Opening the file"><span /><span /></div>;
   return (
     <div className="file-view">
       <p className="file-meta">{KIND[info.mime] || 'File'}, {size(Number(info.size))}, added {new Date(info.created_at).toLocaleDateString([], { dateStyle: 'medium' })}</p>
-      <p><button className="btn btn--primary btn--sm" type="button" onClick={download}>Download</button></p>
+      <p><button className="btn btn--primary btn--sm" type="button" onClick={download}>Download</button>
+        {AS_SHEET.test(item.title) && <> <button className="btn btn--sm" type="button" onClick={openAsSheet} disabled={!!sheetNote}>Open as spreadsheet</button></>}</p>
+      {sheetNote && <p className="file-note" role="status">{sheetNote}</p>}
       {url && (info.mime.startsWith('image/')
         ? <img className="file-preview" src={url} alt={item.title} />
         : <iframe className="file-preview file-preview--pdf" src={url} title={`Preview of ${item.title}`} />)}

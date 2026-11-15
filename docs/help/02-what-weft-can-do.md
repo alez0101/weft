@@ -13,7 +13,7 @@ Weft answers from everything you can open, with numbered links you can click to 
   decisions and action items), decision logs (each decision with its date, who decided, the context and
   what it replaces), glossaries (so it can explain your group's own words and understand them in your
   questions)
-- **Lists and work:** tables, task lists, checklists (the steps, and recent runs with how far each got and
+- **Lists and work:** tables, spreadsheets (every cell, sheet by sheet), task lists, checklists (the steps, and recent runs with how far each got and
   who finished it), goal sets (key results, progress and due dates), retros (the period, the notes in each
   column and which actions became tasks; never who wrote a note)
 - **Asking and deciding:** polls (the question and the vote counts), forms (the questions and how many
@@ -28,7 +28,7 @@ Weft answers from everything you can open, with numbered links you can click to 
 - **People and you:** profiles of people you share a space with, and your own journal (only in your Weft
   conversation, never in a channel)
 
-A message link jumps to the message; a document link opens it in Documents, Wiki, Sheets or Whiteboard; an event link opens it in the Calendar. If it cannot find the answer, it says so instead of guessing. It searches by meaning as well as by words, so asking about "electricity" also finds a message about a dead outlet.
+A message link jumps to the message; a document link opens it in Documents, Wiki, Tables, Spreadsheets or Whiteboard; an event link opens it in the Calendar. If it cannot find the answer, it says so instead of guessing. It searches by meaning as well as by words, so asking about "electricity" also finds a message about a dead outlet.
 
 ### Propose an action
 

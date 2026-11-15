@@ -23,7 +23,7 @@ Open the form, answer the questions and press **Send my answer**. Questions mark
 Editors and owners of the space press **Answers** to see every answer as a table: one row per person, one column per question, filling in as people answer. From there:
 
 - **Download CSV** saves the table as a file for a spreadsheet program.
-- **Copy to a new table** makes a table in Sheets, in the same space, with the answers so far. It is a copy: later answers are not added to it.
+- **Copy to a new table** makes a table in Tables, in the same space, with the answers so far. It is a copy: later answers are not added to it.
 
 Once someone has answered, the existing questions cannot be reworded or removed, so no answer ends up meaning something else. You can still add new questions. **Close form** stops new answers and changes; **Reopen form** opens it again. A form can also close by itself at a time you set: see **Poll and form deadlines**.
 

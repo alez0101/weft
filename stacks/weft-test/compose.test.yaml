@@ -19,3 +19,7 @@ services:
       # Personal keys go to the stand-in model too (in production: the official Anthropic and OpenAI addresses).
       PERSONAL_ANTHROPIC_URL: http://weft-assist-test:9009/anthropic
       PERSONAL_OPENAI_URL: http://weft-assist-test:9009/personal-openai
+  files:
+    environment:
+      # Open spreadsheets are saved every 30 seconds here (5 minutes in production), so the browser check can see it.
+      OFFICE_FORCESAVE_MINUTES: "0.5"
