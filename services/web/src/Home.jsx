@@ -13,6 +13,7 @@ import { Bar, setProgress } from './Goals.jsx';
 import { nameOf } from './Kudos.jsx';
 import { longDay as milestoneDay, when as milestoneWhen } from './Timeline.jsx';
 import { firstLine, longDay, today as journalToday } from './Journal.jsx';
+import { useAway } from './Away.jsx';
 
 const WIDGETS = {
   announcements: 'Announcements',
@@ -103,13 +104,14 @@ function OutThisWeek({ data, me, onOpenTimeOff }) {
       <span className="widget-sub">{daysLabel(r.starts_on, r.ends_on)}{r.note ? `, ${r.note}` : ''}, {r.where.join(', ')}</span>
     </button></li>))}</ul>;
 }
-// Open tasks due in the next seven days or overdue, yours first. A row opens its list.
-function TasksDue({ data, me, onOpenItem }) {
+// Open tasks due in the next seven days or overdue, yours first. A row opens its list. If the assignee has
+// time off on the due date, it says so (away warnings, 052).
+function TasksDue({ data, me, onOpenItem, awayOn }) {
   if (!data.length) return <p className="widget-empty">No open tasks due in the next week.</p>;
   return <ul className="widget-list">{data.map((t) => (
     <li key={t.id}><button type="button" className="widget-row" onClick={() => onOpenItem(t.list_id)}>
       <span className="widget-main">{t.title}</span>
-      <span className={`widget-sub${t.due_on < today() ? ' is-late' : ''}`}>{dueLabel(t.due_on)}{t.repeats ? `, ${REPEATS[t.repeats].toLowerCase()}` : ''}, {t.assignee_id === me.id ? 'you' : t.assignee?.display_name || 'no one'}, {t.list?.title} in {where(t.list?.space)}</span>
+      <span className={`widget-sub${t.due_on < today() ? ' is-late' : ''}`}>{dueLabel(t.due_on)}{t.repeats ? `, ${REPEATS[t.repeats].toLowerCase()}` : ''}, {t.assignee_id === me.id ? 'you' : t.assignee?.display_name || 'no one'}{awayOn(t.assignee_id, t.due_on) ? <span className="away-note away-note--inline">away then</span> : null}, {t.list?.title} in {where(t.list?.space)}</span>
     </button></li>))}</ul>;
 }
 // Open polls the person has not voted in yet, newest first. A row opens the poll.
@@ -341,6 +343,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
   const [data, setData] = useState({ announcements: [], upcoming: [], yeses: [], bookings: [], shifts: [], away: [], tasks: [], polls: [], forms: [], links: [], contacts: [], glossary: [], ideas: [], kudos: [], milestones: [], journal: [], decisions: [], questions: [], checklists: [], balances: [], holding: [], goals: [], retros: [], profile: [], meetings: [], recent: [], files: [] });
   const [error, setError] = useState('');
   const timer = useRef(null);
+  const awayOn = useAway(notice, 14);
 
   useEffect(() => {
     api('/user_prefs?select=home').then(([p]) => {
@@ -414,7 +417,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
     : k === 'bookings' ? <MyBookings data={data.bookings} onOpenBooking={onOpenBooking} />
     : k === 'shifts' ? <MyShifts data={data.shifts} onOpenShifts={onOpenShifts} />
     : k === 'away' ? <OutThisWeek data={data.away} me={me} onOpenTimeOff={onOpenTimeOff} />
-    : k === 'tasks' ? <TasksDue data={data.tasks} me={me} onOpenItem={onOpenItem} />
+    : k === 'tasks' ? <TasksDue data={data.tasks} me={me} onOpenItem={onOpenItem} awayOn={awayOn} />
     : k === 'polls' ? <PollsToVote data={data.polls} onOpenItem={onOpenItem} />
     : k === 'forms' ? <FormsToFill data={data.forms} onOpenItem={onOpenItem} />
     : k === 'links' ? <NewLinks data={data.links} onOpenItem={onOpenItem} />

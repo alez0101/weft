@@ -4,8 +4,11 @@
 // place; editors and owners add, change and delete shifts and can take someone off. The database refuses a
 // claim on a full or ended shift, and its answer is shown as it is. Live: a shifts or shift_signups notice
 // refetches.
+// Away warnings (052): someone on a shift whose time off covers its day gets "Pat is away then" by their
+// name, and before you take a place on such a day, "You are away then".
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from './api.js';
+import { AwayNote, useAway } from './Away.jsx';
 
 const SEL = 'id,space_id,title,starts_at,ends_at,places,note,signups:shift_signups(id,user_id,created_at,who:users!shift_signups_user_id_fkey(display_name))';
 const pad = (n) => String(n).padStart(2, '0');
@@ -74,8 +77,10 @@ function Places({ shift, me }) {
   );
 }
 
-function Shift({ s, me, ended, canEdit, error, act, editing, setEditing }) {
+function Shift({ s, me, ended, canEdit, error, act, editing, setEditing, awayOn }) {
   const mine = s.signups.find((x) => x.user_id === me.id);
+  // The days the shift covers (an overnight shift touches two).
+  const away = (user) => (ended ? null : awayOn(user, dayKey(s.starts_at), dayKey(new Date(s.ends_at).getTime() - 1)));
   const full = s.signups.length >= s.places;
   // You first, then the others in the order they signed up.
   const people = [...s.signups].sort((a, b) => (a.user_id === me.id ? -1 : b.user_id === me.id ? 1 : a.created_at.localeCompare(b.created_at)));
@@ -104,6 +109,7 @@ function Shift({ s, me, ended, canEdit, error, act, editing, setEditing }) {
           {people.map((x, i) => (
             <span key={x.id} className="shift-person">
               {name(x)}
+              <AwayNote away={away(x.user_id)} name={name(x)} isMe={x.user_id === me.id} className="away-note--inline" />
               {canEdit && !ended && x.user_id !== me.id && (
                 <button type="button" className="shift-off" aria-label={`Take ${name(x)} off ${s.title}`} title="Take off this shift"
                   onClick={() => { if (window.confirm(`Take ${name(x)} off "${s.title}"?`)) act(s.id, 'Could not take them off', () => api(`/shift_signups?id=eq.${x.id}`, { method: 'DELETE', prefer: 'return=minimal' })); }}>×</button>
@@ -120,6 +126,7 @@ function Shift({ s, me, ended, canEdit, error, act, editing, setEditing }) {
           : <button className="btn btn--primary btn--sm" type="button" disabled={full} onClick={() => act(s.id, 'You were not signed up', () => api('/shift_signups', { method: 'POST', body: { shift_id: s.id }, prefer: 'return=minimal' }))}>
               {full ? 'Full' : 'Take a place'}<span className="visually-hidden"> on {s.title}</span></button>}
         {mine && !ended && <span className="shift-hint shift-yours">You are on this shift</span>}
+        {!mine && !full && <AwayNote away={away(me.id)} isMe />}
         {canEdit && !ended && <span className="shift-admin">
           <button className="btn btn--sm" type="button" onClick={() => setEditing(s.id)}>Change<span className="visually-hidden"> {s.title}</span></button>
           <button className="btn btn--sm" type="button" onClick={() => {
@@ -148,6 +155,7 @@ export default function Shifts({ me, spaces, members, notice }) {
   const [editing, setEditing] = useState(null);
   const [errors, setErrors] = useState({});
   const [error, setError] = useState('');
+  const awayOn = useAway(notice);
 
   // Shifts that have not ended, plus the last day's ended ones (shown greyed, so a just-finished shift
   // does not vanish mid-glance).
@@ -238,7 +246,7 @@ export default function Shifts({ me, spaces, members, notice }) {
                   <h3 className="notice-group">{dayLabel(at(d.day, '12:00'))}</h3>
                   <ul className="link-list">
                     {d.shifts.map((s) => <Shift key={s.id} s={s} me={me} ended={new Date(s.ends_at).getTime() <= now} canEdit={canEdit(s.space_id)}
-                      error={errors[s.id]} act={act} editing={editing} setEditing={setEditing} />)}
+                      error={errors[s.id]} act={act} editing={editing} setEditing={setEditing} awayOn={awayOn} />)}
                   </ul>
                 </section>
               ))}
