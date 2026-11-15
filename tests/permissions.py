@@ -4444,6 +4444,155 @@ def repeating_events():
     check("Repeating: tidied up", oq("select count(*) from weft.event_series") == "0" and oq("select count(*) from weft.events where title in ('One-off', 'Moved to festival', 'Rehearsal extra')") == "0")
 
 
+# ---------------------------------------------------------------- repeating tasks (050)
+def repeating_tasks():
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, V, O, A = uid("user", "u-pub"), uid("user", "u-vol"), uid("user", "u-org"), uid("user", "u-alex")
+    oq = lambda sql: owner_sql(sql)
+    today = oq("select current_date::text")
+    nd = lambda due, rep: oq(f"select weft_private.next_due({'null' if due is None else repr(due)}::date, '{rep}', current_date)::text")
+    def task(tok, lst, title, **extra):
+        st, rows = call("POST", "/tasks", tok, {"list_id": lst, "title": title, **extra})
+        return rows[0]["id"] if st == 201 else None
+    def newest(lst, title):
+        return oq(f"select id::text || '|' || coalesce(assignee_id::text, '-') || '|' || coalesce(due_on::text, '-') || '|' || coalesce(repeats, '-') || '|' || done || '|' || created_by"
+                  f" from weft.tasks where list_id = '{lst}' and title = '{title}' and not done order by created_at desc limit 1")
+    def count(lst, title): return oq(f"select count(*) from weft.tasks where list_id = '{lst}' and title = '{title}'")
+    org = call("POST", "/items", olive, {"space_id": SID["organizers"], "kind": "tasklist", "title": "Org repeating"})[1][0]["id"]
+    fest = call("POST", "/items", olive, {"space_id": SID["festival"], "kind": "tasklist", "title": "Festival repeating"})[1][0]["id"]
+
+    # The schedule itself: strictly after today, stepping from the due date.
+    check("Repeating tasks: next dates (weekly due today -> +7, weekly ticked late stays on its weekday, daily from the future, no due date -> from today)",
+          oq("select weft_private.next_due('2026-11-16', 'weekly', '2026-11-16')::text") == "2026-11-23"
+          and oq("select weft_private.next_due('2026-11-02', 'weekly', '2026-11-11')::text") == "2026-11-16"
+          and oq("select weft_private.next_due('2026-11-20', 'daily', '2026-11-11')::text") == "2026-11-21"
+          and oq("select weft_private.next_due(null, 'daily', '2026-11-11')::text") == "2026-11-12"
+          and oq("select weft_private.next_due('2026-11-09', 'daily', '2026-11-11')::text") == "2026-11-12")
+    check("Repeating tasks: monthly (31 Jan -> 28 Feb; due 15 Aug ticked 20 Nov -> 15 Dec; due in a later month -> a month after it)",
+          oq("select weft_private.next_due('2027-01-31', 'monthly', '2027-01-31')::text") == "2027-02-28"
+          and oq("select weft_private.next_due('2026-08-15', 'monthly', '2026-11-20')::text") == "2026-12-15"
+          and oq("select weft_private.next_due('2027-03-10', 'monthly', '2026-11-20')::text") == "2027-04-10"
+          and oq("select weft_private.next_due('2026-11-10', 'monthly', '2026-11-10')::text") == "2026-12-10")
+
+    # Olive (editor) makes a weekly Organizers task assigned to Alex and ticks it off.
+    ot = task(olive, org, "REPTASK-ORG-SECRET payroll", assignee_id=A, due_on="2026-11-16", repeats="weekly")
+    check("Repeating tasks: Olive (editor) adds a weekly task in Organizers (positive control)", ot is not None
+          and oq(f"select repeats from weft.tasks where id = '{ot}'") == "weekly")
+    st, rows = call("GET", f"/items?id=eq.{org}&select=body_text", olive)
+    check("Repeating tasks: the list summary says it repeats (search and the assistant see it)",
+          st == 200 and ", due 2026-11-16, every week)" in (rows[0]["body_text"] or ""), str(rows))
+    st, rows = call("PATCH", f"/tasks?id=eq.{ot}", olive, {"done": True})
+    nxt = newest(org, "REPTASK-ORG-SECRET payroll").split("|")
+    check("Repeating tasks: ticking it off makes the next one: same list, title, assignee and repeat, not done, due on the next date, made by Olive",
+          st == 200 and len(nxt) == 6 and nxt[0] != ot and nxt[1] == A and nxt[2] == nd("2026-11-16", "weekly") and nxt[3] == "weekly" and nxt[4] == "false" and nxt[5] == O,
+          f"{st} {nxt} today={today}")
+    check("Repeating tasks: the ticked one stays done and stops repeating",
+          oq(f"select done::text || coalesce(repeats, '-') from weft.tasks where id = '{ot}'") == "true-")
+    call("PATCH", f"/tasks?id=eq.{ot}", olive, {"done": False})
+    call("PATCH", f"/tasks?id=eq.{ot}", olive, {"done": True})
+    check("Repeating tasks: unticking and ticking it again makes no second copy", count(org, "REPTASK-ORG-SECRET payroll") == "2")
+
+    # Outsiders: nothing to read, nothing to change, no copies to cause.
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = call("GET", f"/tasks?list_id=eq.{org}&select=id,repeats", tok)
+        st2, rows2 = call("PATCH", f"/tasks?id=eq.{nxt[0]}", tok, {"done": True})
+        st3, rows3 = call("PATCH", f"/tasks?id=eq.{nxt[0]}", tok, {"repeats": "daily"})
+        check(f"Repeating tasks: {who} reads no Organizers tasks and cannot tick off or change one there",
+              st == 200 and rows == [] and rows2 == [] and rows3 == []
+              and oq(f"select done::text || repeats from weft.tasks where id = '{nxt[0]}'") == "falseweekly"
+              and count(org, "REPTASK-ORG-SECRET payroll") == "2", f"{rows} {st2} {st3}")
+    st, _ = call("POST", "/tasks", pat, {"list_id": org, "title": "pwned", "repeats": "daily"})
+    check("Repeating tasks: Pat cannot add a repeating task in Organizers", refused(st), str(st))
+
+    # #festival: Pat is a viewer. She may tick off her own repeating task (and so cause the next one), nothing else.
+    ft = task(olive, fest, "Water the porch plants", assignee_id=P, due_on="2026-11-10", repeats="daily")
+    st, rows = call("GET", f"/tasks?id=eq.{ft}&select=repeats", pat)
+    check("Repeating tasks: Pat (viewer) reads how a #festival task repeats (positive control)", st == 200 and rows == [{"repeats": "daily"}], str(rows))
+    st, _ = call("PATCH", f"/tasks?id=eq.{ft}", pat, {"repeats": "monthly"})
+    st2, _ = call("PATCH", f"/tasks?id=eq.{ft}", pat, {"repeats": None})
+    st3, _ = call("PATCH", f"/tasks?id=eq.{ft}", pat, {"done": True, "repeats": "monthly"})
+    st4, _ = call("POST", "/tasks", pat, {"list_id": fest, "title": "pwned", "repeats": "daily"})
+    check("Repeating tasks: Pat cannot change or clear the repeat, not even alongside done, nor add a repeating task",
+          all(refused(x) for x in (st, st2, st3, st4)) and oq(f"select done::text || repeats from weft.tasks where id = '{ft}'") == "falsedaily"
+          and count(fest, "Water the porch plants") == "1", f"{st} {st2} {st3} {st4}")
+    st, rows = call("PATCH", f"/tasks?id=eq.{ft}", pat, {"done": True})
+    nxt2 = newest(fest, "Water the porch plants").split("|")
+    check("Repeating tasks: Pat ticks off her own daily task (positive control); the next one is hers, due tomorrow, made by Pat",
+          st == 200 and len(rows or []) == 1 and len(nxt2) == 6 and nxt2[1] == P and nxt2[2] == nd("2026-11-10", "daily")
+          and nxt2[2] == oq("select (current_date + 1)::text") and nxt2[3] == "daily" and nxt2[5] == P, f"{st} {rows} {nxt2}")
+    other = task(olive, fest, "Sweep the stage", assignee_id=O, repeats="weekly")
+    st, rows = call("PATCH", f"/tasks?id=eq.{other}", pat, {"done": True})
+    check("Repeating tasks: Pat cannot tick off someone else's repeating task, so no copy appears", rows == []
+          and count(fest, "Sweep the stage") == "1", f"{st} {rows}")
+    st, rows = call("PATCH", f"/tasks?id=eq.{nxt2[0]}", mint("u-pub", scope="volunteers"), {"done": True})
+    check("Repeating tasks: nor tick off her own through a token scoped to another channel", rows == []
+          and count(fest, "Water the porch plants") == "2", f"{st} {rows}")
+
+    # Editors set and clear the repeat; only the three values; no due date steps from today.
+    st, rows = call("PATCH", f"/tasks?id=eq.{other}", olive, {"repeats": "monthly"})
+    st2, _ = call("PATCH", f"/tasks?id=eq.{other}", olive, {"repeats": "hourly"})
+    check("Repeating tasks: Olive changes the repeat (positive control); 'hourly' is refused", st == 200 and rows[0]["repeats"] == "monthly" and st2 == 400, f"{st} {st2}")
+    st, rows = call("PATCH", f"/tasks?id=eq.{other}", olive, {"done": True})
+    nxt3 = newest(fest, "Sweep the stage").split("|")
+    check("Repeating tasks: a monthly task with no due date comes back due a month from today",
+          st == 200 and len(nxt3) == 6 and nxt3[2] == oq("select (current_date + interval '1 month')::date::text") and nxt3[3] == "monthly", str(nxt3))
+    call("PATCH", f"/tasks?id=eq.{nxt3[0]}", olive, {"repeats": None})
+    call("PATCH", f"/tasks?id=eq.{nxt3[0]}", olive, {"done": True})
+    check("Repeating tasks: once the repeat is cleared, ticking off makes nothing new", count(fest, "Sweep the stage") == "2")
+    done_rep = task(olive, fest, "Born done", done=True, repeats="weekly")
+    check("Repeating tasks: a task added already done does not repeat",
+          oq(f"select coalesce(repeats, '-') from weft.tasks where id = '{done_rep}'") == "-" and count(fest, "Born done") == "1")
+
+    # Authorship cannot be forged on the copy: created_by is whoever ticked, never set by the client.
+    st, _ = call("POST", "/tasks", olive, {"list_id": fest, "title": "forged", "repeats": "daily", "created_by": A})
+    check("Repeating tasks: authorship of a repeating task cannot be forged", refused(st), str(st))
+
+    # The assignee has left the space since: the next one is unassigned instead of the tick failing.
+    vt = task(olive, fest, "Count the chairs", assignee_id=V, due_on="2026-11-12", repeats="weekly")
+    oq(f"delete from weft.members where space_id = '{SID['festival']}' and user_id = '{V}'")
+    st, rows = call("PATCH", f"/tasks?id=eq.{vt}", olive, {"done": True})
+    nxt4 = newest(fest, "Count the chairs").split("|")
+    oq(f"insert into weft.members (space_id, user_id, role) values ('{SID['festival']}', '{V}', 'viewer')")
+    check("Repeating tasks: if the assignee has left the space, the next task is unassigned (the tick still works)",
+          st == 200 and len(nxt4) == 6 and nxt4[1] == "-" and nxt4[3] == "weekly", f"{st} {rows} {nxt4}")
+    check("Repeating tasks: Vic is back in #festival as a viewer (tidy)",
+          oq(f"select role from weft.members where space_id = '{SID['festival']}' and user_id = '{V}'") == "viewer")
+
+    # Channel scope and the assistant.
+    scoped = mint("u-org", scope="festival")
+    st, rows = call("PATCH", f"/tasks?id=eq.{nxt[0]}", scoped, {"done": True})
+    st2, rows2 = call("GET", "/tasks?repeats=not.is.null&select=list_id", scoped)
+    check("Repeating tasks: a #festival-scoped token sees only #festival repeating tasks and cannot tick off an Organizers one",
+          rows == [] and st2 == 200 and rows2 and {r["list_id"] for r in rows2} == {fest} and count(org, "REPTASK-ORG-SECRET payroll") == "2", f"{st} {rows2}")
+    helper = mint("u-org", assistant=True)
+    st, rows = call("GET", f"/tasks?id=eq.{nxt[0]}&select=repeats", helper)
+    check("Repeating tasks: the assistant (for Olive) reads the repeat (positive control)", st == 200 and rows == [{"repeats": "weekly"}], str(rows))
+    st, _ = call("PATCH", f"/tasks?id=eq.{nxt[0]}", helper, {"done": True})
+    st2, _ = call("PATCH", f"/tasks?id=eq.{nxt[0]}", helper, {"repeats": "daily"})
+    st3, _ = call("DELETE", f"/tasks?id=eq.{nxt[0]}", helper)
+    st4, _ = call("POST", "/tasks", helper, {"list_id": org, "title": "by the assistant", "repeats": "daily"})
+    check("Repeating tasks: the assistant cannot tick off, change, delete or add a repeating task", all(refused(x) for x in (st, st2, st3, st4))
+          and oq(f"select done::text || repeats from weft.tasks where id = '{nxt[0]}'") == "falseweekly", f"{st} {st2} {st3} {st4}")
+    st, rows = call("GET", f"/tasks?id=eq.{nxt[0]}&select=id", mint("u-pub", assistant=True))
+    check("Repeating tasks: the assistant for Pat sees no Organizers repeating task", st == 200 and rows == [], str(rows))
+
+    # Live notices and audit: the copy is announced under its own space only; the tick is audited there.
+    check("Repeating tasks: the tick is in the audit log under Organizers, by Olive, with the repeat it had",
+          oq(f"select count(*) from weft.audit where table_name = 'tasks' and row_id = '{ot}' and space_id = '{SID['organizers']}' and actor_id = '{O}' and old_row->>'repeats' = 'weekly'") == "1")
+    st, rows = call("GET", f"/audit?row_id=eq.{ot}&select=id", pat)
+    check("Repeating tasks: Pat reads none of it", st == 200 and rows == [], str(rows))
+
+    # Moves follow the space: a list moved to #festival keeps its repeating tasks; deleting the list deletes them.
+    st, _ = call("PATCH", f"/items?id=eq.{org}", olive, {"space_id": SID["festival"]})
+    st2, rows2 = call("GET", f"/tasks?list_id=eq.{org}&done=is.false&select=assignee_id,repeats", pat)
+    check("Repeating tasks: an Organizers list moved to #festival: Pat now sees its repeating task, still assigned to Alex (a #festival member)",
+          st == 200 and st2 == 200 and rows2 == [{"assignee_id": A, "repeats": "weekly"}], f"{st} {rows2}")
+    for lst in (org, fest):
+        call("DELETE", f"/items?id=eq.{lst}", olive)
+    check("Repeating tasks: deleting the lists deletes their tasks (tidy)",
+          oq(f"select count(*) from weft.tasks where list_id in ('{org}', '{fest}')") == "0")
+
+
 def teeth():
     """Loosen one policy on purpose and confirm the suite would catch it, then restore it."""
     owner_sql("create policy teeth_leak on weft.items for select to weft_user using (true)")
@@ -4485,6 +4634,7 @@ if __name__ == "__main__":
     meetings()
     rsvps()
     repeating_events()
+    repeating_tasks()
     bookings()
     shifts()
     time_off()
