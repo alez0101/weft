@@ -4,10 +4,13 @@
 // and its answer is shown as it is. Editors and owners add things and book; the booker (or an owner) changes
 // or cancels a booking; only owners delete a thing; viewers read. Bookings also show on the Calendar.
 // Live: a resources or bookings notice refetches.
+// Repeating bookings (056): a new booking can repeat every week for 2 to 26 weeks (weft.book_weekly). Weeks that
+// clash with another booking are refused, the rest are booked, and the answer lists the refused dates and whose
+// booking is in the way. Each repeat is marked Weekly; its booker (or an owner) can cancel it and the later ones.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from './api.js';
 
-const SEL = 'id,resource_id,space_id,starts_at,ends_at,note,booked_by,who:users!bookings_booked_by_fkey(display_name)';
+const SEL = 'id,resource_id,space_id,starts_at,ends_at,note,booked_by,series_id,who:users!bookings_booked_by_fkey(display_name)';
 const DAY0 = 7; const DAY1 = 22;   // the day strip runs from 07:00 to 22:00
 const pad = (n) => String(n).padStart(2, '0');
 const dayKey = (d) => { const x = new Date(d); return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`; };
@@ -19,15 +22,19 @@ const t = (d) => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '
 export const span = (a, b) => (dayKey(a) === dayKey(b) ? `${t(a)} to ${t(b)}` : `${t(a)} to ${dayLabel(b)}, ${t(b)}`);
 // The next whole hour, as the default start of a new booking.
 const nextHour = () => { const d = new Date(); d.setMinutes(0, 0, 0); d.setHours(d.getHours() + 1); return d; };
+const shortDay = (d) => new Date(d).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
+const tz = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
-function BookingForm({ initial, onSave, onCancel, idp, submit, label }) {
-  const [f, setF] = useState(initial);
+function BookingForm({ initial, onSave, onCancel, idp, submit, label, repeatable }) {
+  const [f, setF] = useState({ weekly: false, weeks: 4, ...initial });
   const start = at(f.day, f.from); const end = at(f.endDay || f.day, f.to);
+  const weeks = Number(f.weeks);
   const bad = !(end > start);
+  const badRepeat = f.weekly && (!Number.isInteger(weeks) || weeks < 2 || weeks > 26 || end - start > 7 * 86400000);
   return (
     <form className="link-form booking-form" aria-label={label} onSubmit={(e) => {
-      e.preventDefault(); if (bad) return;
-      onSave({ starts_at: start.toISOString(), ends_at: end.toISOString(), note: f.note.trim() });
+      e.preventDefault(); if (bad || badRepeat) return;
+      onSave({ starts_at: start.toISOString(), ends_at: end.toISOString(), note: f.note.trim() }, f.weekly ? weeks : 0);
     }}>
       <label htmlFor={`${idp}-day`}>Day</label>
       <input id={`${idp}-day`} type="date" value={f.day} required onChange={(e) => setF({ ...f, day: e.target.value, endDay: f.endDay && f.endDay < e.target.value ? e.target.value : f.endDay })} />
@@ -43,9 +50,22 @@ function BookingForm({ initial, onSave, onCancel, idp, submit, label }) {
       </span>
       <label htmlFor={`${idp}-note`}>Note</label>
       <input id={`${idp}-note`} value={f.note} maxLength={200} autoComplete="off" placeholder="What it is for (optional)" onChange={(e) => setF({ ...f, note: e.target.value })} />
+      {repeatable && <>
+        <label htmlFor={`${idp}-repeat`}>Repeat</label>
+        <span className="pair booking-repeat">
+          <select id={`${idp}-repeat`} value={f.weekly ? 'weekly' : ''} onChange={(e) => setF({ ...f, weekly: e.target.value === 'weekly' })}>
+            <option value="">Does not repeat</option><option value="weekly">Every week</option>
+          </select>
+          {f.weekly && <><label htmlFor={`${idp}-weeks`}>for</label>
+            <input id={`${idp}-weeks`} type="number" min={2} max={26} step={1} value={f.weeks} required onChange={(e) => setF({ ...f, weeks: e.target.value })} />
+            <span className="booking-repeat-unit">weeks, counting this one</span></>}
+        </span>
+        {f.weekly && <p className="booking-warn booking-repeat-hint">Weeks that clash with another booking are skipped; you will see which.</p>}
+      </>}
       {bad && <p className="booking-warn" role="status">The end must be after the start.</p>}
+      {!bad && badRepeat && <p className="booking-warn" role="status">{end - start > 7 * 86400000 ? 'A weekly booking can last at most a week.' : 'Repeat for 2 to 26 weeks.'}</p>}
       <div className="link-form-actions">
-        <button className="btn btn--primary btn--sm" type="submit" disabled={bad}>{submit}</button>
+        <button className="btn btn--primary btn--sm" type="submit" disabled={bad || badRepeat}>{f.weekly && !badRepeat ? `Book ${weeks} weeks` : submit}</button>
         {onCancel && <button className="btn btn--sm" type="button" onClick={onCancel}>Cancel</button>}
       </div>
     </form>
@@ -81,6 +101,11 @@ function DayStrip({ day, rows, me }) {
 }
 
 function Booking({ b, me, canChange, editing, setEditing, change }) {
+  const cancelLater = () => {
+    if (!window.confirm(`Cancel this weekly booking (${dayLabel(b.starts_at)}) and every later week of it?`)) return;
+    const since = encodeURIComponent(new Date(b.starts_at).toISOString()); const now = encodeURIComponent(new Date().toISOString());
+    change('Could not cancel', () => api(`/bookings?series_id=eq.${b.series_id}&starts_at=gte.${since}&ends_at=gt.${now}`, { method: 'DELETE', prefer: 'return=minimal' }));
+  };
   const who = b.booked_by === me.id ? 'You' : b.who?.display_name || 'Someone';
   if (editing === b.id) {
     const sameDay = dayKey(b.starts_at) === dayKey(b.ends_at);
@@ -94,7 +119,7 @@ function Booking({ b, me, canChange, editing, setEditing, change }) {
   }
   return (
     <li className={`link booking${b.booked_by === me.id ? ' is-mine' : ''}`}>
-      <p className="booking-when">{span(b.starts_at, b.ends_at)}</p>
+      <p className="booking-when">{span(b.starts_at, b.ends_at)}{b.series_id && <span className="poll-badge booking-weekly">Weekly</span>}</p>
       {b.note && <p className="link-note">{b.note}</p>}
       <div className="link-foot">
         <span className="link-by booking-who">Booked by {who}</span>
@@ -103,9 +128,28 @@ function Booking({ b, me, canChange, editing, setEditing, change }) {
           <button className="btn btn--sm" type="button" onClick={() => {
             if (window.confirm(`Cancel the booking ${dayLabel(b.starts_at)}, ${span(b.starts_at, b.ends_at)}?`)) change('Could not cancel', () => api(`/bookings?id=eq.${b.id}`, { method: 'DELETE', prefer: 'return=minimal' }));
           }}>Cancel booking<span className="visually-hidden"> at {span(b.starts_at, b.ends_at)}</span></button>
+          {b.series_id && <button className="btn btn--sm" type="button" onClick={cancelLater}>Cancel this and later weeks<span className="visually-hidden"> from {dayLabel(b.starts_at)}</span></button>}
         </>}
       </div>
     </li>
+  );
+}
+
+// What a weekly booking did: how many weeks were booked, and each refused date with whose booking is in the way.
+function RepeatResult({ r, onClose }) {
+  return (
+    <div className={`booking-result${r.clashed.length ? ' has-clashes' : ''}`} role="status">
+      <p className="booking-result-head">
+        {r.clashed.length ? `Booked ${r.booked.length} of ${r.weeks} weeks.` : `Booked all ${r.weeks} weeks.`}
+        <button className="btn btn--sm" type="button" onClick={onClose}>Close</button>
+      </p>
+      {r.clashed.length > 0 && <>
+        <p className="booking-result-sub">Not booked, because the time is already taken:</p>
+        <ul className="booking-clashes">
+          {r.clashed.map((c) => <li key={c.starts_at}><strong>{shortDay(c.starts_at)}</strong>, {span(c.starts_at, c.ends_at)}{c.by ? ` (booked by ${c.by})` : ''}</li>)}
+        </ul>
+      </>}
+    </div>
   );
 }
 
@@ -121,6 +165,7 @@ export default function Bookings({ me, spaces, members, notice, openId, setOpenI
   const [renaming, setRenaming] = useState(false);
   const [adding, setAdding] = useState(false);
   const [booking, setBooking] = useState(false);
+  const [repeatResult, setRepeatResult] = useState(null);
   const [draft, setDraft] = useState({ space: '', name: '', note: '' });
   const current = (things || []).find((x) => x.id === openId) || null;
   const editable = current && canEdit(current.space_id);
@@ -136,7 +181,7 @@ export default function Bookings({ me, spaces, members, notice, openId, setOpenI
   }, [openId, day]);
   useEffect(() => { loadThings(); }, [loadThings]);
   useEffect(() => { setRows(null); load().catch((e) => setError(`Bookings could not load: ${e.message}`)); }, [load]);
-  useEffect(() => { setEditing(null); setRenaming(false); setBooking(false); }, [openId]);
+  useEffect(() => { setEditing(null); setRenaming(false); setBooking(false); setRepeatResult(null); }, [openId]);
   useEffect(() => {
     if (!notice) return;
     if (notice.t === 'resources' || notice.t === 'members') loadThings();
@@ -161,9 +206,17 @@ export default function Bookings({ me, spaces, members, notice, openId, setOpenI
       await loadThings(); setOpenId(row.id);
     } catch (err) { setError(`Not added: ${err.message}`); }
   };
-  const book = async (body) => {
+  const book = async (body, weeks) => {
+    if (weeks) {
+      let res = null;
+      const ok = await change('Not booked', async () => {
+        res = await api('/rpc/book_weekly', { method: 'POST', body: { p_resource: current.id, p_starts: body.starts_at, p_ends: body.ends_at, p_weeks: weeks, p_note: body.note, p_tz: tz() } });
+      });
+      if (ok && res) { setRepeatResult({ ...res, weeks }); setBooking(false); setDay(dayKey(res.booked[0].starts_at)); }
+      return;
+    }
     if (await change('Not booked', () => api('/bookings', { method: 'POST', body: { ...body, resource_id: current.id }, prefer: 'return=minimal' }))) {
-      setBooking(false); setDay(dayKey(body.starts_at));
+      setBooking(false); setDay(dayKey(body.starts_at)); setRepeatResult(null);
     }
   };
   const removeThing = async () => {
@@ -245,10 +298,11 @@ export default function Bookings({ me, spaces, members, notice, openId, setOpenI
               </div>
               {rows && <DayStrip day={day} rows={rows} me={me} />}
               {editable ? (booking
-                ? <BookingForm idp="bk-new" label="New booking" submit="Book" initial={startDefault()} onSave={book} onCancel={() => setBooking(false)} />
-                : <div className="links-bar"><button className="btn btn--primary btn--sm" type="button" onClick={() => setBooking(true)}>Book {current.name}</button>
-                    <p className="docs-hint">A slot that overlaps another booking is refused. Bookings show on the Calendar too.</p></div>)
+                ? <BookingForm idp="bk-new" label="New booking" submit="Book" initial={startDefault()} onSave={book} onCancel={() => setBooking(false)} repeatable />
+                : <div className="links-bar"><button className="btn btn--primary btn--sm" type="button" onClick={() => { setBooking(true); setRepeatResult(null); }}>Book {current.name}</button>
+                    <p className="docs-hint">A slot that overlaps another booking is refused. A booking can repeat every week. Bookings show on the Calendar too.</p></div>)
                 : <p className="docs-hint">You can see when this is booked. Ask an owner of the channel to make you an editor to book it.</p>}
+              {repeatResult && <RepeatResult r={repeatResult} onClose={() => setRepeatResult(null)} />}
               {error && <p className="send-error" role="alert">{error}</p>}
               {!rows ? <div className="skeleton" aria-label="Loading bookings"><span /><span /></div> : (<>
                 <h3 className="notice-group">Coming up</h3>
