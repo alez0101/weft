@@ -1,0 +1,22 @@
+# SPIKE (test stack only): OnlyOffice Docs Community 9.4 as Weft's spreadsheet engine.
+# Paths here are relative to stacks/weft (the first compose file), hence ../weft-test/.
+# It only accepts requests signed with OFFICE_JWT_SECRET, and fetches and saves files through Weft's
+# files service on the stack's private network (hence ALLOW_PRIVATE_IP_ADDRESS).
+services:
+  office:
+    image: onlyoffice/documentserver:9.4
+    restart: unless-stopped
+    environment:
+      JWT_ENABLED: "true"
+      JWT_SECRET: ${OFFICE_JWT_SECRET:?set in .env}
+      JWT_HEADER: Authorization
+      JWT_IN_BODY: "true"
+      ALLOW_PRIVATE_IP_ADDRESS: "true"
+  files:
+    environment:
+      OFFICE_JWT_SECRET: ${OFFICE_JWT_SECRET}
+      OFFICE_INTERNAL_URL: http://office
+      FILES_INTERNAL_URL: http://files:8095
+  web:
+    volumes:
+      - ../weft-test/office.nginx.conf:/etc/nginx/weft-extra/office.conf:ro
