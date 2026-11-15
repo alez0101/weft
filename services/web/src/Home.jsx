@@ -43,6 +43,7 @@ const WIDGETS = {
   goals: 'Goal progress',
   retros: 'Open retro actions',
   profile: 'Your profile',
+  skills: 'Who knows what',
   meetings: 'Recent meetings',
   unread: 'Unread',
   recent: 'Recently changed',
@@ -316,6 +317,19 @@ function MyProfile({ data, onOpenProfiles }) {
     <span className="widget-sub">{p.availability || p.reach || 'Open Profiles to add how and when to reach you'}</span>
   </button></li></ul>;
 }
+// Who knows what (062): the skills most often listed by people you share a space with, with how many hold
+// each. A skill opens Profiles showing everyone who has it.
+function WhoKnows({ data, me, onAskSkill }) {
+  const holding = {};
+  for (const h of data) if (h.user_id !== me.id) (holding[h.skill] ||= new Set()).add(h.user_id);
+  const top = Object.entries(holding).map(([s, who]) => [s, who.size]).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 12);
+  if (!top.length) return <p className="widget-empty">No one you share a space with has listed a skill yet. Skills come from Profiles.</p>;
+  return <div className="who-knows" role="group" aria-label="Skills of the people you share a space with">
+    {top.map(([s, n]) => <button key={s} type="button" className="link-tag" onClick={() => onAskSkill(s)}>
+      {s} <span className="idea-count" aria-hidden="true">{n}</span><span className="visually-hidden">, {n} {n === 1 ? 'person' : 'people'}</span>
+    </button>)}
+  </div>;
+}
 function Unread({ unread, spaces, onOpenConvo }) {
   const rows = unread.filter((u) => u.unread > 0).map((u) => ({ ...u, space: spaces.find((s) => s.id === u.space_id) })).filter((u) => u.space);
   if (!rows.length) return <p className="widget-empty">You're all caught up.</p>;
@@ -357,10 +371,10 @@ function Ask({ assistantSpace, onAsked }) {
   );
 }
 
-export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpenEvent, onOpenNotices, onOpenKudos, onOpenTimeline, onOpenBooking, onOpenShifts, onOpenProfiles, onOpenTimeOff, onOpenJournal, onOpenConvo }) {
+export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpenEvent, onOpenNotices, onOpenKudos, onOpenTimeline, onOpenBooking, onOpenShifts, onOpenProfiles, onAskSkill, onOpenTimeOff, onOpenJournal, onOpenConvo }) {
   const [order, setOrder] = useState(null);
   const [editing, setEditing] = useState(false);
-  const [data, setData] = useState({ announcements: [], upcoming: [], yeses: [], bookings: [], shifts: [], away: [], tasks: [], comments: [], polls: [], forms: [], links: [], contacts: [], glossary: [], ideas: [], kudos: [], milestones: [], journal: [], decisions: [], questions: [], checklists: [], balances: [], holding: [], goals: [], retros: [], profile: [], meetings: [], recent: [], files: [] });
+  const [data, setData] = useState({ announcements: [], upcoming: [], yeses: [], bookings: [], shifts: [], away: [], tasks: [], comments: [], polls: [], forms: [], links: [], contacts: [], glossary: [], ideas: [], kudos: [], milestones: [], journal: [], decisions: [], questions: [], checklists: [], balances: [], holding: [], goals: [], retros: [], profile: [], skills: [], meetings: [], recent: [], files: [] });
   const [error, setError] = useState('');
   const timer = useRef(null);
   const awayOn = useAway(notice, 14);
@@ -381,7 +395,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
     const now = new Date(); const soon = new Date(now.getTime() + 14 * 86400000);
     try {
       const week = new Date(Date.now() + 7 * 86400000); week.setMinutes(week.getMinutes() - week.getTimezoneOffset());
-      const [upcoming, recent, files, due, open, openForms, links, announcements, meetings, yeses, bookings, onShifts, contacts, profile, decisions, questions, checklists, owed, holding, away, goals, retroActions, glossary, openIdeas, kudos, journal, milestones, comments] = await Promise.all([
+      const [upcoming, recent, files, due, open, openForms, links, announcements, meetings, yeses, bookings, onShifts, contacts, profile, decisions, questions, checklists, owed, holding, away, goals, retroActions, glossary, openIdeas, kudos, journal, milestones, comments, skills] = await Promise.all([
         api(`/events?ends_at=gte.${now.toISOString()}&starts_at=lte.${soon.toISOString()}&select=id,title,starts_at,location,space:spaces(name,kind)&order=starts_at&limit=5`),
         api('/items?select=id,title,kind,updated_at,space:spaces(name,kind)&order=updated_at.desc&limit=6'),
         api('/items?kind=eq.file&select=id,title,kind,updated_at,space:spaces(name,kind)&order=updated_at.desc&limit=5'),
@@ -410,6 +424,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
         api('/journal_entries?select=id,day,body&order=day.desc&limit=3'),
         api(`/milestones?day=gte.${dayKey(new Date())}&select=id,space_id,title,day,space:spaces(name,kind)&order=day,created_at&limit=5`),
         api(`/task_comments?or=(author_id.is.null,author_id.neq.${me.id})&task.assignee_id=eq.${me.id}&select=id,body,created_at,author:users!task_comments_author_id_fkey(display_name),task:tasks!inner(title,list_id,list:items(title,space:spaces(name,kind)))&order=created_at.desc&limit=5`),
+        api('/skill_holders?select=skill,user_id'),
       ]);
       const lists = owed.length ? await api(`/items?id=in.(${owed.map((b) => b.list_id).join(',')})&select=id,title,updated_at,space:spaces(name,kind)&order=updated_at.desc`) : [];
       const balances = lists.slice(0, 5).map((l) => ({ ...owed.find((b) => b.list_id === l.id), list: l }));
@@ -423,7 +438,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
       const ideas = [...openIdeas].sort((a, b) => b.votes.length - a.votes.length || b.created_at.localeCompare(a.created_at)).slice(0, 5);
       const retros = retroActions.filter((n) => !n.task?.done).slice(0, 5);
       const forms = waiting(openForms);
-      setData({ announcements, upcoming, yeses, bookings, shifts, away, tasks, comments, polls, forms, links, contacts, glossary, ideas, kudos, milestones, journal, decisions, questions, checklists, balances, holding, goals, retros, profile, meetings, recent, files }); setError('');
+      setData({ announcements, upcoming, yeses, bookings, shifts, away, tasks, comments, polls, forms, links, contacts, glossary, ideas, kudos, milestones, journal, decisions, questions, checklists, balances, holding, goals, retros, profile, skills, meetings, recent, files }); setError('');
     } catch (e) { setError(`Widgets could not load: ${e.message}`); }
   }, [me.id]);
   useEffect(() => { load(); }, [load]);
@@ -460,6 +475,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
     : k === 'goals' ? <GoalProgress data={data.goals} onOpenItem={onOpenItem} />
     : k === 'retros' ? <RetroActions data={data.retros} onOpenItem={onOpenItem} />
     : k === 'profile' ? <MyProfile data={data.profile} onOpenProfiles={onOpenProfiles} />
+    : k === 'skills' ? <WhoKnows data={data.skills} me={me} onAskSkill={onAskSkill} />
     : k === 'meetings' ? <Meetings data={data.meetings} onOpenItem={onOpenItem} />
     : k === 'unread' ? <Unread unread={unread} spaces={spaces} onOpenConvo={onOpenConvo} />
     : k === 'recent' ? <Items data={data.recent} onOpenItem={onOpenItem} empty="Nothing has been written yet." />

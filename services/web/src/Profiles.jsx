@@ -4,6 +4,10 @@
 // Only you can change your profile; everyone else's is read-only. Row-level security decides who is listed
 // at all; when it says no, the reason is shown and the list is reloaded. Live: a profiles or members notice
 // refetches.
+// Who knows what (062): every skill among those people with how many hold it, from weft.skill_holders (one
+// row per skill, person and shared space, under the caller's row-level security), and a channel chooser that
+// narrows the counts and the list to members of one of your channels. Home's "Who knows what" widget opens
+// this screen with a skill already picked (ask).
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
 
@@ -68,18 +72,24 @@ function Card({ person, shared, mine, active, onSkill, children }) {
   );
 }
 
-export default function Profiles({ me, spaces, members, notice }) {
+export default function Profiles({ me, spaces, members, notice, ask }) {
   const [people, setPeople] = useState(null);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState('');
   const [skill, setSkill] = useState('');
+  const [channelId, setChannelId] = useState('');
+  const [holders, setHolders] = useState([]);
 
-  const load = useCallback(() => api(`/users?is_assistant=is.false&disabled=is.false&select=${SEL}&order=display_name`)
-    .then((r) => setPeople(r.map((u) => ({ ...u, profile: one(u.profile) })))), []);
+  const load = useCallback(() => Promise.all([
+    api(`/users?is_assistant=is.false&disabled=is.false&select=${SEL}&order=display_name`),
+    api('/skill_holders?select=skill,user_id,space_id'),
+  ]).then(([r, h]) => { setPeople(r.map((u) => ({ ...u, profile: one(u.profile) }))); setHolders(h); }), []);
   useEffect(() => { load().catch((e) => setError(`Profiles could not load: ${e.message}`)); }, [load]);
   useEffect(() => { if (notice?.t === 'profiles' || notice?.t === 'members') load().catch(() => {}); }, [notice, load]);
+  // Opened from the Home widget with a skill: show everyone who has it.
+  useEffect(() => { if (ask?.skill) { setSkill(ask.skill); setChannelId(''); setQuery(''); } }, [ask]);
 
   // Every change: show the database's answer if it refuses, and reload so the screen matches the data.
   const change = async (what, run) => {
@@ -101,7 +111,8 @@ export default function Profiles({ me, spaces, members, notice }) {
   if (!people) return error ? <p className="send-error" role="alert">{error}</p> : <div className="skeleton" aria-label="Loading profiles"><span /><span /><span /></div>;
 
   // Which channels each person shares with you (the help channel, which everyone is in, is left out).
-  const channel = Object.fromEntries(spaces.filter((s) => s.kind === 'channel' && !s.everyone).map((s) => [s.id, s.name]));
+  const channels = spaces.filter((s) => s.kind === 'channel' && !s.everyone).sort((a, b) => a.name.localeCompare(b.name));
+  const channel = Object.fromEntries(channels.map((s) => [s.id, s.name]));
   const sharedOf = (id) => {
     const names = [...new Set(members.filter((m) => m.user?.id === id && channel[m.space_id]).map((m) => `#${channel[m.space_id]}`))].sort();
     return names.length ? `In ${names.join(', ')}` : '';
@@ -109,12 +120,26 @@ export default function Profiles({ me, spaces, members, notice }) {
   const mine = people.find((u) => u.id === me.id) || { id: me.id, display_name: me.display_name, profile: null };
   const others = people.filter((u) => u.id !== me.id);
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  const matches = (u) => words.every((w) => [u.display_name, u.profile?.role, ...(u.profile?.skills || []), u.profile?.reach, u.profile?.availability]
+  // The channel filter: people who are members of the chosen channel (a channel you left is ignored).
+  const inChannel = channel[channelId] ? channelId : '';
+  const inIt = (id) => !inChannel || members.some((m) => m.space_id === inChannel && m.user?.id === id);
+  const matches = (u) => inIt(u.id) && words.every((w) => [u.display_name, u.profile?.role, ...(u.profile?.skills || []), u.profile?.reach, u.profile?.availability]
     .some((x) => x && x.toLowerCase().includes(w))) && (!skill || u.profile?.skills?.includes(skill));
+  // Who knows what: how many people (not you) hold each skill, in the chosen channel or anywhere you share.
+  const holding = {};
+  for (const h of holders) {
+    if (h.user_id === me.id || (inChannel && h.space_id !== inChannel)) continue;
+    (holding[h.skill] ||= new Set()).add(h.user_id);
+  }
+  const known = Object.entries(holding).map(([s, who]) => [s, who.size]).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   const withProfile = others.filter((u) => filled(u.profile));
   const shown = withProfile.filter(matches);
   const without = others.filter((u) => !filled(u.profile) && !skill && matches(u));
   const pick = (s) => setSkill((x) => (x === s ? '' : s));
+  const where = inChannel ? ` in #${channel[inChannel]}` : '';
+  const status = skill ? `${shown.length} ${shown.length === 1 ? 'person knows' : 'people know'} ${skill}${where}`
+    : words.length || inChannel ? `${shown.length} of ${withProfile.length} profile${withProfile.length === 1 ? '' : 's'}${where}`
+      : `${withProfile.length} profile${withProfile.length === 1 ? '' : 's'}`;
 
   return (
     <div className="docs-main profiles">
@@ -152,13 +177,30 @@ export default function Profiles({ me, spaces, members, notice }) {
             <div className="links-filters">
               <label className="visually-hidden" htmlFor="profiles-find">Find a person</label>
               <input id="profiles-find" type="search" placeholder="Find by name, role or skill…" value={query} onChange={(e) => setQuery(e.target.value)} />
+              {channels.length > 0 && (
+                <label className="idea-sort">Channel{' '}
+                  <select id="profiles-channel" value={inChannel} onChange={(e) => setChannelId(e.target.value)}>
+                    <option value="">Any channel</option>
+                    {channels.map((c) => <option key={c.id} value={c.id}>#{c.name}</option>)}
+                  </select>
+                </label>
+              )}
               {skill && <button type="button" className="link-tag" aria-pressed="true" onClick={() => setSkill('')}>{skill}<span aria-hidden="true"> ×</span><span className="visually-hidden"> (remove this filter)</span></button>}
-              <span className="task-count" role="status">{words.length || skill ? `${shown.length} of ${withProfile.length} profile${withProfile.length === 1 ? '' : 's'}`
-                : `${withProfile.length} profile${withProfile.length === 1 ? '' : 's'}`}</span>
+              <span className="task-count" role="status">{status}</span>
+            </div>
+          )}
+          {others.length > 0 && (
+            <div className="who-knows" role="group" aria-labelledby="who-knows-title">
+              <span id="who-knows-title" className="who-knows-title">Who knows what{where}</span>
+              {known.length ? known.map(([s, n]) => (
+                <button key={s} type="button" className="link-tag" aria-pressed={skill === s} onClick={() => pick(s)}>
+                  {s} <span className="idea-count" aria-hidden="true">{n}</span><span className="visually-hidden">, {n} {n === 1 ? 'person' : 'people'}</span>
+                </button>
+              )) : <span className="docs-hint">{inChannel ? 'No one in this channel has listed a skill yet.' : 'No one has listed a skill yet.'}</span>}
             </div>
           )}
           {!others.length ? <p className="convo-empty">You do not share a space with anyone yet.</p>
-            : !shown.length && !without.length ? <p className="convo-empty">{withProfile.length ? 'No one matches.' : 'No one has filled in a profile yet.'}</p> : (<>
+            : !shown.length && !without.length ? <p className="convo-empty">{skill && !words.length ? `No one${where} has listed ${skill}.` : withProfile.length ? 'No one matches.' : 'No one has filled in a profile yet.'}</p> : (<>
               {shown.length > 0 && (
                 <ul className="link-list profile-list" aria-label="Profiles">
                   {shown.map((u) => <Card key={u.id} person={u} shared={sharedOf(u.id)} active={skill} onSkill={pick} />)}

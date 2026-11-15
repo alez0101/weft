@@ -936,6 +936,11 @@ select.idea-status:focus-visible { outline: 2px solid var(--color-focus); outlin
 .profile-shared { margin-left: 0; margin-right: auto; }
 .profile-list { grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr)); align-items: start; }
 .profile-without { margin: 0; padding: 0; }
+/* Who knows what (062): every skill with how many people hold it, above the list; the Home widget's skills. */
+.who-knows { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2xs) var(--space-xs); }
+.who-knows-title { font-size: var(--text-sm); font-weight: 600; color: var(--color-ink-2); margin-right: var(--space-2xs); }
+.who-knows .docs-hint { margin: 0; }
+.widget .who-knows { margin-top: var(--space-2xs); }
 @media (max-width: 720px) { .profile-hint { grid-column: 1; } }
 /* Time off: a week grid of who is away (rows) by day (columns), then the list (uses the Shifts layout). */
 .away-weekbar { margin-bottom: var(--space-2xs); }

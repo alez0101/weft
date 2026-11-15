@@ -23,6 +23,7 @@ The **Your profile** widget on Home shows your profile, or reminds you to fill i
 - Below your own profile are the profiles of the people you share a space with, with the channels you share shown on each one.
 - Type in the find box to show only people whose name, role, skills or notes contain those words.
 - Press a skill on any profile to show only people with that skill. Press it again to show everyone.
+- The **Who knows what** row lists every skill with how many people have it, and **Channel** narrows everything to one of your channels (see Who knows what).
 - People who have not filled in a profile are listed by name at the bottom.
 
 ### Who can see what

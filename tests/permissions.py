@@ -3000,6 +3000,91 @@ def profiles():
     oq(f"delete from weft.profiles where user_id in ('{O}', '{P}')")
 
 
+def who_knows_what():
+    """Who knows what: weft.skill_holders answers "who has this skill?" (and in which shared space) from profiles."""
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, V, O, A = (uid("user", k) for k in ("u-pub", "u-vol", "u-org", "u-alex"))
+    R, RS = uid("user", "u-orla"), uid("space", "personal-u-orla")
+    oq = lambda sql: owner_sql(sql)
+    up = "resolution=merge-duplicates,return=minimal"
+    ask = lambda tok, q: call("GET", f"/skill_holders?{q}&select=skill,user_id,space_id", tok)
+    people = lambda rows: sorted({r["user_id"] for r in rows or []})
+    # Profiles, written by their owners as the app does.
+    for tok, body in ((olive, {"role": "Festival lead", "skills": ["first aid", "van licence"]}), (vic, {"skills": ["Van licence"]}),
+                      (alex, {"skills": ["forklift"]}), (pat, {"skills": ["face painting"]})):
+        call("POST", "/profiles?on_conflict=user_id", tok, body, prefer=up)
+    # Orla: only in Organizers (with Alex and Olive), so Pat and Vic share no space with her.
+    oq(f"insert into weft.users (id, email, display_name) values ('{R}', 'orla.skills@example.com', 'Orla') on conflict do nothing")
+    oq(f"insert into weft.spaces (id, kind, name, created_by) values ('{RS}', 'personal', 'Personal', '{R}') on conflict do nothing")
+    oq(f"insert into weft.members (space_id, user_id, role) values ('{RS}', '{R}', 'owner'), ('{SID['organizers']}', '{R}', 'viewer') on conflict do nothing")
+    oq(f"insert into weft.profiles (user_id, skills) values ('{R}', '{{WKW-ORG-SECRET-SKILL,van licence}}') on conflict (user_id) do update set skills = excluded.skills")
+    try:
+        st, rows = ask(pat, "skill=eq.van%20licence")
+        check("Who knows what: Pat asks who has a van licence and gets Olive and Vic (positive control), not Orla",
+              st == 200 and people(rows) == sorted([O, V]), f"{st} {rows}")
+        check("Who knows what: Pat's answer names only spaces she is in", rows and {KEY_OF.get(r["space_id"]) for r in rows} <= set(SPACES["u-pub"]), str(rows))
+        st, rows = ask(pat, f"space_id=eq.{SID['organizers']}")
+        st2, rows2 = ask(pat, "skill=eq.wkw-org-secret-skill")
+        st3, rows3 = ask(pat, f"user_id=eq.{R}")
+        check("Who knows what: Pat (not in Organizers) reads no Organizers row, by space, by skill or by person",
+              st == 200 and rows == [] and rows2 == [] and rows3 == [], f"{rows} {rows2} {rows3}")
+        st, rows = ask(vic, "skill=eq.wkw-org-secret-skill")
+        check("Who knows what: nor does Vic (Volunteers and #festival)", st == 200 and rows == [], str(rows))
+        st, rows = ask(olive, f"skill=eq.wkw-org-secret-skill&space_id=eq.{SID['organizers']}")
+        check("Who knows what: Olive (in Organizers) finds Orla there (positive control)", st == 200 and people(rows) == [R], str(rows))
+        st, rows = ask(olive, f"skill=eq.van%20licence&space_id=eq.{SID['festival']}")
+        check("Who knows what: by channel: in #festival, Olive finds herself and Vic with a van licence, not Orla (not in #festival)",
+              st == 200 and people(rows) == sorted([O, V]), str(rows))
+        st, rows = ask(olive, f"skill=eq.van%20licence&space_id=eq.{SID['volunteers']}")
+        check("Who knows what: in Volunteers, the same two (Pat's face painting is not there)", st == 200 and people(rows) == sorted([O, V]), str(rows))
+        st, rows = ask(olive, f"skill=eq.face%20painting&space_id=eq.{SID['volunteers']}")
+        st2, rows2 = ask(olive, "skill=eq.face%20painting")
+        check("Who knows what: Pat is not in Volunteers, so face painting is found only through a space she is in",
+              rows == [] and people(rows2) == [P] and {KEY_OF.get(r["space_id"]) for r in rows2} <= set(SPACES["u-pub"]), f"{rows} {rows2}")
+        # A channel-scoped token: only its channel.
+        scoped = mint("u-org", scope="festival")
+        st, rows = ask(scoped, "skill=eq.van%20licence")
+        st2, rows2 = ask(scoped, "skill=eq.wkw-org-secret-skill")
+        check("Who knows what: a #festival-scoped token for Olive sees only #festival rows (Olive and Vic), nothing of Organizers",
+              st == 200 and people(rows) == sorted([O, V]) and {r["space_id"] for r in rows} == {SID["festival"]} and rows2 == [], f"{rows} {rows2}")
+        # Nobody writes through the view; the assistant reads only. Postgres refuses before anything happens:
+        # no write grant (42501) or "cannot change a view over several tables" (55000), as for weft.records.
+        no = lambda r: r[0] in (401, 403, 500) and isinstance(r[1], dict) and r[1].get("code") in ("42501", "55000")
+        w = [call("POST", "/skill_holders", olive, {"skill": "forged", "user_id": P, "space_id": SID["festival"]}),
+             call("PATCH", f"/skill_holders?user_id=eq.{V}", olive, {"skill": "forged"}),
+             call("DELETE", f"/skill_holders?user_id=eq.{V}", olive)]
+        check("Who knows what: nobody adds, changes or removes a skill through the view (Olive, an editor)", all(no(r) for r in w)
+              and oq(f"select array_to_string(skills, ',') from weft.profiles where user_id = '{V}'") == "van licence", str([(r[0], r[1].get("code") if isinstance(r[1], dict) else r[1]) for r in w]))
+        helper = mint("u-pub", assistant=True)
+        st, rows = ask(helper, "skill=eq.van%20licence")
+        d = call("DELETE", f"/skill_holders?user_id=eq.{V}", helper)
+        check("Who knows what: the assistant (for Pat) reads the same answer (positive control) and cannot delete",
+              st == 200 and people(rows) == sorted([O, V]) and no(d) and oq(f"select count(*) from weft.profiles where user_id = '{V}'") == "1", f"{st} {rows} {d}")
+        # Authorship: a skill shows only because its owner wrote it.
+        call("PATCH", f"/profiles?user_id=eq.{O}", pat, {"skills": ["forged by pat"]})
+        st, rows = ask(olive, "skill=eq.forged%20by%20pat")
+        check("Who knows what: Pat cannot put a skill on Olive's profile, so none shows", st == 200 and rows == [], str(rows))
+        # It follows the spaces and the accounts.
+        oq(f"delete from weft.members where space_id = '{SID['organizers']}' and user_id = '{R}'")
+        st, rows = ask(olive, "skill=eq.wkw-org-secret-skill")
+        check("Who knows what: once Orla leaves Organizers, Olive no longer finds her", st == 200 and rows == [], str(rows))
+        oq(f"update weft.users set disabled = true where id = '{V}'")
+        try:
+            st, rows = ask(pat, "skill=eq.van%20licence")
+            st2, rows2 = ask(vic, "skill=eq.van%20licence")
+            check("Who knows what: a disabled account is not listed, and reads nothing itself", people(rows) == [O] and rows2 == [], f"{rows} {rows2}")
+        finally:
+            oq(f"update weft.users set disabled = false where id = '{V}'")
+        st, _ = call("DELETE", f"/profiles?user_id=eq.{O}", olive)
+        st2, rows = ask(pat, "skill=eq.van%20licence")
+        check("Who knows what: Olive clears her profile and her skills are gone from every answer (positive control for the delete)",
+              st in (200, 204) and people(rows) == [V], f"{st} {rows}")
+    finally:
+        oq(f"delete from weft.spaces where id = '{RS}'")
+        oq(f"delete from weft.users where id = '{R}'")
+        oq(f"delete from weft.profiles where user_id in ('{O}', '{P}', '{V}', '{A}')")
+
+
 def test_signin(email):
     req = urllib.request.Request(TEST_SIGNIN, method="POST", data=json.dumps({"email": email}).encode(),
                                  headers={"Content-Type": "application/json"})
@@ -5992,6 +6077,7 @@ if __name__ == "__main__":
     away_warnings()
     retros()
     profiles()
+    who_knows_what()
     people()
     trees()
     prefs_and_files()
