@@ -1519,6 +1519,98 @@ def expenses():
     call("DELETE", f"/items?id=eq.{fest}", olive)
 
 
+def settle_up():
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, V, O, A = uid("user", "u-pub"), uid("user", "u-vol"), uid("user", "u-org"), uid("user", "u-alex")
+    oq = lambda sql: owner_sql(sql)
+    name = lambda u: oq(f"select display_name from weft.users where id = '{u}'")
+    pay = lambda tok, lst, a, b, c: call("POST", "/rpc/record_payment", tok, {"p_list": lst, "p_from": a, "p_to": b, "p_amount_cents": c})
+    count = lambda lst: oq(f"select count(*) from weft.expenses where list_id = '{lst}'")
+    net = lambda lst, u: oq(f"select coalesce((select net_cents from weft.expense_balances where list_id = '{lst}' and user_id = '{u}'), 0)")
+    st, rows = call("POST", "/items", olive, {"space_id": SID["organizers"], "kind": "expenselist", "title": "Org settle"})
+    org = rows[0]["id"] if st == 201 else None
+    st2, rows = call("POST", "/items", olive, {"space_id": SID["festival"], "kind": "expenselist", "title": "Festival settle"})
+    fest = rows[0]["id"] if st2 == 201 else None
+    st3, _ = call("POST", "/rpc/save_expense", olive, {"p_list": fest, "p_title": "Stage", "p_amount_cents": 9000, "p_paid_by": O, "p_people": [O, V, P]})
+    st4, _ = call("POST", "/rpc/save_expense", olive, {"p_list": org, "p_title": "ORG-SETTLE-SECRET", "p_amount_cents": 3000, "p_paid_by": O, "p_people": [O, A]})
+    check("Settle up: Olive sets up lists in Organizers and #festival (Pat and Vic owe Olive 30.00 each; Alex owes Olive 15.00)",
+          org and fest and st3 == 200 and st4 == 200 and net(fest, P) == "-3000" and net(fest, V) == "-3000" and net(org, A) == "-1500", f"{st} {st2} {st3} {st4}")
+    # Who may not record.
+    st, _ = pay(pat, fest, P, O, 3000)
+    st2, _ = pay(vic, fest, V, O, 3000)
+    check("Settle up: Pat and Vic (viewers) cannot record a payment in #festival", refused(st) and refused(st2) and count(fest) == "1", f"{st} {st2}")
+    st, b1 = pay(pat, org, A, O, 1500)
+    st2, b2 = pay(pat, uid("item", "no-such-list"), A, O, 1500)
+    check("Settle up: Pat cannot record in Organizers, and gets the same answer as for a list that does not exist",
+          refused(st) and refused(st2) and b1.get("message") == b2.get("message") and "SETTLE" not in json.dumps(b1) and count(org) == "1", f"{st} {b1} {st2} {b2}")
+    st, _ = pay(olive, uid("item", "porches"), O, A, 100)
+    check("Settle up: a payment cannot hang off an item that is not an expense list", refused(st), str(st))
+    scoped = mint("u-org", scope="festival")
+    st, _ = pay(scoped, org, A, O, 1500)
+    check("Settle up: a #festival-scoped token cannot record in Organizers", refused(st) and count(org) == "1", str(st))
+    helper = mint("u-org", assistant=True)
+    st, _ = pay(helper, fest, P, O, 3000)
+    st2, _ = pay(helper, org, A, O, 1500)
+    check("Settle up: the assistant cannot record payments", refused(st) and refused(st2) and count(fest) == "1" and count(org) == "1", f"{st} {st2}")
+    # Olive records Pat's payment (positive control): an ordinary expense, all of it to Olive.
+    st, pid = pay(olive, fest, P, O, 3000)
+    row = oq(f"select title || '|' || paid_by || '|' || split || '|' || amount_cents || '|' || created_by || '|' || (spent_on = current_date) from weft.expenses where id = '{pid}'") if st == 200 else ""
+    shares = oq(f"select string_agg(user_id || ':' || share_cents, ',') from weft.expense_shares where expense_id = '{pid}'") if st == 200 else ""
+    check("Settle up: Olive (editor) records that Pat paid her back (positive control): paid by Pat, all of it to Olive, dated today, added by Olive",
+          st == 200 and row == f"{name(P)} paid {name(O)} back|{P}|amounts|3000|{O}|true" and shares == f"{O}:3000", f"{st} {pid} {row} {shares}")
+    check("Settle up: Pat is now even and Olive is owed only Vic's 30.00", net(fest, P) == "0" and net(fest, O) == "3000", f"{net(fest, P)} {net(fest, O)}")
+    st, rows = call("GET", f"/expenses?list_id=eq.{fest}&select=id", pat)
+    check("Settle up: Pat reads the payment as an expense (positive control)", st == 200 and len(rows) == 2, str(rows))
+    # Paying twice, too much, or to someone who is not owed is refused with the database's reason.
+    st, body = pay(olive, fest, P, O, 3000)
+    check("Settle up: pressing again records nothing (Pat no longer owes)", st == 400 and "owes nothing now" in json.dumps(body) and count(fest) == "2", f"{st} {body}")
+    st, body = pay(olive, fest, V, O, 3001)
+    check("Settle up: more than is owed is refused, saying what is owed", st == 400 and "owes only 30.00 now" in json.dumps(body) and count(fest) == "2", f"{st} {body}")
+    st, body = pay(olive, fest, V, P, 1000)
+    check("Settle up: paying someone who is not owed is refused", st == 400 and "is owed nothing now" in json.dumps(body) and count(fest) == "2", f"{st} {body}")
+    bad = [pay(olive, fest, V, V, 1000)[0], pay(olive, fest, V, O, 0)[0], pay(olive, fest, V, O, -500)[0]]
+    check("Settle up: a payment to oneself, of zero or below zero is refused", bad == [400, 400, 400] and count(fest) == "2", str(bad))
+    st, _ = call("POST", "/rpc/record_payment", olive, {"p_list": fest, "p_from": V, "p_to": O, "p_amount_cents": 100, "p_created_by": A})
+    check("Settle up: who added the payment cannot be forged (there is no such argument)", st >= 400 and count(fest) == "2", str(st))
+    # Two presses at once (two browsers): exactly one payment is recorded.
+    import threading
+    outs = []
+    ts = [threading.Thread(target=lambda: outs.append(pay(olive, fest, V, O, 3000)[0])) for _ in range(2)]
+    [t.start() for t in ts]; [t.join() for t in ts]
+    check("Settle up: two presses at once record one payment, not two", sorted(outs) == [200, 400] and count(fest) == "3" and net(fest, V) == "0" and net(fest, O) == "0", f"{outs} {count(fest)}")
+    st, rows = call("GET", f"/items?id=eq.{fest}&select=body_text", pat)
+    body = (rows[0]["body_text"] if rows else "") or ""
+    check("Settle up: the summary (what search and the assistant read) says everyone is even and names the payments",
+          "Everyone is even." in body and f"{name(P)} paid {name(O)} back, 30.00" in body and "To settle up" not in body, body)
+    # In Organizers, Olive records Alex's payment (positive control); Pat sees no trace of it.
+    st, oid = pay(olive, org, A, O, 1500)
+    check("Settle up: Olive records a payment in Organizers (positive control)", st == 200 and net(org, A) == "0", f"{st} {oid}")
+    st, rows = call("GET", f"/expenses?id=eq.{oid}&select=id", pat)
+    st2, rows2 = call("GET", f"/audit?space_id=eq.{SID['organizers']}&row_id=eq.{oid}&select=op", pat)
+    st3, rows3 = call("POST", "/rpc/search", pat, {"p_q": "ORG-SETTLE-SECRET"})
+    check("Settle up: Pat sees nothing of the Organizers payment (expense, audit or search)", rows == [] and rows2 == [] and rows3 == [], f"{rows} {rows2} {rows3}")
+    # Undo is deleting the expense; the suggestion comes back.
+    st, _ = call("DELETE", f"/expenses?id=eq.{pid}", pat)
+    check("Settle up: Pat cannot delete the payment", count(fest) == "3", str(st))
+    st, _ = call("DELETE", f"/expenses?id=eq.{pid}", olive)
+    st2, rows2 = call("GET", f"/audit?row_id=eq.{pid}&select=op", vic)
+    check("Settle up: Olive deletes it (positive control): Pat owes again, and #festival members see it in the audit log",
+          st in (200, 204) and net(fest, P) == "-3000" and len(rows2 or []) >= 1, f"{st} {rows2}")
+    # Moves follow the list.
+    call("PATCH", f"/items?id=eq.{fest}", olive, {"space_id": SID["organizers"]})
+    st, _ = pay(pat, fest, P, O, 3000)
+    st2, _ = pay(scoped, fest, P, O, 3000)
+    check("Settle up: a list moved to Organizers: Pat and the #festival token can no longer record there", refused(st) and refused(st2) and count(fest) == "2", f"{st} {st2}")
+    st, body = pay(olive, fest, P, O, 3000)
+    check("Settle up: Olive still may, but Pat is not in Organizers, so she gets the member reason (the screen hides the button then)",
+          st == 400 and "member" in json.dumps(body) and count(fest) == "2", f"{st} {body}")
+    call("POST", "/rpc/save_expense", olive, {"p_list": fest, "p_title": "Badges", "p_amount_cents": 2000, "p_paid_by": O, "p_people": [O, A]})
+    st, _ = pay(olive, fest, A, O, 1000)
+    check("Settle up: and records Alex's payment there (positive control)", st == 200 and net(fest, A) == "0" and count(fest) == "4", str(st))
+    call("DELETE", f"/items?id=eq.{fest}", olive)
+    call("DELETE", f"/items?id=eq.{org}", olive)
+
+
 def inventory():
     pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
     P, V, O, A = uid("user", "u-pub"), uid("user", "u-vol"), uid("user", "u-org"), uid("user", "u-alex")
@@ -6284,6 +6376,7 @@ if __name__ == "__main__":
     idea_next_steps()
     checklists()
     expenses()
+    settle_up()
     inventory()
     due_back_dates()
     goals()

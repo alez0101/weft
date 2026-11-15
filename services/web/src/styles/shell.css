@@ -551,10 +551,12 @@
 .exp-bal-name { font-size: var(--text-sm); font-weight: 600; color: var(--color-ink); overflow-wrap: anywhere; }
 .exp-bal-net { font-size: var(--text-sm); color: var(--color-ink); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
 .exp-bal-sub { grid-column: 1 / -1; font-size: var(--text-xs); color: var(--color-muted); font-variant-numeric: tabular-nums; }
-.exp-settle li { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-3xs) var(--space-2xs); padding: var(--space-2xs) var(--space-xs);
+.exp-settle li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: var(--space-3xs) var(--space-2xs); padding: var(--space-2xs) var(--space-xs);
   border-radius: var(--radius-input); background: var(--color-paper); font-size: var(--text-sm); color: var(--color-ink-2); }
 .exp-settle strong { font-weight: 600; color: var(--color-ink); }
-.exp-settle .exp-sum { margin-left: auto; }
+.exp-settle .exp-sum { text-align: right; }
+.exp-settle-who { overflow-wrap: anywhere; }
+.exp-settle-pay { grid-column: 1 / -1; justify-self: end; }
 .exp-balances .docs-hint { margin: 0; padding: 0; }
 /* Goals: a goal set (uses the Links layout, plus progress bars for the set, each goal and each key result,
    and a small form on each key result to update its current value). */
