@@ -15,6 +15,7 @@ Open **Tasks** on Home. Choose the space at the top, press **New task list**, an
 - Tick the box to mark a task done; untick it to reopen it. Done tasks move to the bottom; **Show done** hides them and **Delete done tasks** clears them.
 - Click a task's title to change it, or change who it is for and its due date in place. Tasks that are past their due date are marked in red.
 - **Only mine** shows just the tasks assigned to you.
+- Press **Comment** under a task to ask a question or give an update about it; see the **Comments on tasks** help page.
 - A task can only be assigned to someone in the list's space. If you move a list to another space, tasks assigned to people who are not in the new space become unassigned.
 
 ### Due dates elsewhere in Weft

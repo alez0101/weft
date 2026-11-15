@@ -7,7 +7,7 @@ allowed to see, with links to where each answer came from.
 **What's in it**
 
 - **Write and plan:** documents, a wiki, whiteboards, tables, meeting notes, decisions, a glossary
-- **Organise work:** task lists with repeating tasks and boards, checklists, goals with key results, retrospectives, a timeline
+- **Organise work:** task lists with repeating tasks, comments and boards, checklists, goals with key results, retrospectives, a timeline
 - **Coordinate people:** a calendar with repeating events and RSVPs, bookings of shared things, shift sign-ups, time off (with "away then" notes where people are picked),
   contacts, profiles
 - **Ask and decide together:** polls, forms, Q and A, ideas boards, announcements, kudos

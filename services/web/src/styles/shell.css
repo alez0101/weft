@@ -1001,3 +1001,34 @@ select.idea-status:focus-visible { outline: 2px solid var(--color-focus); outlin
 .link-foot > .away-note { align-self: center; }
 .away-live { grid-column: 1 / -1; margin: 0; }
 .away-live:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; }
+/* Comments on tasks (053): a small toggle under a task (or on its card) that opens the thread in place. */
+.task > .tc { grid-column: 2 / -1; }
+.tc { display: grid; gap: var(--space-2xs); min-width: 0; }
+.tc-toggle { justify-self: start; display: inline-flex; align-items: center; gap: var(--space-2xs); padding: var(--space-3xs) var(--space-xs);
+  border: 0; border-radius: var(--radius-pill); background: transparent; color: var(--color-ink-2); font: inherit; font-size: var(--text-xs); cursor: pointer;
+  transition: background-color var(--dur-micro) var(--ease-out); }
+.tc-toggle:hover { background: var(--color-paper-3); color: var(--color-ink); }
+.tc-toggle:focus-visible, .tc-delete:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.tc-toggle[aria-expanded="true"] { background: var(--color-accent-soft); color: var(--color-ink); }
+.tc-glyph { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linejoin: round; }
+.tc-thread { display: grid; gap: var(--space-xs); padding: var(--space-xs) var(--space-sm); border-left: 2px solid var(--color-accent-soft);
+  animation: tc-in var(--dur-short) var(--ease-out); }
+.tc-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-xs); }
+.tc-item { display: grid; gap: var(--space-3xs); }
+.tc-head { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-xs); font-size: var(--text-xs); }
+.tc-who { font-weight: 600; color: var(--color-ink); }
+.tc-when { color: var(--color-muted); }
+.tc-delete { margin-left: auto; padding: 0 var(--space-2xs); border: 0; border-radius: var(--radius-input); background: transparent; color: var(--color-muted);
+  font: inherit; font-size: var(--text-xs); cursor: pointer; }
+.tc-delete:hover { color: var(--color-error); }
+.tc-body { margin: 0; font-size: var(--text-sm); color: var(--color-ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.tc-add { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-xs); align-items: end; }
+.tc-add textarea { min-height: var(--ctl-h); padding: var(--space-2xs) var(--space-xs); resize: vertical; border: 1px solid var(--color-muted);
+  border-radius: var(--radius-input); background: var(--color-paper); color: var(--color-ink); font: inherit; font-size: var(--text-sm); }
+.tc-add textarea:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+.tc-hint { margin: 0; font-size: var(--text-xs); color: var(--color-muted); }
+.tc--compact .tc-thread { padding: var(--space-2xs) 0 0 var(--space-xs); }
+.tc--compact .tc-add { grid-template-columns: minmax(0, 1fr); }
+.tc--compact .tc-add .btn { justify-self: start; }
+@keyframes tc-in { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .tc-thread { animation: none; } .tc-toggle { transition: none; } }

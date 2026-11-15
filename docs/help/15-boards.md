@@ -20,6 +20,7 @@ Open **Boards** on Home and pick a task list on the left, or press **New task li
 - Type in **Add a card** at the bottom of a column and press **Add**.
 - Drag a card to another column, or up and down within one. With the keyboard, focus a card (Tab) and use the arrow keys: left and right move it between columns, up and down change its place.
 - A card shows who it is assigned to and when it is due; overdue cards are marked in red. Change those, the title, or delete a task in **Tasks**.
+- A card shows how many comments its task has; press it to read the thread and add to it right on the card (see the **Comments on tasks** help page).
 
 ### Who can see what
 

@@ -23,6 +23,7 @@ const WIDGETS = {
   shifts: 'Your shifts',
   away: 'Out this week',
   tasks: 'Tasks due soon',
+  comments: 'New comments on your tasks',
   polls: 'Polls to vote in',
   forms: 'Forms to fill in',
   links: 'New links',
@@ -46,7 +47,7 @@ const WIDGETS = {
   files: 'Recent files',
   ask: 'Ask Weft',
 };
-const DEFAULT = ['announcements', 'upcoming', 'yeses', 'bookings', 'shifts', 'away', 'tasks', 'polls', 'forms', 'unread', 'recent', 'ask'];
+const DEFAULT = ['announcements', 'upcoming', 'yeses', 'bookings', 'shifts', 'away', 'tasks', 'comments', 'polls', 'forms', 'unread', 'recent', 'ask'];
 const KIND = { document: 'Document', wiki: 'Wiki page', whiteboard: 'Whiteboard', table: 'Table', tasklist: 'Task list', poll: 'Poll', form: 'Form', linklist: 'Link list', addressbook: 'Address book', decisionlog: 'Decision log', qa: 'Q and A board', checklist: 'Checklist', expenselist: 'Expense list', inventory: 'Inventory', goalset: 'Goal set', retro: 'Retro', glossary: 'Glossary', ideaboard: 'Ideas board', meeting: 'Meeting', file: 'File' };
 const where = (s) => (s?.kind === 'channel' ? `#${s.name}` : s?.kind === 'personal' ? 'Personal' : s?.name || '');
 const when = (iso) => new Date(iso).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -112,6 +113,16 @@ function TasksDue({ data, me, onOpenItem, awayOn }) {
     <li key={t.id}><button type="button" className="widget-row" onClick={() => onOpenItem(t.list_id)}>
       <span className="widget-main">{t.title}</span>
       <span className={`widget-sub${t.due_on < today() ? ' is-late' : ''}`}>{dueLabel(t.due_on)}{t.repeats ? `, ${REPEATS[t.repeats].toLowerCase()}` : ''}, {t.assignee_id === me.id ? 'you' : t.assignee?.display_name || 'no one'}{awayOn(t.assignee_id, t.due_on) ? <span className="away-note away-note--inline">away then</span> : null}, {t.list?.title} in {where(t.list?.space)}</span>
+    </button></li>))}</ul>;
+}
+// The latest comments by others on tasks assigned to the person (053). A row opens the task's list.
+function NewComments({ data, onOpenItem }) {
+  if (!data.length) return <p className="widget-empty">No comments on your tasks yet.</p>;
+  return <ul className="widget-list">{data.map((c) => (
+    <li key={c.id}><button type="button" className="widget-row" onClick={() => onOpenItem(c.task?.list_id)}>
+      <span className="widget-main">{c.author?.display_name || 'Someone'} on {c.task?.title}</span>
+      <span className="widget-sub">{c.body.length > 90 ? `${c.body.slice(0, 90)}…` : c.body}</span>
+      <span className="widget-sub">{ago(c.created_at)}, {c.task?.list?.title} in {where(c.task?.list?.space)}</span>
     </button></li>))}</ul>;
 }
 // Open polls the person has not voted in yet, newest first. A row opens the poll.
@@ -340,7 +351,7 @@ function Ask({ assistantSpace, onAsked }) {
 export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpenEvent, onOpenNotices, onOpenKudos, onOpenTimeline, onOpenBooking, onOpenShifts, onOpenProfiles, onOpenTimeOff, onOpenJournal, onOpenConvo }) {
   const [order, setOrder] = useState(null);
   const [editing, setEditing] = useState(false);
-  const [data, setData] = useState({ announcements: [], upcoming: [], yeses: [], bookings: [], shifts: [], away: [], tasks: [], polls: [], forms: [], links: [], contacts: [], glossary: [], ideas: [], kudos: [], milestones: [], journal: [], decisions: [], questions: [], checklists: [], balances: [], holding: [], goals: [], retros: [], profile: [], meetings: [], recent: [], files: [] });
+  const [data, setData] = useState({ announcements: [], upcoming: [], yeses: [], bookings: [], shifts: [], away: [], tasks: [], comments: [], polls: [], forms: [], links: [], contacts: [], glossary: [], ideas: [], kudos: [], milestones: [], journal: [], decisions: [], questions: [], checklists: [], balances: [], holding: [], goals: [], retros: [], profile: [], meetings: [], recent: [], files: [] });
   const [error, setError] = useState('');
   const timer = useRef(null);
   const awayOn = useAway(notice, 14);
@@ -361,7 +372,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
     const now = new Date(); const soon = new Date(now.getTime() + 14 * 86400000);
     try {
       const week = new Date(Date.now() + 7 * 86400000); week.setMinutes(week.getMinutes() - week.getTimezoneOffset());
-      const [upcoming, recent, files, due, open, openForms, links, announcements, meetings, yeses, bookings, onShifts, contacts, profile, decisions, questions, checklists, owed, holding, away, goals, retroActions, glossary, openIdeas, kudos, journal, milestones] = await Promise.all([
+      const [upcoming, recent, files, due, open, openForms, links, announcements, meetings, yeses, bookings, onShifts, contacts, profile, decisions, questions, checklists, owed, holding, away, goals, retroActions, glossary, openIdeas, kudos, journal, milestones, comments] = await Promise.all([
         api(`/events?ends_at=gte.${now.toISOString()}&starts_at=lte.${soon.toISOString()}&select=id,title,starts_at,location,space:spaces(name,kind)&order=starts_at&limit=5`),
         api('/items?select=id,title,kind,updated_at,space:spaces(name,kind)&order=updated_at.desc&limit=6'),
         api('/items?kind=eq.file&select=id,title,kind,updated_at,space:spaces(name,kind)&order=updated_at.desc&limit=5'),
@@ -389,6 +400,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
         api('/kudos?select=id,space_id,message,created_at,to:users!kudos_to_user_fkey(display_name),from:users!kudos_created_by_fkey(display_name),space:spaces(name,kind)&order=created_at.desc&limit=5'),
         api('/journal_entries?select=id,day,body&order=day.desc&limit=3'),
         api(`/milestones?day=gte.${dayKey(new Date())}&select=id,space_id,title,day,space:spaces(name,kind)&order=day,created_at&limit=5`),
+        api(`/task_comments?or=(author_id.is.null,author_id.neq.${me.id})&task.assignee_id=eq.${me.id}&select=id,body,created_at,author:users!task_comments_author_id_fkey(display_name),task:tasks!inner(title,list_id,list:items(title,space:spaces(name,kind)))&order=created_at.desc&limit=5`),
       ]);
       const lists = owed.length ? await api(`/items?id=in.(${owed.map((b) => b.list_id).join(',')})&select=id,title,updated_at,space:spaces(name,kind)&order=updated_at.desc`) : [];
       const balances = lists.slice(0, 5).map((l) => ({ ...owed.find((b) => b.list_id === l.id), list: l }));
@@ -399,13 +411,13 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
       const ideas = [...openIdeas].sort((a, b) => b.votes.length - a.votes.length || b.created_at.localeCompare(a.created_at)).slice(0, 5);
       const retros = retroActions.filter((n) => !n.task?.done).slice(0, 5);
       const forms = openForms.filter((f) => !isClosed(f) && !f.mine?.length).slice(0, 5);
-      setData({ announcements, upcoming, yeses, bookings, shifts, away, tasks, polls, forms, links, contacts, glossary, ideas, kudos, milestones, journal, decisions, questions, checklists, balances, holding, goals, retros, profile, meetings, recent, files }); setError('');
+      setData({ announcements, upcoming, yeses, bookings, shifts, away, tasks, comments, polls, forms, links, contacts, glossary, ideas, kudos, milestones, journal, decisions, questions, checklists, balances, holding, goals, retros, profile, meetings, recent, files }); setError('');
     } catch (e) { setError(`Widgets could not load: ${e.message}`); }
   }, [me.id]);
   useEffect(() => { load(); }, [load]);
   // Live: refresh shortly after anything they show changes (several notices in a row refresh once).
   useEffect(() => {
-    if (!notice || !['events', 'items', 'members', 'tasks', 'polls', 'forms', 'links', 'contacts', 'glossary', 'ideas', 'kudos', 'milestones', 'journal_entries', 'decisions', 'qa', 'checklists', 'expenses', 'inventory', 'goals', 'retros', 'announcements', 'meetings', 'rsvps', 'bookings', 'resources', 'shifts', 'shift_signups', 'profiles', 'time_off'].includes(notice.t)) return;
+    if (!notice || !['events', 'items', 'members', 'tasks', 'task_comments', 'polls', 'forms', 'links', 'contacts', 'glossary', 'ideas', 'kudos', 'milestones', 'journal_entries', 'decisions', 'qa', 'checklists', 'expenses', 'inventory', 'goals', 'retros', 'announcements', 'meetings', 'rsvps', 'bookings', 'resources', 'shifts', 'shift_signups', 'profiles', 'time_off'].includes(notice.t)) return;
     clearTimeout(timer.current); timer.current = setTimeout(load, 400);
   }, [notice, load]);
 
@@ -418,6 +430,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
     : k === 'shifts' ? <MyShifts data={data.shifts} onOpenShifts={onOpenShifts} />
     : k === 'away' ? <OutThisWeek data={data.away} me={me} onOpenTimeOff={onOpenTimeOff} />
     : k === 'tasks' ? <TasksDue data={data.tasks} me={me} onOpenItem={onOpenItem} awayOn={awayOn} />
+    : k === 'comments' ? <NewComments data={data.comments} onOpenItem={onOpenItem} />
     : k === 'polls' ? <PollsToVote data={data.polls} onOpenItem={onOpenItem} />
     : k === 'forms' ? <FormsToFill data={data.forms} onOpenItem={onOpenItem} />
     : k === 'links' ? <NewLinks data={data.links} onOpenItem={onOpenItem} />

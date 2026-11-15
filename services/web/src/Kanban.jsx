@@ -3,9 +3,11 @@
 // cards (or move them with the arrow keys), add cards and change the columns; viewers read, and the person a
 // card is assigned to can still mark it done. Row-level security decides; when it says no, the reason is
 // shown and the board is reloaded. Live: any change to this list's tasks or columns refetches it.
+// Comments on tasks (053): a card shows how many comments its task has and opens the thread in place.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { dueLabel, today, REPEATS } from './TaskList.jsx';
+import { TaskComments, ownsSpace, useTaskComments } from './TaskComments.jsx';
 
 const DONE = 'done';
 // Where a card sits: Done if it is done, else its column if that still exists, else the first column.
@@ -23,6 +25,8 @@ export default function Kanban({ item, me, members, editable, notice }) {
   const [newCol, setNewCol] = useState('');
   const [drafts, setDrafts] = useState({});     // column id -> new card title
   const refocus = useRef(null);
+  const { byTask, reload: reloadComments } = useTaskComments(item.id, notice);
+  const owner = ownsSpace(members, item.space_id, me);
 
   const people = members.filter((m) => m.space_id === item.space_id && m.user).map((m) => m.user);
   const nameOf = (id) => (id === me.id ? 'You' : people.find((p) => p.id === id)?.display_name ?? (id ? 'Someone not in this space' : ''));
@@ -138,6 +142,7 @@ export default function Kanban({ item, me, members, editable, notice }) {
             {t.repeats && <span>{REPEATS[t.repeats]}</span>}
           </span>
         )}
+        <TaskComments task={t} comments={byTask[t.id]} me={me} nameOf={nameOf} canPost={editable || mine} isOwner={owner} onChanged={() => reloadComments().catch(() => {})} compact />
         {!editable && mine && <button className="btn btn--sm kanban-tick" type="button" onClick={() => setDone(t, !t.done)}>{t.done ? 'Reopen' : 'Mark done'}<span className="visually-hidden"> {t.title}</span></button>}
       </li>
     );
