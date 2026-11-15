@@ -449,14 +449,20 @@ function buildServer(ctx) {
     from: z.string().optional().describe('ISO 8601 start (default now)'),
     to: z.string().optional().describe('ISO 8601 end (default 30 days after from)'),
     channel: chan.optional(),
-  }, async ({ from, to, channel }) => {
+    project: proj.optional(),
+  }, async ({ from, to, channel, project }) => {
     const f = from ? new Date(from) : new Date();
     const t = to ? new Date(to) : new Date(f.getTime() + 30 * 86400e3);
     if (Number.isNaN(f.getTime()) || Number.isNaN(t.getTime())) throw new Refused('from and to must be ISO 8601 times.');
-    let q = `/events?select=id,title,starts_at,ends_at,location,space:spaces(name)&starts_at=lt.${enc(t.toISOString())}&ends_at=gte.${enc(f.toISOString())}&order=starts_at&limit=200`;
-    if (channel) q += `&space_id=eq.${(await spaceOf(ctx, channel)).id}`;
+    let q = `/events?select=id,title,starts_at,ends_at,location,space:spaces(name),project:projects(name)&starts_at=lt.${enc(t.toISOString())}&ends_at=gte.${enc(f.toISOString())}&order=starts_at&limit=200`;
+    if (project && !channel) throw new Refused('Say which channel the project is in.');
+    if (channel) {
+      const s = await spaceOf(ctx, channel);
+      q += `&space_id=eq.${s.id}`;
+      if (project) q += `&project_id=eq.${(await projectOf(ctx, s, project)).id}`;
+    }
     const rows = await rest(ctx, q);
-    return text(rows.map((e) => ({ id: e.id, title: e.title, starts: fmtTime(e.starts_at), ends: fmtTime(e.ends_at), ...(e.location ? { location: e.location } : {}), channel: e.space?.name, link: linkTo(base, 'event', e.id) })));
+    return text(rows.map((e) => ({ id: e.id, title: e.title, starts: fmtTime(e.starts_at), ends: fmtTime(e.ends_at), ...(e.location ? { location: e.location } : {}), channel: e.space?.name, ...(e.project ? { project: e.project.name } : {}), link: linkTo(base, 'event', e.id) })));
   });
 
   tool('list_tasks', {
@@ -547,20 +553,22 @@ function buildServer(ctx) {
 
   tool('create_event', {
     title: 'Add a calendar event', annotations: WRITE,
-    description: 'Add an event to a channel\'s calendar. Times are ISO 8601 with a time zone offset (e.g. 2026-12-01T18:00:00-08:00).',
+    description: 'Add an event to your personal calendar (channel "personal"), optionally in one of its projects. Connected apps add events only in Personal; the person moves them into a channel. Times are ISO 8601 with a time zone offset (e.g. 2026-12-01T18:00:00-08:00).',
   }, {
     channel: chan,
+    project: proj.optional(),
     title: z.string().min(1).max(200),
     starts_at: z.string(),
     ends_at: z.string().optional().describe('Default: one hour after the start'),
     location: z.string().max(200).optional(),
-  }, async ({ channel, title, starts_at, ends_at, location }) => {
+  }, async ({ channel, project, title, starts_at, ends_at, location }) => {
     const s = await spaceOf(ctx, channel);
+    const p = project ? await projectOf(ctx, s, project) : null;
     const st = new Date(starts_at); const en = ends_at ? new Date(ends_at) : new Date(st.getTime() + 3600e3);
     if (Number.isNaN(st.getTime()) || Number.isNaN(en.getTime())) throw new Refused('starts_at and ends_at must be ISO 8601 times.');
     if (en < st) throw new Refused('The event ends before it starts.');
-    const [e] = await rest(ctx, '/events?select=id,title,starts_at,ends_at', { method: 'POST', body: { space_id: s.id, title, starts_at: st.toISOString(), ends_at: en.toISOString(), location: location || null }, prefer: 'return=representation' });
-    return text({ created: true, id: e.id, title: e.title, starts: fmtTime(e.starts_at), ends: fmtTime(e.ends_at), channel: s.name, link: linkTo(base, 'event', e.id) });
+    const [e] = await rest(ctx, '/events?select=id,title,starts_at,ends_at', { method: 'POST', body: { space_id: s.id, title, starts_at: st.toISOString(), ends_at: en.toISOString(), location: location || null, ...(p ? { project_id: p.id } : {}) }, prefer: 'return=representation' });
+    return text({ created: true, id: e.id, title: e.title, starts: fmtTime(e.starts_at), ends: fmtTime(e.ends_at), channel: s.name, ...(p ? { project: p.name } : {}), link: linkTo(base, 'event', e.id) });
   });
 
   tool('update_event', {

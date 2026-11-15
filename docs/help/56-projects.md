@@ -12,6 +12,14 @@ A channel can hold **projects**. A Scouts channel might have a "Scouting for Foo
 - To make something in a project, choose the project in the box next to **New** (for example "#scouts › Scouting for Food").
 - To put something you already have into a project, open it and choose the project under **Move to…**. You stay its author when you move it.
 
+### The calendar
+
+- When you add an event, choose the project in the **Space** box (for example "#scouts › Scouting for Food").
+- To put an existing event in a project, open it and choose under **Project**. A repeating event moves into the project all together, and every repeat made later stays in it.
+- **Project** in the calendar's side bar shows just one project: its events and the tasks in its task lists. Milestones, shifts, bookings and time off belong to the whole channel, so they step aside while a project is chosen.
+- **Download as a file** can download just one project's events.
+- When you ask **@Weft** in a project's chat to add something to the calendar, the event goes into that project.
+
 ### Who can do what
 
 - Everyone in the channel sees all its projects. Projects have no members of their own: if something should be private, make a separate channel for it.

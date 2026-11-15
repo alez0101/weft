@@ -520,6 +520,16 @@ check('Projects: ...and the general answer stays in the general chat', pa.status
 pa = await askP(olive, await mine(olive), null, 'what is the gate code?');
 const sys3 = pa.calls[0]?.system; const sys3Text = Array.isArray(sys3) ? sys3.map((x) => x.text || '').join('\n') : String(sys3 || '');
 check('Projects: in her own Weft conversation, only Olive\'s style applies (no channel rules)', sys3Text.includes('OLIVE-STYLE-SECRET') && !sys3Text.includes('CHANNEL-RULE') && !sys3Text.includes('VIC-STYLE'), sys3Text.slice(-300));
+// A new event proposed in a project chat goes into that project (071).
+pa = await askP(olive, spaces.festival, proj.id, '@Weft ADD-IT: schedule a meetup Monday at 10');
+const ppro = pa.reply?.meta?.proposals?.[0];
+check('Project calendars: an event proposed in a project chat names the project', ppro?.kind === 'create' && /Food drive/.test(ppro.summary), JSON.stringify(pa.reply?.meta));
+await assist(olive.token, `/assistant/proposals/${ppro?.id}/confirm`, { method: 'POST', body: {} });
+const pmade = (await api(olive.token, '/events?title=eq.Weft%20test%20meetup&select=id,project_id')).rows;
+check('Project calendars: confirmed, the event is in the project', pmade.length === 1 && pmade[0].project_id === proj.id, JSON.stringify(pmade));
+pa = await askP(olive, spaces.festival, proj.id, '@Weft when is the meetup?');
+check('Project calendars: the model is told an event\'s project', /event "Weft test meetup"[^\n]*\(project Food drive\)/.test(pa.calls[0]?.user || ''), (pa.calls[0]?.user || '').slice(0, 400));
+
 // An AI app's token (070) may only search here.
 const agentTok = await new SignJWT({ role: 'weft_user', agent: true }).setProtectedHeader({ alg: 'HS256', typ: 'JWT' }).setSubject(pat.user.id).setIssuedAt().setExpirationTime('120s').sign(new TextEncoder().encode(process.env.JWT_SECRET));
 const [am] = (await api(pat.token, '/messages', { method: 'POST', body: { space_id: spaces.festival, body: '@Weft hello' } })).rows;

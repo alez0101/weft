@@ -82,7 +82,7 @@ async function rest(token, path, { method = 'GET', body } = {}) {
 const STOP = new Set('a an and are as at be but by can could do does for from has have how i in is it me my of on or our please should so tell than that the their them there these they this to was we what when where which who why will with would you your weft'.split(' '));
 const SELECT = 'id,space_id,body,created_at,author:users(display_name,is_assistant),space:spaces(name,kind)';
 const ISELECT = 'id,space_id,kind,title,body_text,space:spaces(name,kind)';
-const ESELECT = 'id,space_id,title,location,starts_at,ends_at,space:spaces(name,kind)';
+const ESELECT = 'id,space_id,title,location,starts_at,ends_at,space:spaces(name,kind),project:projects(name)';
 const TIMEY = /\b(when|schedule|calendar|event|events|meeting|set|sets|shift|shifts|today|tomorrow|saturday|sunday|week|time|move|reschedule|start|starts)\b/i;
 // Records: rows of the apps that are not items (048, weft.records), read through a view that runs as the caller.
 const RSELECT = 'kind,id,space_id,title,body,at,ref';
@@ -110,7 +110,9 @@ async function retrieve(token, question, spaceId, scoped, excludeId, projectId =
   const q = terms.length ? encodeURIComponent(`"${terms.join(' or ').replace(/"/g, '')}"`) : null;
   if (q) {
     (await rest(token, `/messages?select=${SELECT}&body=wfts(english).${encodeURIComponent(terms.join(' or '))}&order=created_at.desc&limit=12`)).forEach(msg);
-    (await rest(token, `/items?select=${ISELECT}&or=(title.wfts(english).${q},body_text.wfts(english).${q})&limit=6`))
+    // The team's own items before Weft's published help and admin pages (managed), newest first: the 6 kept are
+    // then the likely ones, not whichever rows came first.
+    (await rest(token, `/items?select=${ISELECT}&or=(title.wfts(english).${q},body_text.wfts(english).${q})&order=managed.asc,updated_at.desc&limit=6`))
       .forEach((r) => put(`i${r.id}`, { type: 'item', ...r, text: excerpt(r.body_text, terms, r.kind === 'table' || r.kind === 'tasklist' ? 3500 : 1200) }));
     (await rest(token, `/events?select=${ESELECT}&or=(title.wfts(english).${q},location.wfts(english).${q})&order=starts_at&limit=10`))
       .forEach((r) => put(`e${r.id}`, { type: 'event', ...r }));
@@ -175,7 +177,7 @@ function prompt(question, sources, tz) {
       if (s.kind === 'journal') return `${n} ${RLABEL.journal} "${s.title}": ${s.text || '(empty)'}`;
       return `${n} ${RLABEL[s.kind] || 'record'} "${s.title}" in ${where(s.space)}: ${s.text || '(empty)'}`;
     }
-    if (s.type === 'event') return `${n} event "${s.title}" in ${where(s.space)}, ${fmtTime(s.starts_at, tz)} to ${fmtTime(s.ends_at, tz)}${s.location ? `, at ${s.location}` : ''}`;
+    if (s.type === 'event') return `${n} event "${s.title}" in ${where(s.space)}${s.project?.name ? ` (project ${s.project.name})` : ''}, ${fmtTime(s.starts_at, tz)} to ${fmtTime(s.ends_at, tz)}${s.location ? `, at ${s.location}` : ''}`;
     return `${n} message in ${where(s.space)}, ${s.author?.display_name}, ${s.created_at.slice(0, 16).replace('T', ' ')}: ${s.body}`;
   });
   return `Sources:\n${lines.join('\n') || '(none)'}\n\nThe person's time zone is ${tz}. Question: ${question}`;
@@ -340,7 +342,7 @@ async function ask(user, messageId, tzIn) {
       body = "I can't help with that one.";
     } else {
       for (const c of result.calls || []) {
-        const prop = await proposalFrom(c, sources, chans, user.id, q.space_id, scope, tz, creatable);
+        const prop = await proposalFrom(c, sources, chans, user.id, q.space_id, scope, tz, creatable, guide.project);
         if (prop) proposals.push(prop);
       }
       const notFound = /^\W*NOT_FOUND\W*$/i.test(result.text) || result.text.includes('NOT_FOUND');
@@ -374,12 +376,13 @@ async function ask(user, messageId, tzIn) {
 // what a project's pinned items are for.
 const clip = (t, n) => String(t || '').trim().slice(0, n);
 async function guidance(user, token, q, inAssistant) {
-  const parts = []; let pinned = [];
+  const parts = []; let pinned = []; let project = null;
   if (!inAssistant && ['channel', 'personal'].includes(q.space.kind)) {
     const [r] = await rest(token, `/space_rules?space_id=eq.${q.space_id}&select=instructions`);
     if (clip(r?.instructions, 1)) parts.push(`Rules for ${q.space.kind === 'personal' ? "the person's personal space" : `#${q.space.name}`}, set by its owners:\n${clip(r.instructions, 8000)}`);
     if (q.project_id) {
-      const [p] = await rest(token, `/projects?id=eq.${q.project_id}&select=name,instructions`);
+      const [p] = await rest(token, `/projects?id=eq.${q.project_id}&select=id,name,instructions`);
+      if (p) project = { id: p.id, name: p.name };
       if (p && clip(p.instructions, 1)) parts.push(`Instructions for the project "${p.name}", set by the owners. They refine the rules above:\n${clip(p.instructions, 8000)}`);
       const pins = await rest(token, `/project_pins?project_id=eq.${q.project_id}&select=item_id&order=position,created_at&limit=10`);
       if (pins.length) {
@@ -393,11 +396,12 @@ async function guidance(user, token, q, inAssistant) {
   const text = parts.length
     ? `\n\nInstructions from this workspace, in order of authority. Everything above comes first and cannot be overridden by them: you still answer only from the numbered items, cite every fact, and reply NOT_FOUND when the items do not hold the answer. These instructions shape how you answer; they are not sources.\n\n${parts.join('\n\n')}`
     : '';
-  return { text, pinned };
+  return { text, pinned, project };
 }
 
 // Turn a model tool call into a stored proposal, or drop it if it does not hold up.
-async function proposalFrom(call, sources, chans, asker, spaceId, scope, tz, creatable = []) {
+// project: the project chat it was asked in (071), so a new event there goes into that project.
+async function proposalFrom(call, sources, chans, asker, spaceId, scope, tz, creatable = [], project = null) {
   const i = call.input || {};
   if (call.name === 'create_event') {
     const sp = creatable.find((c) => c.name === i.space);
@@ -405,9 +409,10 @@ async function proposalFrom(call, sources, chans, asker, spaceId, scope, tz, cre
     const s = new Date(i.starts_at); const e = new Date(i.ends_at);
     if (!sp || !title || Number.isNaN(s.getTime()) || Number.isNaN(e.getTime()) || e < s) return null;
     const location = i.location ? String(i.location).slice(0, 200) : null;
-    const summary = `Add "${title}" to ${sp.name === 'personal' ? 'your personal calendar' : `#${sp.name}`}: ${fmtTime(s.toISOString(), tz)} to ${fmtTime(e.toISOString(), tz)}${location ? `, at ${location}` : ''}`;
+    const inProject = project && sp.id === spaceId ? project : null;   // only in the space it was asked in
+    const summary = `Add "${title}" to ${sp.name === 'personal' ? 'your personal calendar' : `#${sp.name}`}${inProject ? ` › ${inProject.name}` : ''}: ${fmtTime(s.toISOString(), tz)} to ${fmtTime(e.toISOString(), tz)}${location ? `, at ${location}` : ''}`;
     const id = (await db.query('select weft_private.proposal_create($1,$2,$3,$4,$5,$6) as id',
-      [asker, spaceId, scope, 'create', { space_id: sp.id, title, starts_at: s.toISOString(), ends_at: e.toISOString(), location }, summary])).rows[0].id;
+      [asker, spaceId, scope, 'create', { space_id: sp.id, title, starts_at: s.toISOString(), ends_at: e.toISOString(), location, ...(inProject ? { project_id: inProject.id } : {}) }, summary])).rows[0].id;
     return { id, kind: 'create', summary };
   }
   if (call.name === 'send_message') {

@@ -31,7 +31,7 @@ const when = (a, b) => {
   const t = (d) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   return `${day}, ${t(s)} to ${t(e)}`;
 };
-const EVENT_COLS = 'id,space_id,title,starts_at,ends_at,location,item_id,series_id,series:event_series(repeats,until_on)';
+const EVENT_COLS = 'id,space_id,project_id,title,starts_at,ends_at,location,item_id,series_id,series:event_series(repeats,until_on)';
 const EVERY = { daily: 'every day', weekly: 'every week', monthly: 'every month' };
 const ymd = (d) => { const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
 const longDay = (s) => new Date(`${s}T12:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
@@ -61,7 +61,16 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
   const [hidden, setHidden] = useState(() => new Set());
   const [error, setError] = useState('');
   const [draft, setDraft] = useState(null);   // {start, end}
-  const [form, setForm] = useState({ title: '', space: '', location: '', repeats: '', until: '' });
+  const [form, setForm] = useState({ title: '', space: '', project: '', location: '', repeats: '', until: '' });
+  // Projects (069, 071): events can belong to a project in their space; the calendar can show just one project.
+  const [projects, setProjects] = useState([]);
+  const [only, setOnly] = useState('');        // a project id: show only its events and its lists' tasks
+  const loadProjects = useCallback(() => api('/projects?archived_at=is.null&select=id,space_id,name&order=name').then(setProjects).catch(() => setProjects([])), []);
+  useEffect(() => { loadProjects(); }, [loadProjects]);
+  useEffect(() => { if (notice?.t === 'projects') loadProjects(); }, [notice, loadProjects]);
+  const projectName = (id) => projects.find((p) => p.id === id)?.name;
+  const projectsIn = (spaceId) => projects.filter((p) => p.space_id === spaceId);
+  const onlyP = projects.find((p) => p.id === only) || null;
   const [edit, setEdit] = useState(null);     // {title, location} while changing the open event
   const [moving, setMoving] = useState(null); // a dragged occurrence of a repeating event, waiting for "this one or all"
   const [busy, setBusy] = useState(false);
@@ -101,7 +110,7 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
   const loadTasks = useCallback(async () => {
     if (!range) return;
     try {
-      setTasks(await api(`/tasks?done=is.false&and=(due_on.gte.${range.day0},due_on.lt.${range.day1})&select=id,title,due_on,list_id,list:items(title,space_id)&order=due_on&limit=1000`));
+      setTasks(await api(`/tasks?done=is.false&and=(due_on.gte.${range.day0},due_on.lt.${range.day1})&select=id,title,due_on,list_id,list:items(title,space_id,project_id)&order=due_on&limit=1000`));
     } catch (e) { setError(`Tasks could not load: ${e.message}`); }
   }, [range]);
   useEffect(() => { loadTasks(); }, [loadTasks]);
@@ -144,13 +153,15 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
   const [dlSpace, setDlSpace] = useState('');
   const [dlBusy, setDlBusy] = useState(false);
   async function downloadIcs() {
-    const s = spaces.find((x) => x.id === (dlSpace || spaces[0]?.id));
+    const [sid, pid = ''] = (dlSpace || `${spaces[0]?.id}|`).split('|');
+    const s = spaces.find((x) => x.id === sid);
     if (!s) return;
+    const name = pid ? `${label(s)} › ${projectName(pid)}` : label(s);
     setDlBusy(true);
     try {
-      const rows = await api(`/events?space_id=eq.${s.id}&select=id,title,starts_at,ends_at,location&order=starts_at&limit=5000`);
-      saveFile(fileName(`${label(s)} calendar`, 'calendar', 'ics'), toIcs(`${label(s)} (Weft)`, rows), 'text/calendar;charset=utf-8');
-      setNote(`Downloaded ${rows.length} event${rows.length === 1 ? '' : 's'} from ${label(s)}.`);
+      const rows = await api(`/events?space_id=eq.${s.id}${pid ? `&project_id=eq.${pid}` : ''}&select=id,title,starts_at,ends_at,location&order=starts_at&limit=5000`);
+      saveFile(fileName(`${pid ? projectName(pid) : label(s)} calendar`, 'calendar', 'ics'), toIcs(`${name} (Weft)`, rows), 'text/calendar;charset=utf-8');
+      setNote(`Downloaded ${rows.length} event${rows.length === 1 ? '' : 's'} from ${name}.`);
     } catch (e) { setError(`Could not download the calendar: ${e.message}`); }
     setDlBusy(false);
   }
@@ -173,22 +184,25 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
     }).catch(() => {});
   }, [focusId]);
 
-  const fcEvents = useMemo(() => events.filter((e) => !hidden.has(e.space_id)).map((e) => ({
+  // With one project chosen, only its events and the tasks in its lists show; the channel-wide kinds (milestones,
+  // shifts, bookings, time off) belong to no project, so they step aside.
+  const inProject = (pid) => !only || pid === only;
+  const fcEvents = useMemo(() => events.filter((e) => !hidden.has(e.space_id) && inProject(e.project_id)).map((e) => ({
     id: e.id, title: e.title, start: e.starts_at, end: e.ends_at, editable: canEdit(e.space_id),
     className: `ev-t${tint(e.space_id)}${e.series_id ? ' cal-repeat' : ''}`, extendedProps: e, // FullCalendar 7: className (string), not v6 classNames
-  })).concat(show('tasks') ? tasks.filter((t) => t.list && !hidden.has(t.list.space_id)).map((t) => ({
+  })).concat(show('tasks') ? tasks.filter((t) => t.list && !hidden.has(t.list.space_id) && inProject(t.list.project_id)).map((t) => ({
     id: `task-${t.id}`, title: `Task: ${t.title}`, start: t.due_on, allDay: true, editable: false,
     className: `cal-task ev-t${tint(t.list.space_id)}`, extendedProps: { task: true, ...t },
-  })) : []).concat(show('milestones') ? milestones.filter((m) => !hidden.has(m.space_id)).map((m) => ({
+  })) : []).concat(!only && show('milestones') ? milestones.filter((m) => !hidden.has(m.space_id)).map((m) => ({
     id: `milestone-${m.id}`, title: `Milestone: ${m.title}`, start: m.day, allDay: true, editable: false,
     className: `cal-milestone ev-t${tint(m.space_id)}`, extendedProps: { milestone: true, ...m },
-  })) : []).concat(show('shifts') ? shifts.filter((x) => !hidden.has(x.space_id)).map((x) => ({
+  })) : []).concat(!only && show('shifts') ? shifts.filter((x) => !hidden.has(x.space_id)).map((x) => ({
     id: `shift-${x.id}`, title: `Shift: ${x.title}`, start: x.starts_at, end: x.ends_at, editable: false,
     className: `cal-shift ev-t${tint(x.space_id)}`, extendedProps: { shift: true, ...x },
-  })) : []).concat(show('bookings') ? bookings.filter((b) => !hidden.has(b.space_id)).map((b) => ({
+  })) : []).concat(!only && show('bookings') ? bookings.filter((b) => !hidden.has(b.space_id)).map((b) => ({
     id: `booking-${b.id}`, title: `${b.thing?.name ?? 'Booked'}: ${b.who?.display_name ?? 'someone'}${b.note ? ` (${b.note})` : ''}`, start: b.starts_at, end: b.ends_at, editable: false,
     className: `cal-booking ev-t${tint(b.space_id)}`, extendedProps: { booking: true, ...b },
-  })) : []).concat(show('away') ? away.filter((a) => !hidden.has(a.space_id)).map((a) => {
+  })) : []).concat(!only && show('away') ? away.filter((a) => !hidden.has(a.space_id)).map((a) => {
     const end = new Date(`${a.ends_on}T12:00`); end.setDate(end.getDate() + 1);   // all-day ends are exclusive
     const pad = (n) => String(n).padStart(2, '0');
     return {
@@ -196,7 +210,7 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
       start: a.starts_on, end: `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}`, allDay: true, editable: false,
       className: `cal-away ev-t${tint(a.space_id)}`, extendedProps: { away: true, ...a },
     };
-  }) : []), [events, tasks, bookings, away, milestones, shifts, off, hidden, canEdit, tint, me.id]);
+  }) : []), [events, tasks, bookings, away, milestones, shifts, off, hidden, canEdit, tint, me.id, only]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const editableSpaces = spaces.filter((s) => canEdit(s.id));
 
@@ -206,7 +220,7 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
     if (form.repeats && !form.until) { setError('Choose the last day it repeats on.'); return; }
     let row;
     try {
-      [row] = await api('/events', { method: 'POST', body: { space_id: form.space, title: form.title.trim(), starts_at: draft.start, ends_at: draft.end, location: form.location || null }, prefer: 'return=representation' });
+      [row] = await api('/events', { method: 'POST', body: { space_id: form.space, ...(form.project ? { project_id: form.project } : {}), title: form.title.trim(), starts_at: draft.start, ends_at: draft.end, location: form.location || null }, prefer: 'return=representation' });
     } catch (err) { setError(`Could not create the event: ${err.message}`); return; }
     if (form.repeats) {
       try {
@@ -214,6 +228,15 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
       } catch (err) { setError(`The first event was added, but it does not repeat: ${err.message}`); }
     }
     setDraft(null); setForm((f) => ({ ...f, title: '', location: '', repeats: '', until: '' })); load();
+  }
+  // Put the open event (all of a repeating series together) into a project in its space, or take it out.
+  async function setProject(pid) {
+    try {
+      if (open.series_id) await api('/rpc/set_series_project', { method: 'POST', body: { p_event: open.id, p_project: pid || null } });
+      else await api(`/events?id=eq.${open.id}`, { method: 'PATCH', body: { project_id: pid || null }, prefer: 'return=minimal' });
+      setNote(pid ? `${open.series_id ? 'All of them are' : 'It is'} in ${projectName(pid)} now.` : `${open.series_id ? 'They are' : 'It is'} no longer in a project.`);
+      await reopen(open.id); load();
+    } catch (err) { setError(`Could not change the project: ${err.message}`); }
   }
   async function reopen(id) {
     const [r] = await api(`/events?id=eq.${id}&select=${EVENT_COLS}`).catch(() => []);
@@ -270,7 +293,7 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
   }, [open, notice]);
   async function startNotes() {
     try {
-      const [row] = await api('/items', { method: 'POST', body: { space_id: open.space_id, kind: 'meeting', title: open.title }, prefer: 'return=representation' });
+      const [row] = await api('/items', { method: 'POST', body: { space_id: open.space_id, ...(open.project_id ? { project_id: open.project_id } : {}), kind: 'meeting', title: open.title }, prefer: 'return=representation' });
       await api(`/meetings?id=eq.${row.id}`, { method: 'PATCH', body: { event_id: open.id, held_at: open.starts_at }, prefer: 'return=minimal' });
       onOpenItem(row.id);
     } catch (err) { setError(`Could not start meeting notes: ${err.message}`); }
@@ -296,6 +319,16 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
             </li>
           ))}
         </ul>
+        {projects.length > 0 && (
+          <div className="cal-project">
+            <label className="tree-group" htmlFor="cal-only">Project</label>
+            <select id="cal-only" value={only} onChange={(e) => setOnly(e.target.value)}>
+              <option value="">Everything</option>
+              {spaces.flatMap((x) => projectsIn(x.id).map((p) => <option key={p.id} value={p.id}>{label(x)} › {p.name}</option>))}
+            </select>
+            {onlyP && <p className="cal-hint">Only {onlyP.name}: its events and the tasks in its lists.</p>}
+          </div>
+        )}
         <fieldset className="cal-kinds">
           <legend className="tree-group">Also show</legend>
           {KINDS.map((k) => (
@@ -306,12 +339,13 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
           <div className="cal-download">
             <label className="tree-group" htmlFor="cal-dl-space">Download as a file</label>
             <span className="pair">
-              <select id="cal-dl-space" value={dlSpace || spaces[0].id} onChange={(e) => setDlSpace(e.target.value)}>
-                {spaces.map((x) => <option key={x.id} value={x.id}>{label(x)}</option>)}
+              <select id="cal-dl-space" value={dlSpace || `${spaces[0].id}|`} onChange={(e) => setDlSpace(e.target.value)}>
+                {spaces.flatMap((x) => [<option key={x.id} value={`${x.id}|`}>{label(x)}</option>,
+                  ...projectsIn(x.id).map((p) => <option key={p.id} value={`${x.id}|${p.id}`}>{label(x)} › {p.name}</option>)])}
               </select>
               <button className="btn btn--sm" type="button" onClick={downloadIcs} disabled={dlBusy} aria-busy={dlBusy}>Download .ics</button>
             </span>
-            <p className="cal-hint">Every event in that space, past and coming, for another calendar app. A copy: later changes are not in it.</p>
+            <p className="cal-hint">Every event in that space or project, past and coming, for another calendar app. A copy: later changes are not in it.</p>
           </div>
         )}
         <p className="cal-hint">{editableSpaces.length ? 'Drag across the calendar to add an event.' : 'You can view events here. Ask an owner to make you an editor to add them.'}</p>
@@ -336,8 +370,9 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
             <label htmlFor="ev-title">Title</label>
             <input id="ev-title" autoFocus value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
             <label htmlFor="ev-space">Space</label>
-            <select id="ev-space" value={form.space} onChange={(e) => setForm({ ...form, space: e.target.value })}>
-              {editableSpaces.map((s) => <option key={s.id} value={s.id}>{label(s)}</option>)}
+            <select id="ev-space" value={`${form.space}|${form.project}`} onChange={(e) => { const [sp, pr = ''] = e.target.value.split('|'); setForm({ ...form, space: sp, project: pr }); }}>
+              {editableSpaces.flatMap((s) => [<option key={s.id} value={`${s.id}|`}>{label(s)}</option>,
+                ...projectsIn(s.id).map((p) => <option key={p.id} value={`${s.id}|${p.id}`}>{label(s)} › {p.name}</option>)])}
             </select>
             <label htmlFor="ev-loc">Location</label>
             <input id="ev-loc" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
@@ -378,7 +413,7 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
               {open.location && <p>{open.location}</p>}
             </>}
             {open.series && <p className="cal-repeats">Repeats {EVERY[open.series.repeats]} until {longDay(open.series.until_on)}</p>}
-            <p className="docs-meta"><span>{label(spaces.find((s) => s.id === open.space_id))}</span>{!canEdit(open.space_id) && <span className="docs-status">View only</span>}</p>
+            <p className="docs-meta"><span>{label(spaces.find((s) => s.id === open.space_id))}{open.project_id && projectName(open.project_id) ? ` › ${projectName(open.project_id)}` : ''}</span>{!canEdit(open.space_id) && <span className="docs-status">View only</span>}</p>
             {canEdit(open.space_id) && !edit && (
               <span className="pair cal-actions">
                 <button className="btn btn--sm" onClick={() => setEdit({ title: open.title, location: open.location ?? '' })}>Change</button>
@@ -386,6 +421,15 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
                   <button className="btn btn--sm" onClick={() => remove('one')}>Delete this one</button>
                   <button className="btn btn--sm" onClick={() => remove('all')}>Delete all of them</button>
                 </> : <button className="btn btn--sm" onClick={() => remove('one')}>Delete</button>}
+              </span>
+            )}
+            {canEdit(open.space_id) && !edit && projectsIn(open.space_id).length > 0 && (
+              <span className="pair cal-project-pick">
+                <label htmlFor="ev-project">Project</label>
+                <select id="ev-project" value={open.project_id || ''} onChange={(e) => setProject(e.target.value)}>
+                  <option value="">No project</option>
+                  {projectsIn(open.space_id).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
               </span>
             )}
             <EventRsvps key={open.id} event={open} me={me} notice={notice} />
@@ -421,7 +465,7 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
             selectMirror
             events={fcEvents}
             datesSet={(info) => setRange({ start: info.start.toISOString(), end: info.end.toISOString(), day0: info.startStr.slice(0, 10), day1: info.endStr.slice(0, 10) })}
-            select={(info) => { setOpen(null); setEdit(null); setDraft({ start: info.start.toISOString(), end: info.end.toISOString() }); setForm((f) => ({ ...f, space: f.space || editableSpaces[0]?.id || '' })); }}
+            select={(info) => { setOpen(null); setEdit(null); setDraft({ start: info.start.toISOString(), end: info.end.toISOString() }); setForm((f) => (onlyP && canEdit(onlyP.space_id) ? { ...f, space: onlyP.space_id, project: onlyP.id } : { ...f, space: f.space || editableSpaces[0]?.id || '' })); }}
             eventClick={(info) => { if (info.event.extendedProps.task) { onOpenItem(info.event.extendedProps.list_id); return; } if (info.event.extendedProps.booking) { onOpenBooking?.(info.event.extendedProps.resource_id); return; } if (info.event.extendedProps.away) { onOpenTimeOff?.(); return; } if (info.event.extendedProps.milestone) { onOpenTimeline?.(info.event.extendedProps.space_id); return; } if (info.event.extendedProps.shift) { onOpenShifts?.(); return; } setDraft(null); setNote(''); setEdit(null); setOpen(info.event.extendedProps); }}
             eventDrop={move}
             eventResize={move}

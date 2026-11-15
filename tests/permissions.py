@@ -6709,6 +6709,43 @@ def agent_fence():
     oq(f"delete from weft.messages where author_id = '{agent_id}'; delete from weft_private.agents where id = '{agent_id}'; delete from weft.users where id = '{agent_id}'")
 
 
+# ---------------------------------------------------------------- project calendars (071)
+def project_calendar():
+    pat, olive, alex = mint("u-pub"), mint("u-org"), mint("u-alex")
+    oq = lambda sql: owner_sql(sql)
+    F, ORG, VOL = SID["festival"], SID["organizers"], SID["volunteers"]
+    st, rows = call("POST", "/projects", alex, {"space_id": F, "name": "Calendar project"})
+    cp = rows[0]["id"]
+    st, rows = call("POST", "/projects", alex, {"space_id": ORG, "name": "Org calendar project"})
+    op = rows[0]["id"]
+    st, rows = call("POST", "/events", olive, {"space_id": F, "project_id": cp, "title": "Weekly sort", "starts_at": "2027-03-01T17:00:00Z", "ends_at": "2027-03-01T18:00:00Z"})
+    ev = rows[0]["id"]
+    st, sid = call("POST", "/rpc/repeat_event", olive, {"p_event": ev, "p_repeats": "weekly", "p_until": "2027-03-15", "p_tz": "UTC"})
+    got = oq(f"select count(*) || '/' || count(project_id) filter (where project_id = '{cp}') from weft.events where series_id = '{sid}'") if st == 200 else ""
+    check("Project calendars: a repeating event's copies are in the same project (3 of 3)", got == "3/3", f"{st} {got}")
+    st, n = call("POST", "/rpc/set_series_project", olive, {"p_event": ev, "p_project": None})
+    check("Project calendars: Olive (editor) takes the whole series out of the project (positive control)",
+          st == 200 and n == 3 and oq(f"select count(project_id) from weft.events where series_id = '{sid}'") == "0", f"{st} {n}")
+    st, n = call("POST", "/rpc/set_series_project", olive, {"p_event": ev, "p_project": cp})
+    check("Project calendars: ...and puts it back in, all at once", st == 200 and n == 3, f"{st} {n}")
+    st, body = call("POST", "/rpc/set_series_project", olive, {"p_event": ev, "p_project": op})
+    check("Project calendars: a project from another channel is refused, and nothing changes",
+          st == 400 and oq(f"select count(*) from weft.events where series_id = '{sid}' and project_id = '{cp}'") == "3", f"{st} {body}")
+    st, body = call("POST", "/rpc/set_series_project", pat, {"p_event": ev, "p_project": None})
+    check("Project calendars: Pat (viewer) cannot change the series' project", refused(st)
+          and oq(f"select count(*) from weft.events where series_id = '{sid}' and project_id = '{cp}'") == "3", f"{st} {body}")
+    st, _ = call("POST", "/rpc/set_series_project", mint("u-org", assistant=True), {"p_event": ev, "p_project": None})
+    check("Project calendars: the assistant role cannot call it", refused(st) or st == 404, str(st))
+    one = oq(f"select id from weft.events where series_id = '{sid}' and id <> '{ev}' order by starts_at limit 1")
+    st, rows = call("PATCH", f"/events?id=eq.{one}", olive, {"space_id": VOL})
+    check("Project calendars: moving one occurrence to another channel clears its project and its series",
+          st == 200 and rows and rows[0]["project_id"] is None and rows[0]["series_id"] is None, f"{st} {rows}")
+    st, rows = call("GET", f"/events?project_id=eq.{cp}&select=id", pat)
+    check("Project calendars: Pat (#festival member) sees the project's events (positive control)", st == 200 and len(rows) == 2, str(rows))
+    st, rows = call("GET", f"/events?project_id=eq.{op}&select=id", pat)
+    check("Project calendars: an outsider filtering by an Organizers project gets nothing", st == 200 and rows == [], str(rows))
+
+
 if __name__ == "__main__":
     read_matrix()
     writes()
@@ -6767,6 +6804,7 @@ if __name__ == "__main__":
     wikis()
     projects()
     agent_fence()
+    project_calendar()
     if "--teeth" in sys.argv:
         teeth()
     width = max(len(n) for n, _, _ in results)
