@@ -8,8 +8,12 @@
 // row per skill, person and shared space, under the caller's row-level security), and a channel chooser that
 // narrows the counts and the list to members of one of your channels. Home's "Who knows what" widget opens
 // this screen with a skill already picked (ask).
+// Kudos on profiles (063): each card shows the newest three kudos the person received and how many in all,
+// from weft.kudos_received (under the caller's row-level security on kudos, so only from channels the viewer
+// is in). A channel name opens that channel's Kudos wall (openKudos). Live: a kudos notice refetches.
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
+import { ago, nameOf } from './Kudos.jsx';
 
 const EMPTY = { role: '', skills: '', reach: '', availability: '' };
 const SEL = 'id,display_name,profile:profiles(role,skills,reach,availability,updated_at)';
@@ -18,6 +22,7 @@ const one = (p) => (Array.isArray(p) ? p[0] : p) || null;
 const initials = (n) => n.split(/\s+/).map((w) => w.replace(/^[^\p{L}\p{N}]+/u, '')).filter(Boolean).slice(0, 2).map((w) => [...w][0]).join('').toUpperCase() || '?';
 const filled = (p) => !!p && !!(p.role || p.skills?.length || p.reach || p.availability);
 const skillList = (s) => s.split(',').map((x) => x.trim()).filter(Boolean);
+const KUDOS = 'id,to_user,space_id,message,created_at,n,received,from:users!created_by(display_name)';
 const day = (iso) => new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
 
 function ProfileForm({ initial, onSave, onCancel, busy }) {
@@ -46,7 +51,27 @@ function ProfileForm({ initial, onSave, onCancel, busy }) {
   );
 }
 
-function Card({ person, shared, mine, active, onSkill, children }) {
+// The newest kudos the person received, from channels you are in (the database leaves out the rest).
+function Thanks({ person, mine, kudos, channelName, openKudos }) {
+  if (!kudos?.length) return null;
+  const all = Number(kudos[0].received);
+  return (
+    <section className="profile-kudos" aria-label={`Kudos for ${person.display_name}`}>
+      <p className="profile-label profile-kudos-title">Kudos{mine ? ' you received' : ''}
+        <span className="profile-kudos-count"> {all} in all</span></p>
+      <ul>
+        {kudos.map((k) => (
+          <li key={k.id} className="profile-kudos-item">
+            <p className="profile-kudos-message">{k.message}</p>
+            <p className="profile-kudos-from">From {nameOf(k.from)}{channelName(k.space_id) && <> in <button type="button" className="profile-kudos-channel" onClick={() => openKudos?.(k.space_id)}>#{channelName(k.space_id)}<span className="visually-hidden"> (open its kudos)</span></button></>}, {ago(k.created_at)}</p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function Card({ person, shared, mine, active, onSkill, thanks, children }) {
   const p = person.profile;
   return (
     <li className={`link profile${mine ? ' is-mine' : ''}`} aria-label={person.display_name}>
@@ -64,6 +89,7 @@ function Card({ person, shared, mine, active, onSkill, children }) {
       )}
       {p?.reach && <p className="profile-line"><span className="profile-label">How to reach</span> {p.reach}</p>}
       {p?.availability && <p className="profile-line"><span className="profile-label">Available</span> {p.availability}</p>}
+      {thanks}
       <div className="link-foot">
         {shared && <span className="link-by profile-shared">{shared}</span>}
         {children}
@@ -72,7 +98,7 @@ function Card({ person, shared, mine, active, onSkill, children }) {
   );
 }
 
-export default function Profiles({ me, spaces, members, notice, ask }) {
+export default function Profiles({ me, spaces, members, notice, ask, openKudos }) {
   const [people, setPeople] = useState(null);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(false);
@@ -81,13 +107,15 @@ export default function Profiles({ me, spaces, members, notice, ask }) {
   const [skill, setSkill] = useState('');
   const [channelId, setChannelId] = useState('');
   const [holders, setHolders] = useState([]);
+  const [kudos, setKudos] = useState([]);
 
   const load = useCallback(() => Promise.all([
     api(`/users?is_assistant=is.false&disabled=is.false&select=${SEL}&order=display_name`),
     api('/skill_holders?select=skill,user_id,space_id'),
-  ]).then(([r, h]) => { setPeople(r.map((u) => ({ ...u, profile: one(u.profile) }))); setHolders(h); }), []);
+    api(`/kudos_received?n=lte.3&select=${KUDOS}&order=to_user,n`),
+  ]).then(([r, h, k]) => { setPeople(r.map((u) => ({ ...u, profile: one(u.profile) }))); setHolders(h); setKudos(k); }), []);
   useEffect(() => { load().catch((e) => setError(`Profiles could not load: ${e.message}`)); }, [load]);
-  useEffect(() => { if (notice?.t === 'profiles' || notice?.t === 'members') load().catch(() => {}); }, [notice, load]);
+  useEffect(() => { if (['profiles', 'members', 'kudos'].includes(notice?.t)) load().catch(() => {}); }, [notice, load]);
   // Opened from the Home widget with a skill: show everyone who has it.
   useEffect(() => { if (ask?.skill) { setSkill(ask.skill); setChannelId(''); setQuery(''); } }, [ask]);
 
@@ -117,6 +145,9 @@ export default function Profiles({ me, spaces, members, notice, ask }) {
     const names = [...new Set(members.filter((m) => m.user?.id === id && channel[m.space_id]).map((m) => `#${channel[m.space_id]}`))].sort();
     return names.length ? `In ${names.join(', ')}` : '';
   };
+  const kudosFor = (id) => kudos.filter((k) => k.to_user === id);
+  const channelName = (id) => spaces.find((s) => s.id === id)?.name || '';
+  const thanksOf = (u, isMine) => <Thanks person={u} mine={isMine} kudos={kudosFor(u.id)} channelName={channelName} openKudos={openKudos} />;
   const mine = people.find((u) => u.id === me.id) || { id: me.id, display_name: me.display_name, profile: null };
   const others = people.filter((u) => u.id !== me.id);
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -157,18 +188,19 @@ export default function Profiles({ me, spaces, members, notice, ask }) {
               onSave={save} onCancel={() => setEditing(false)} busy={busy} />
           ) : filled(mine.profile) ? (
             <ul className="link-list">
-              <Card person={mine} mine active={skill} onSkill={pick}>
+              <Card person={mine} mine active={skill} onSkill={pick} thanks={thanksOf(mine, true)}>
                 <span className="link-by">Updated {day(mine.profile.updated_at)}</span>
                 <button className="btn btn--sm" type="button" onClick={() => setEditing(true)}>Edit profile</button>
                 <button className="btn btn--sm" type="button" onClick={clear} disabled={busy}>Clear</button>
               </Card>
             </ul>
-          ) : (
+          ) : (<>
             <div className="links-bar">
               <button className="btn btn--primary btn--sm" type="button" onClick={() => setEditing(true)}>Fill in your profile</button>
               <p className="docs-hint">Say what you do, what you are good at, and how and when people can reach you.</p>
             </div>
-          )}
+            {kudosFor(mine.id).length > 0 && <ul className="link-list"><Card person={mine} mine active={skill} onSkill={pick} thanks={thanksOf(mine, true)} /></ul>}
+          </>)}
         </section>
 
         <section aria-labelledby="profile-others-title" className="links">
@@ -203,7 +235,7 @@ export default function Profiles({ me, spaces, members, notice, ask }) {
             : !shown.length && !without.length ? <p className="convo-empty">{skill && !words.length ? `No one${where} has listed ${skill}.` : withProfile.length ? 'No one matches.' : 'No one has filled in a profile yet.'}</p> : (<>
               {shown.length > 0 && (
                 <ul className="link-list profile-list" aria-label="Profiles">
-                  {shown.map((u) => <Card key={u.id} person={u} shared={sharedOf(u.id)} active={skill} onSkill={pick} />)}
+                  {shown.map((u) => <Card key={u.id} person={u} shared={sharedOf(u.id)} active={skill} onSkill={pick} thanks={thanksOf(u, false)} />)}
                 </ul>
               )}
               {without.length > 0 && <p className="docs-hint profile-without">No profile yet: {without.map((u) => u.display_name).join(', ')}</p>}

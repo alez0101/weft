@@ -941,6 +941,17 @@ select.idea-status:focus-visible { outline: 2px solid var(--color-focus); outlin
 .who-knows-title { font-size: var(--text-sm); font-weight: 600; color: var(--color-ink-2); margin-right: var(--space-2xs); }
 .who-knows .docs-hint { margin: 0; }
 .widget .who-knows { margin-top: var(--space-2xs); }
+/* Kudos on profiles (063): the newest kudos a person received, on their card, tinted like the Kudos wall. */
+.profile-kudos { display: grid; gap: var(--space-2xs); padding: var(--space-xs) var(--space-sm); border-radius: var(--radius-card);
+  background: color-mix(in oklab, var(--p-sun) 35%, var(--color-paper)); box-shadow: inset 3px 0 0 var(--p-sun); }
+.profile-kudos ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-xs); }
+.profile-kudos-title { margin: 0; font-size: var(--text-sm); }
+.profile-kudos-count { color: var(--color-muted); font-weight: 400; }
+.profile-kudos-message { margin: 0; color: var(--color-ink); font-size: var(--text-sm); line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.profile-kudos-from { margin: 0; color: var(--color-ink-2); font-size: var(--text-xs); }
+.profile-kudos-channel { font: inherit; color: inherit; background: none; border: 0; padding: 0; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.profile-kudos-channel:hover { color: var(--color-ink); }
+.profile-kudos-channel:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; border-radius: 2px; }
 @media (max-width: 720px) { .profile-hint { grid-column: 1; } }
 /* Time off: a week grid of who is away (rows) by day (columns), then the list (uses the Shifts layout). */
 .away-weekbar { margin-bottom: var(--space-2xs); }
