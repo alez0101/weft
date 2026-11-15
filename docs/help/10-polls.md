@@ -19,7 +19,7 @@ To ask a channel, make the poll in that channel and use **Share to a channel** t
 
 ### Closing a poll
 
-An editor or owner of the space can press **Close poll** when the vote is over. Nobody can vote or change their vote in a closed poll, and the leading choice is marked. **Reopen poll** opens it again.
+An editor or owner of the space can press **Close poll** when the vote is over. Nobody can vote or change their vote in a closed poll, and the leading choice is marked. **Reopen poll** opens it again. A poll can also close by itself at a time you set: see **Poll and form deadlines**.
 
 Once someone has voted for a choice, it cannot be renamed or removed, so nobody's vote ends up meaning something else. Choices without votes can still be changed while the poll is open.
 

@@ -5442,6 +5442,132 @@ def meeting_decisions():
     check("Meeting decisions: tidied up", oq("select count(*) from weft.items where title in ('MD org decisions', 'MD festival decisions', 'Second festival log', 'MD board meeting')") == "0")
 
 
+def poll_form_deadlines():
+    """058: a "closes at" time on a poll or a form. Members see it, editors set it (the 023/024 rules); it must be
+    in the future and within a year; once it passes, the poll or form is closed by itself (votes, answers, choices
+    and questions refused) until an editor reopens it; the summary carries it."""
+    import time
+    pat, vic, olive = mint("u-pub"), mint("u-vol"), mint("u-org")
+    P = uid("user", "u-pub")
+    oq = lambda sql: owner_sql(sql)
+    at = lambda secs: oq(f"select to_char((now() + interval '{secs} seconds') at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')")
+    closes = lambda table, i: oq(f"select coalesce(closes_at::text, '') from weft.{table} where id = '{i}'")
+    body = lambda i: oq(f"select body_text from weft.items where id = '{i}'") or ""
+    mk = lambda space, kind, title: (lambda r: r[1][0]["id"] if r[0] == 201 else None)(call("POST", "/items", olive, {"space_id": SID[space], "kind": kind, "title": title}))
+    org, fest, form, orgform = mk("organizers", "poll", "DL-SECRET org poll"), mk("festival", "poll", "DL festival poll"), mk("festival", "form", "DL festival form"), mk("organizers", "form", "DL-SECRET org form")
+    check("Deadlines: Olive makes polls and forms in Organizers and #festival", all((org, fest, form, orgform)), f"{org} {fest} {form} {orgform}")
+    ch = {}
+    for label in ("Early", "Late"):
+        st, rows = call("POST", "/poll_choices", olive, {"poll_id": fest, "label": label})
+        ch[label] = rows[0]["id"] if st == 201 else None
+    st, rows = call("POST", "/form_questions", olive, {"form_id": form, "label": "Your name", "kind": "short"})
+    q = rows[0]["id"] if st == 201 else None
+    T1, T2 = at(86400), at(2 * 86400)
+
+    # Setting it: editors yes, viewers and the assistant no.
+    st, rows = call("PATCH", f"/polls?id=eq.{org}", olive, {"closes_at": T1})
+    st2, rows2 = call("PATCH", f"/forms?id=eq.{orgform}", olive, {"closes_at": T1})
+    check("Deadlines: Olive (editor) sets a closing time on a poll and a form (positive control)", st == 200 and rows and rows[0]["closes_at"] and st2 == 200 and closes("forms", orgform), f"{st} {rows} {st2} {rows2}")
+    st, rows = call("PATCH", f"/polls?id=eq.{fest}", pat, {"closes_at": T1})
+    st2, rows2 = call("PATCH", f"/forms?id=eq.{form}", pat, {"closes_at": T1})
+    st3, rows3 = call("PATCH", f"/polls?id=eq.{fest}", vic, {"closes_at": T1})
+    check("Deadlines: Pat and Vic (viewers in #festival) cannot set a closing time", rows == [] and rows2 == [] and rows3 == []
+          and closes("polls", fest) == "" and closes("forms", form) == "", f"{st} {st2} {st3}")
+    st, rows = call("PATCH", f"/polls?id=eq.{org}", pat, {"closes_at": None})
+    st2, rows2 = call("PATCH", f"/forms?id=eq.{orgform}", vic, {"closes_at": None})
+    check("Deadlines: nor clear one in Organizers", rows == [] and rows2 == [] and closes("polls", org) and closes("forms", orgform), f"{st} {st2}")
+    st, rows = call("PATCH", f"/polls?id=eq.{fest}", olive, {"closes_at": T1, "closed_by": P})
+    check("Deadlines: who closed it still cannot be set alongside", refused(st) and closes("polls", fest) == "", f"{st} {rows}")
+
+    # Reading: members only.
+    st, rows = call("GET", f"/polls?id=eq.{org}&select=closes_at", pat)
+    st2, rows2 = call("GET", "/polls?closes_at=not.is.null&select=id", pat)
+    st3, rows3 = call("GET", "/forms?closes_at=not.is.null&select=id", vic)
+    check("Deadlines: Pat and Vic see no Organizers closing times, not even by filtering on them",
+          rows == [] and org not in [r["id"] for r in rows2 or []] and orgform not in [r["id"] for r in rows3 or []], f"{rows} {rows2} {rows3}")
+    st, rows = call("GET", f"/polls?id=eq.{org}&select=closes_at", olive)
+    check("Deadlines: Olive reads it (positive control)", st == 200 and rows and rows[0]["closes_at"], f"{st} {rows}")
+    check("Deadlines: the summary says when it closes", "Poll, open until " in body(org) and " UTC, 0 votes" in body(org)
+          and "Form, open until " in body(orgform), f"{body(org)!r} {body(orgform)!r}")
+    st, rows = call("GET", f"/items?id=eq.{org}&select=body_text", pat)
+    check("Deadlines: and is hidden from Pat", rows == [], str(rows))
+
+    # The time itself.
+    st, rows = call("PATCH", f"/polls?id=eq.{fest}", olive, {"closes_at": at(-60)})
+    st2, rows2 = call("PATCH", f"/forms?id=eq.{form}", olive, {"closes_at": at(-60)})
+    check("Deadlines: a closing time in the past is refused", st == 400 and st2 == 400 and "future" in json.dumps(rows) and closes("polls", fest) == "", f"{st} {st2} {rows}")
+    st, rows = call("PATCH", f"/polls?id=eq.{fest}", olive, {"closes_at": at(400 * 86400)})
+    check("Deadlines: and one more than a year ahead", st == 400 and "year" in json.dumps(rows) and closes("polls", fest) == "", f"{st} {rows}")
+    st, rows = call("PATCH", f"/polls?id=eq.{org}", olive, {"closes_at": T2})
+    st2, rows2 = call("PATCH", f"/polls?id=eq.{org}", olive, {"closes_at": None})
+    check("Deadlines: Olive moves and clears it (positive control)", st == 200 and st2 == 200 and closes("polls", org) == "" and "Poll, open, 0 votes" in body(org), f"{st} {st2} {body(org)!r}")
+
+    # Scope and the assistant.
+    scoped = mint("u-org", scope="festival")
+    st, rows = call("PATCH", f"/polls?id=eq.{org}", scoped, {"closes_at": T1})
+    st2, rows2 = call("PATCH", f"/polls?id=eq.{fest}", scoped, {"closes_at": T1})
+    check("Deadlines: a #festival-scoped token sets it in #festival only", rows == [] and closes("polls", org) == "" and st2 == 200 and rows2, f"{st} {rows} {st2} {rows2}")
+    call("PATCH", f"/polls?id=eq.{fest}", olive, {"closes_at": None})
+    helper = mint("u-org", assistant=True)
+    st, rows = call("GET", f"/forms?id=eq.{orgform}&select=closes_at", helper)
+    st2, _ = call("PATCH", f"/forms?id=eq.{orgform}", helper, {"closes_at": None})
+    st3, _ = call("DELETE", f"/polls?id=eq.{org}", helper)
+    check("Deadlines: the assistant reads a closing time but cannot change it or delete", st == 200 and rows and rows[0]["closes_at"]
+          and refused(st2) and refused(st3) and closes("forms", orgform), f"{st} {rows} {st2} {st3}")
+
+    # The time passes: closed by itself.
+    soon = at(3)
+    st, _ = call("PATCH", f"/polls?id=eq.{fest}", olive, {"closes_at": soon})
+    st2, _ = call("PATCH", f"/forms?id=eq.{form}", olive, {"closes_at": soon})
+    st3, _ = call("POST", "/poll_votes", pat, {"poll_id": fest, "choice_id": ch["Early"]})
+    st4, _ = call("POST", "/form_responses", pat, {"form_id": form, "answers": {q: "Pat"}})
+    check("Deadlines: before the time, Pat votes and answers (positive control)", st == 200 and st2 == 200 and st3 == 201 and st4 == 201, f"{st} {st2} {st3} {st4}")
+    time.sleep(3.5)
+    check("Deadlines: once the time has passed, the poll and the form count as closed", oq(f"select weft_private.poll_closed('{fest}') and weft_private.form_closed('{form}')") == "t"
+          and oq(f"select closed::text from weft.polls where id = '{fest}'") == "false")
+    st, _ = call("PATCH", f"/poll_votes?poll_id=eq.{fest}&voter_id=eq.{P}", pat, {"choice_id": ch["Late"]})
+    st2, _ = call("POST", "/poll_votes", vic, {"poll_id": fest, "choice_id": ch["Late"]})
+    st3, _ = call("DELETE", f"/poll_votes?poll_id=eq.{fest}&voter_id=eq.{P}", pat)
+    st4, _ = call("POST", "/poll_choices", olive, {"poll_id": fest, "label": "Too late"})
+    check("Deadlines: nobody votes, changes or withdraws a vote, and choices are not added", all(refused(x) for x in (st, st2, st3, st4))
+          and oq(f"select choice_id from weft.poll_votes where poll_id = '{fest}' and voter_id = '{P}'") == ch["Early"], f"{st} {st2} {st3} {st4}")
+    st, _ = call("PATCH", f"/form_responses?form_id=eq.{form}&respondent_id=eq.{P}", pat, {"answers": {q: "Pat P."}})
+    st2, _ = call("POST", "/form_responses", vic, {"form_id": form, "answers": {q: "Vic"}})
+    st3, _ = call("POST", "/form_questions", olive, {"form_id": form, "label": "Too late"})
+    check("Deadlines: nobody answers or changes an answer, and questions are not added", all(refused(x) for x in (st, st2, st3))
+          and oq(f"select answers->>'{q}' from weft.form_responses where form_id = '{form}'") == "Pat", f"{st} {st2} {st3}")
+    st, rows = call("PATCH", f"/polls?id=eq.{fest}", pat, {"closed": False, "closes_at": None})
+    check("Deadlines: Pat cannot reopen it by clearing the time", rows == [] and closes("polls", fest) != "", f"{st} {rows}")
+    st, rows = call("PATCH", f"/polls?id=eq.{fest}", olive, {"closes_at": None})
+    st2, _ = call("PATCH", f"/poll_votes?poll_id=eq.{fest}&voter_id=eq.{P}", pat, {"choice_id": ch["Late"]})
+    check("Deadlines: Olive reopens the poll by clearing the time, and votes change again (positive control)", st == 200 and st2 == 200, f"{st} {st2} {rows}")
+    # Closed by hand, then the time passes: reopening by hand clears the passed time.
+    call("PATCH", f"/forms?id=eq.{form}", olive, {"closes_at": at(2)})
+    call("PATCH", f"/forms?id=eq.{form}", olive, {"closed": True})
+    time.sleep(2.5)
+    st, rows = call("PATCH", f"/forms?id=eq.{form}", olive, {"closed": False})
+    st2, _ = call("PATCH", f"/form_responses?form_id=eq.{form}&respondent_id=eq.{P}", pat, {"answers": {q: "Pat P."}})
+    check("Deadlines: reopening a form by hand clears a time that has passed, so answers change again", st == 200 and rows and rows[0]["closes_at"] is None and st2 == 200, f"{st} {rows} {st2}")
+    st, rows = call("GET", f"/audit?space_id=eq.{SID['festival']}&table_name=eq.polls&select=old_row", pat)
+    st2, rows2 = call("GET", f"/audit?space_id=eq.{SID['organizers']}&table_name=in.(polls,forms)&select=op", pat)
+    check("Deadlines: closing time changes are in the audit log, for members of the space only",
+          any((r["old_row"] or {}).get("closes_at") for r in rows or []) and rows2 == [], f"{len(rows or [])} {rows2}")
+
+    # Moves and deletes follow the space.
+    call("PATCH", f"/polls?id=eq.{org}", olive, {"closes_at": T1})
+    st, _ = call("PATCH", f"/items?id=eq.{org}", olive, {"space_id": SID["festival"]})
+    st2, rows = call("GET", f"/polls?id=eq.{org}&select=closes_at", pat)
+    check("Deadlines: a poll moved into #festival shows Pat its closing time", st == 200 and rows and rows[0]["closes_at"], f"{st} {rows}")
+    st, _ = call("PATCH", f"/items?id=eq.{form}", olive, {"space_id": SID["organizers"]})
+    st2, rows = call("GET", f"/forms?id=eq.{form}&select=closes_at", pat)
+    st3, rows3 = call("PATCH", f"/forms?id=eq.{form}", olive, {"closes_at": T1})
+    check("Deadlines: a form moved to Organizers hides it from Pat; Olive still sets it", st == 200 and rows == [] and st3 == 200 and rows3, f"{st} {rows} {st3}")
+    for i in (org, fest, form, orgform):
+        call("DELETE", f"/items?id=eq.{i}", olive)
+    check("Deadlines: deleting removes the polls, forms and their closing times",
+          oq(f"select (select count(*) from weft.polls where id in ('{org}', '{fest}')) + (select count(*) from weft.forms where id in ('{form}', '{orgform}'))") == "0")
+
+
 def teeth():
     """Loosen one policy on purpose and confirm the suite would catch it, then restore it."""
     owner_sql("create policy teeth_leak on weft.items for select to weft_user using (true)")
@@ -5487,6 +5613,7 @@ if __name__ == "__main__":
     repeating_tasks()
     task_comments()
     meeting_decisions()
+    poll_form_deadlines()
     bookings()
     repeating_bookings()
     shifts()

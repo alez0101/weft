@@ -1,9 +1,11 @@
 // A poll: a question (the item's title), a few choices, one vote per person, results live. Every member
 // of the space votes, viewers too; editors and owners change the choices and close or reopen the poll.
 // Row-level security decides; when it says no, the reason is shown and the poll is reloaded.
-// Live: any vote or change on this poll refetches it.
+// Live: any vote or change on this poll refetches it. A closing time (058) closes it by itself; the screen
+// reloads when that time comes.
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
+import { DeadlineEditor, deadlineWords, isPast, isShut, useAtTime } from './Deadline.jsx';
 
 const when = (iso) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 const votesLabel = (n) => `${n} ${n === 1 ? 'vote' : 'votes'}`;
@@ -19,7 +21,7 @@ export default function Poll({ item, me, members, editable, notice }) {
 
   const load = useCallback(async () => {
     const [state, choices, votes] = await Promise.all([
-      api(`/polls?id=eq.${item.id}&select=closed,closed_at,closed_by`),
+      api(`/polls?id=eq.${item.id}&select=closed,closed_at,closed_by,closes_at`),
       api(`/poll_choices?poll_id=eq.${item.id}&select=id,label,position&order=position,created_at`),
       api(`/poll_votes?poll_id=eq.${item.id}&select=voter_id,choice_id&order=created_at`),
     ]);
@@ -28,16 +30,19 @@ export default function Poll({ item, me, members, editable, notice }) {
   useEffect(() => { load().catch((e) => setError(`The poll could not load: ${e.message}`)); }, [load]);
   useEffect(() => { if (notice?.t === 'polls' && notice.poll === item.id) load().catch(() => {}); }, [notice, item.id, load]);
   useEffect(() => { if (data && editable && !data.choices.length) setEditing(true); }, [data, editable]);
+  useAtTime(data?.state.closes_at, useCallback(() => { load().catch(() => {}); }, [load]));
 
   // Every change: show the database's answer if it refuses, and reload so the screen matches the data.
   const change = async (what, run) => {
-    try { await run(); setError(''); } catch (e) { setError(`${what}: ${e.message}`); }
+    let ok = false;
+    try { await run(); setError(''); ok = true; } catch (e) { setError(`${what}: ${e.message}`); }
     load().catch(() => {});
+    return ok;
   };
 
   if (!data) return error ? <p className="send-error" role="alert">{error}</p> : <div className="skeleton" aria-label="Loading the poll"><span /><span /><span /></div>;
   const { state, choices, votes } = data;
-  const closed = state.closed;
+  const closed = isShut(state);
   const mine = votes.find((v) => v.voter_id === me.id);
   const total = votes.length;
   const count = (c) => votes.filter((v) => v.choice_id === c.id).length;
@@ -49,7 +54,10 @@ export default function Poll({ item, me, members, editable, notice }) {
     ? api(`/poll_votes?poll_id=eq.${item.id}&voter_id=eq.${me.id}`, { method: 'PATCH', body: { choice_id: c.id }, prefer: 'return=minimal' })
     : api('/poll_votes', { method: 'POST', body: { poll_id: item.id, choice_id: c.id }, prefer: 'return=minimal' }))); };
   const withdraw = () => { setMine(null); return change('Your vote was not withdrawn', () => api(`/poll_votes?poll_id=eq.${item.id}&voter_id=eq.${me.id}`, { method: 'DELETE', prefer: 'return=minimal' })); };
-  const setClosed = (v) => change(v ? 'Could not close the poll' : 'Could not reopen the poll', () => api(`/polls?id=eq.${item.id}`, { method: 'PATCH', body: { closed: v }, prefer: 'return=minimal' }));
+  // Reopening a poll that closed by itself also clears its closing time.
+  const setClosed = (v) => change(v ? 'Could not close the poll' : 'Could not reopen the poll', () => api(`/polls?id=eq.${item.id}`, { method: 'PATCH', body: { closed: v, ...(!v && isPast(state.closes_at) ? { closes_at: null } : {}) }, prefer: 'return=minimal' }));
+  const setDeadline = (iso) => change(iso ? 'The closing time was not saved' : 'The closing time was not removed', () => api(`/polls?id=eq.${item.id}`, { method: 'PATCH', body: { closes_at: iso }, prefer: 'return=minimal' }));
+  const dl = deadlineWords(state);
   const rename = (c, v) => change('That choice was not changed', () => api(`/poll_choices?id=eq.${c.id}`, { method: 'PATCH', body: { label: v }, prefer: 'return=minimal' }));
   const remove = (c) => change('That choice was not removed', () => api(`/poll_choices?id=eq.${c.id}`, { method: 'DELETE', prefer: 'return=minimal' }));
   async function add(e) {
@@ -64,7 +72,8 @@ export default function Poll({ item, me, members, editable, notice }) {
       <div className="poll-head">
         <p className="poll-state" role="status">
           <span className={`poll-badge${closed ? ' is-closed' : ''}`}>{closed ? 'Closed' : 'Open'}</span>
-          {votesLabel(total)}{closed && state.closed_at ? `, closed ${when(state.closed_at)}${state.closed_by ? ` by ${nameOf(state.closed_by)}` : ''}` : ''}
+          {votesLabel(total)}{state.closed && state.closed_at ? `, closed ${when(state.closed_at)}${state.closed_by ? ` by ${nameOf(state.closed_by)}` : ''}` : ''}
+          {dl ? `, ${dl}` : ''}
         </p>
         {editable && (
           <span className="pair">
@@ -73,6 +82,7 @@ export default function Poll({ item, me, members, editable, notice }) {
           </span>
         )}
       </div>
+      {editable && !state.closed && <DeadlineEditor id={`poll-closes-${item.id}`} closesAt={state.closes_at} onSave={setDeadline} />}
       {error && <p className="send-error" role="alert">{error}</p>}
 
       {!choices.length ? <p className="convo-empty">{editable ? 'No choices yet. Add the first one below.' : 'No choices yet.'}</p> : (
@@ -119,7 +129,7 @@ export default function Poll({ item, me, members, editable, notice }) {
       )}
       <div className="poll-foot">
         {mine && !closed && <button className="btn btn--sm" type="button" onClick={withdraw}>Withdraw my vote</button>}
-        <p className="docs-hint">{closed ? 'This poll is closed. The votes stay as they were.'
+        <p className="docs-hint">{closed ? `This poll is closed. The votes stay as they were.${editable && !state.closed ? ' Reopen it, or set a later closing time, to let people vote again.' : ''}`
           : editable ? 'Everyone in this space can vote once and change their vote until the poll is closed. Everyone here sees who voted for what. A choice someone voted for cannot be changed.'
             : 'You can vote once and change your vote until the poll is closed. Everyone here sees who voted for what.'}</p>
       </div>
