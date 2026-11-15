@@ -61,6 +61,8 @@ const BASE = process.env.WEFT_BASE || 'http://localhost:3211/';
   await idea(alex, 'Water refill point by the main stage').locator('.qa-vote').click();
   await idea(alex, 'Quiet tent for families').locator('.qa-vote').click();
   await olive.waitForFunction(() => [...document.querySelectorAll('.idea')].some((e) => e.querySelector('.qa-title').textContent.startsWith('Water') && e.querySelector('.qa-votes').textContent === '2'), null, { timeout: 6000 });
+  // Alex's own last vote reloads Alex's board too; wait for it as for Olive's (the read could otherwise beat it).
+  await alex.waitForFunction(() => [...document.querySelectorAll('.idea')].some((e) => e.querySelector('.qa-title').textContent.startsWith('Quiet') && e.querySelector('.qa-votes').textContent === '1'), null, { timeout: 6000 }).catch(() => {});
   expect('Votes show live for both', await votes(olive, 'Water refill point by the main stage') === 2 && await votes(alex, 'Quiet tent for families') === 1);
   expect('A vote is marked as yours', await idea(olive, 'Water refill point by the main stage').locator('.qa-vote[aria-pressed="true"]').count() === 1);
   expect('Most votes first', (await titles(olive))[0] === 'Water refill point by the main stage' && (await titles(olive))[1] === 'Quiet tent for families', (await titles(olive)).join(', '));
@@ -128,6 +130,7 @@ const BASE = process.env.WEFT_BASE || 'http://localhost:3211/';
     && (await pat.locator('.ideas > .docs-hint').innerText()).includes('make you an editor'));
   await idea(pat, 'Bike racks by gate B').locator('.qa-vote').click();
   await olive.waitForFunction(() => [...document.querySelectorAll('.idea')].some((e) => e.querySelector('.qa-title').textContent.startsWith('Bike') && e.querySelector('.qa-votes').textContent === '1'), null, { timeout: 6000 });
+  await pat.waitForFunction(() => [...document.querySelectorAll('.idea')].some((e) => e.querySelector('.qa-title').textContent.startsWith('Bike') && e.querySelector('.qa-votes').textContent === '1'), null, { timeout: 6000 }).catch(() => {});
   expect('Pat (viewer) votes, and Olive sees it live', await votes(pat, 'Bike racks by gate B') === 1);
   await idea(olive, 'Quiet tent for families').getByRole('button', { name: 'Delete' }).click();
   await pat.waitForFunction(() => ![...document.querySelectorAll('.idea .qa-title')].some((e) => e.textContent === 'Quiet tent for families'), null, { timeout: 6000 });
