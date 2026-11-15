@@ -9,6 +9,8 @@ summary: Look back on a period together: what went well, what to improve and wha
 
 Open **Retros** on Home. Choose the space at the top and press **New retro**. Type a name over "Retro", such as "Festival 2026" or "Sprint 12". Editors and owners can then set the **Period** the retro looks back on and choose the task list that **Actions become tasks in** (a list in the same space; make one in **Tasks** first if there is none).
 
+A new retro starts with the previous retro's actions in the same channel and whether their tasks got done (see Last retro's actions).
+
 ### Writing notes
 
 A retro has three columns: **Went well**, **To improve** and **Actions**. Type in the box at the top of a column and press **Add** (or Ctrl+Enter). Tick **Post anonymously** first if you do not want your name on the note.

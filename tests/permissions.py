@@ -3180,6 +3180,142 @@ def kudos_on_profiles():
         oq(f"delete from weft.kudos where to_user = '{O}'")
 
 
+def last_retro_actions():
+    """Last retro's actions: weft.retro_previous_actions shows the previous retro's actions in the same space, under the caller's row-level security."""
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, V, O = (uid("user", k) for k in ("u-pub", "u-vol", "u-org"))
+    oq = lambda sql: owner_sql(sql)
+    sel = "retro_id,space_id,previous_id,previous_title,note_id,body,task_id,task_done,task_assignee_id"
+    ask = lambda tok, retro, q="": call("GET", f"/retro_previous_actions?retro_id=eq.{retro}&select={sel}&order=created_at.asc.nullsfirst{q}", tok)
+    made = []
+    def item(tok, space, kind, title):
+        st, rows = call("POST", "/items", tok, {"space_id": SID[space], "kind": kind, "title": title})
+        if st == 201:
+            made.append(rows[0]["id"])
+            return rows[0]["id"]
+        return None
+    def note(tok, retro, kind, body, anon=False):
+        st, rows = call("POST", "/retro_notes?select=id,author_id", tok, {"retro_id": retro, "kind": kind, "body": body, "anonymous": anon})
+        return rows[0]["id"] if st == 201 else None
+    no = lambda r: r[0] in (401, 403, 500) and isinstance(r[1], dict) and r[1].get("code") in ("42501", "55000")
+    try:
+        # Organizers: an older and a newer retro; the older one has a secret action.
+        o1 = item(olive, "organizers", "retro", "LRA org spring")
+        oa = note(olive, o1, "action", "LRA-ORG-SECRET renegotiate the venue")
+        o2 = item(olive, "organizers", "retro", "LRA org summer")
+        # #festival: the previous retro, with a list and four actions (done, open, never a task, anonymous) and a non-action note.
+        flist = item(olive, "festival", "tasklist", "LRA follow-ups")
+        a = item(olive, "festival", "retro", "LRA festival 1")
+        call("PATCH", f"/retros?id=eq.{a}", olive, {"task_list_id": flist, "period_from": "2026-09-01", "period_to": "2026-09-30"})
+        a1 = note(olive, a, "action", "Open a second gate")
+        a2 = note(olive, a, "action", "Order more bins")
+        a3 = note(olive, a, "action", "Ask the council about parking")
+        a4 = note(pat, a, "action", "Shorter briefings", True)
+        note(olive, a, "went_well", "LRA not an action")
+        st, t1 = call("POST", "/rpc/retro_action_to_task", olive, {"p_note": a1, "p_assignee": V})
+        st2, t2 = call("POST", "/rpc/retro_action_to_task", olive, {"p_note": a2, "p_assignee": O, "p_due": "2026-10-15"})
+        t1, t2 = (t1 or {}).get("id"), (t2 or {}).get("id")
+        call("PATCH", f"/tasks?id=eq.{t1}", vic, {"done": True}, prefer="return=minimal")
+        b = item(olive, "festival", "retro", "LRA festival 2")
+        check("Last retro's actions: retros, notes and tasks are made in Organizers and #festival (setup)",
+              all([o1, oa, o2, flist, a, a1, a2, a3, a4, b, t1, t2]), str([o1, oa, o2, flist, a, b, t1, t2]))
+        st, rows = ask(pat, b)
+        by = {r["note_id"]: r for r in rows or []}
+        check("Last retro's actions: Pat (viewer) sees the previous #festival retro's four actions, in order, and no other notes (positive control)",
+              st == 200 and [r["note_id"] for r in rows] == [a1, a2, a3, a4] and {r["previous_id"] for r in rows} == {a}
+              and {r["previous_title"] for r in rows} == {"LRA festival 1"}, f"{st} {rows}")
+        check("Last retro's actions: each shows its task's state: done, open, never a task",
+              by.get(a1, {}).get("task_done") is True and by[a1]["task_assignee_id"] == V and by.get(a2, {}).get("task_done") is False
+              and by.get(a3, {}).get("task_id") is None and by.get(a4, {}).get("task_id") is None, str(by))
+        st, rows = call("GET", f"/retro_previous_actions?retro_id=eq.{b}&select=note_id,created_by", pat)
+        st2, rows2 = call("GET", f"/retro_previous_actions?retro_id=eq.{b}&select=note_id,author_id", alex)
+        st3, rows3 = call("GET", f"/retro_previous_actions?retro_id=eq.{b}&select=*", alex)
+        check("Last retro's actions: nobody reads who wrote an action through it, not even the owner (an anonymous one stays anonymous)",
+              st == 400 and st2 == 400 and st3 == 200 and rows3 and not any(k in rows3[0] for k in ("created_by", "author_id")), f"{st} {st2} {rows3[:1] if rows3 else rows3}")
+        st, rows = ask(pat, a)
+        check("Last retro's actions: the first retro in a space has no previous one: no rows", st == 200 and rows == [], f"{st} {rows}")
+        # Outsiders: nothing from Organizers, by retro, by text or by space.
+        for who, tok in (("Pat", pat), ("Vic", vic)):
+            st, rows = ask(tok, o2)
+            st2, rows2 = call("GET", "/retro_previous_actions?body=like.*LRA-ORG*&select=note_id", tok)
+            st3, rows3 = call("GET", f"/retro_previous_actions?space_id=eq.{SID['organizers']}&select=note_id", tok)
+            st4, rows4 = call("GET", f"/retro_previous_actions?previous_id=eq.{o1}&select=note_id", tok)
+            check(f"Last retro's actions: {who} reads no Organizers actions, by retro, text, space or previous retro",
+                  st == 200 and rows == [] and rows2 == [] and rows3 == [] and rows4 == [], f"{rows} {rows2} {rows3} {rows4}")
+        st, rows = ask(olive, o2)
+        check("Last retro's actions: Olive (in Organizers) sees the Organizers retro's previous actions (positive control)",
+              st == 200 and [r["note_id"] for r in rows] == [oa] and rows[0]["previous_id"] == o1, f"{st} {rows}")
+        # A channel-scoped token: only its channel.
+        scoped = mint("u-org", scope="festival")
+        st, rows = ask(scoped, o2)
+        st2, rows2 = ask(scoped, b)
+        check("Last retro's actions: a #festival-scoped token for Olive sees #festival's previous actions only",
+              st == 200 and rows == [] and st2 == 200 and len(rows2) == 4, f"{rows} {len(rows2 or [])}")
+        # Nobody writes through the view; the assistant reads only.
+        w = [call("POST", "/retro_previous_actions", alex, {"retro_id": b, "body": "through the view"}),
+             call("PATCH", f"/retro_previous_actions?note_id=eq.{a3}", alex, {"body": "pwned"}),
+             call("DELETE", f"/retro_previous_actions?note_id=eq.{a3}", alex)]
+        check("Last retro's actions: nobody adds, changes or deletes through the view (Alex, owner of #festival)",
+              all(no(r) for r in w) and oq(f"select body from weft.retro_notes where id = '{a3}'") == "Ask the council about parking",
+              str([(r[0], r[1].get("code") if isinstance(r[1], dict) else r[1]) for r in w]))
+        helper = mint("u-pub", assistant=True)
+        st, rows = ask(helper, b)
+        d = call("DELETE", f"/retro_previous_actions?note_id=eq.{a3}", helper)
+        d2 = call("DELETE", f"/retro_notes?id=eq.{a3}", helper)
+        check("Last retro's actions: the assistant (for Pat) reads the same four (positive control) and cannot delete one",
+              st == 200 and len(rows) == 4 and no(d) and refused(d2[0]) and oq(f"select count(*) from weft.retro_notes where id = '{a3}'") == "1",
+              f"{st} {len(rows or [])} {d} {d2[0]}")
+        # Carry over: an ordinary note in the new retro, as the caller; authorship cannot be forged.
+        st, _ = call("POST", "/retro_notes?select=id", pat, {"retro_id": b, "kind": "action", "body": "Ask the council about parking", "created_by": O})
+        st2, _ = call("POST", "/retro_notes?select=id", pat, {"retro_id": b, "kind": "action", "body": "Ask the council about parking", "author_id": O})
+        check("Last retro's actions: a carried-over action cannot be put in someone else's name", refused(st) and refused(st2), f"{st} {st2}")
+        st, rows = call("POST", "/retro_notes?select=id,author_id,retro_id", pat, {"retro_id": b, "kind": "action", "body": "Ask the council about parking"})
+        check("Last retro's actions: Pat (viewer) carries an action over into the new retro, in her own name (positive control)",
+              st == 201 and rows[0]["author_id"] == P and rows[0]["retro_id"] == b, f"{st} {rows}")
+        st, _ = call("POST", "/retro_notes?select=id", pat, {"retro_id": o2, "kind": "action", "body": "LRA-ORG-SECRET renegotiate the venue"})
+        check("Last retro's actions: but not into a retro in a space she is not in", refused(st), str(st))
+        # Ticking follows the Tasks rule; the view follows the task.
+        st, _ = call("PATCH", f"/tasks?id=eq.{t2}", pat, {"done": True}, prefer="return=minimal")
+        check("Last retro's actions: Pat (viewer) cannot tick an open task done", oq(f"select done from weft.tasks where id = '{t2}'") == "f", str(st))
+        call("PATCH", f"/tasks?id=eq.{t2}", olive, {"done": True}, prefer="return=minimal")
+        st, rows = ask(pat, b, f"&note_id=eq.{a2}")
+        check("Last retro's actions: Olive (assignee) ticks it and the view shows it done", rows and rows[0]["task_done"] is True, str(rows))
+        call("DELETE", f"/tasks?id=eq.{t2}", olive)
+        st, rows = ask(pat, b, f"&note_id=eq.{a2}")
+        check("Last retro's actions: a deleted task leaves the action, shown as never a task", rows and rows[0]["task_id"] is None, str(rows))
+        # Previous means the newest one before: a third retro looks back at the second.
+        c = item(olive, "festival", "retro", "LRA festival 3")
+        st, rows = ask(pat, c)
+        st2, rows2 = ask(pat, b)
+        check("Last retro's actions: a third retro looks back at the second (its one carried action), the second still at the first",
+              st == 200 and {r["previous_id"] for r in rows} == {b} and [r["body"] for r in rows] == ["Ask the council about parking"]
+              and {r["previous_id"] for r in rows2} == {a}, f"{rows} {rows2}")
+        # Moves follow the space: the second retro moves to Organizers.
+        st, _ = call("PATCH", f"/items?id=eq.{b}", olive, {"space_id": SID["organizers"]})
+        st2, rows2 = ask(pat, b)
+        st3, rows3 = ask(olive, b)
+        st4, rows4 = ask(pat, c)
+        check("Last retro's actions: moved to Organizers, the second retro is gone for Pat and looks back at the newest Organizers retro before it (no actions)",
+              st == 200 and rows2 == [] and st3 == 200 and len(rows3) == 1 and rows3[0]["previous_id"] == o2 and rows3[0]["note_id"] is None,
+              f"{st} {rows2} {rows3}")
+        check("Last retro's actions: and the third #festival retro now looks back at the first, not at the one that left",
+              st4 == 200 and {r["previous_id"] for r in rows4} == {a} and len(rows4) == 4, str(rows4))
+        # A disabled account reads nothing.
+        oq(f"update weft.users set disabled = true where id = '{P}'")
+        try:
+            st, rows = ask(pat, c)
+            check("Last retro's actions: a disabled account reads nothing", rows in ([], None) or refused(st), f"{st} {rows}")
+        finally:
+            oq(f"update weft.users set disabled = false where id = '{P}'")
+        # Deletes follow: the first retro deleted, the third has nothing to look back at in #festival.
+        call("DELETE", f"/items?id=eq.{a}", olive)
+        st, rows = ask(pat, c)
+        check("Last retro's actions: with the first retro deleted, the third has no previous retro in #festival", st == 200 and rows == [], f"{st} {rows}")
+    finally:
+        for i in reversed(made):
+            call("DELETE", f"/items?id=eq.{i}", olive)
+
+
 def test_signin(email):
     req = urllib.request.Request(TEST_SIGNIN, method="POST", data=json.dumps({"email": email}).encode(),
                                  headers={"Content-Type": "application/json"})
@@ -6174,6 +6310,7 @@ if __name__ == "__main__":
     profiles()
     who_knows_what()
     kudos_on_profiles()
+    last_retro_actions()
     people()
     trees()
     prefs_and_files()
