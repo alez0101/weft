@@ -250,7 +250,7 @@ export default function Docs({ kind, view, me, members, openId, setOpenId, notic
               : kind === 'addressbook'
               ? <div className="docs-links"><ContactList key={current.id} item={current} editable={canEditIn(current.space_id)} notice={notice} /></div>
               : kind === 'decisionlog'
-              ? <div className="docs-links"><DecisionLog key={current.id} item={current} editable={canEditIn(current.space_id)} notice={notice} /></div>
+              ? <div className="docs-links"><DecisionLog key={current.id} item={current} editable={canEditIn(current.space_id)} notice={notice} onOpenItem={onOpenItem} /></div>
               : kind === 'qa'
               ? <div className="docs-links"><QandA key={current.id} item={current} me={me} editable={canEditIn(current.space_id)} owner={myRole(current.space_id) === 'owner'} notice={notice} /></div>
               : kind === 'checklist'

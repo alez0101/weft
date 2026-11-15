@@ -3,6 +3,7 @@
 // word; "Hide replaced" shows only what is still in force. Editors add, change and delete; viewers read.
 // Row-level security decides; when it says no, the reason is shown and the log is reloaded.
 // Live: any change to this log's decisions refetches it.
+// A decision sent from a meeting (054) says "From the meeting …" with a button that opens it.
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
 
@@ -42,7 +43,7 @@ function DecisionForm({ initial, others, onSave, onCancel, label, idp, submit: s
   );
 }
 
-export default function DecisionLog({ item, editable, notice }) {
+export default function DecisionLog({ item, editable, notice, onOpenItem }) {
   const [decisions, setDecisions] = useState(null);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
@@ -51,10 +52,10 @@ export default function DecisionLog({ item, editable, notice }) {
   const [adding, setAdding] = useState(false);
   const [focus, setFocus] = useState(null);
 
-  const load = useCallback(() => api(`/decisions?log_id=eq.${item.id}&select=id,title,context,decided_by,decided_on,replaces_id,created_at,author:users!decisions_created_by_fkey(display_name)&order=decided_on.desc,created_at.desc`)
+  const load = useCallback(() => api(`/decisions?log_id=eq.${item.id}&select=id,title,context,decided_by,decided_on,replaces_id,created_at,author:users!decisions_created_by_fkey(display_name),from:meeting_decisions(meeting:items(id,title))&order=decided_on.desc,created_at.desc`)
     .then((r) => { setDecisions(r); }), [item.id]);
   useEffect(() => { load().catch((e) => setError(`The decision log could not load: ${e.message}`)); }, [load]);
-  useEffect(() => { if (notice?.t === 'decisions' && notice.log === item.id) load().catch(() => {}); }, [notice, item.id, load]);
+  useEffect(() => { if (['decisions', 'meeting_decisions'].includes(notice?.t) && notice.log === item.id) load().catch(() => {}); }, [notice, item.id, load]);
   // Jumping to a linked decision: show it even if a filter hid it, then move focus to it.
   useEffect(() => {
     if (!focus) return;
@@ -89,6 +90,8 @@ export default function DecisionLog({ item, editable, notice }) {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   const shown = decisions.filter((d) => (!hideReplaced || !replacedBy[d.id])
     && words.every((w) => `${d.title} ${d.context} ${d.decided_by}`.toLowerCase().includes(w)));
+  // The meeting a decision was sent from (one-to-one, so PostgREST gives an object; a list just in case).
+  const fromMeeting = (d) => (Array.isArray(d.from) ? d.from[0] : d.from)?.meeting;
   const inForce = decisions.filter((d) => !replacedBy[d.id]).length;
 
   return (
@@ -126,6 +129,11 @@ export default function DecisionLog({ item, editable, notice }) {
                   </div>
                   <h3 className="decision-title">{d.title}</h3>
                   {d.decided_by && <p className="decision-by">Decided by {d.decided_by}</p>}
+                  {fromMeeting(d) && <p className="decision-links decision-from">
+                    <span>From the meeting {onOpenItem
+                      ? <button type="button" className="link-btn" onClick={() => onOpenItem(fromMeeting(d).id)}>{fromMeeting(d).title}</button>
+                      : fromMeeting(d).title}</span>
+                  </p>}
                   {d.context && <p className="link-note">{d.context}</p>}
                   {(old || next) && (
                     <p className="decision-links">

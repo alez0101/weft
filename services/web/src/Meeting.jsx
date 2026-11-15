@@ -7,11 +7,14 @@
 // space refetch it, without touching a section someone is still typing in.
 // Away warnings (052): an open action item whose owner has time off on its due date (or, without one, on
 // the day the meeting is held) says "Pat is away then".
+// Decisions to the log (054): each line of the Decisions section can be sent with one press to a decision log
+// in the same space (MeetingDecisions.jsx).
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
 import { dueLabel, today } from './TaskList.jsx';
 import { AwayLive, AwayNote, useAway } from './Away.jsx';
 import { dayKey } from './TimeOff.jsx';
+import MeetingDecisions from './MeetingDecisions.jsx';
 
 const SECTIONS = [
   ['agenda', 'Agenda', 'What you will talk about, one point per line'],
@@ -28,6 +31,8 @@ export default function Meeting({ item, me, members, editable, notice, onOpenEve
   const [actions, setActions] = useState([]);
   const [events, setEvents] = useState([]);
   const [lists, setLists] = useState([]);
+  const [logs, setLogs] = useState([]);
+  const [sent, setSent] = useState([]);
   const [drafts, setDrafts] = useState({});
   const [error, setError] = useState('');
   const [saved, setSaved] = useState('');
@@ -40,19 +45,21 @@ export default function Meeting({ item, me, members, editable, notice, onOpenEve
 
   const load = useCallback(async () => {
     const from = new Date(Date.now() - 90 * 86400000).toISOString(); const to = new Date(Date.now() + 180 * 86400000).toISOString();
-    const [rows, acts, evs, ls] = await Promise.all([
+    const [rows, acts, evs, ls, dls, sd] = await Promise.all([
       api(`/meetings?id=eq.${item.id}&select=id,held_at,agenda,notes,decisions,event_id,task_list_id,updated_at,event:events(id,title,starts_at,ends_at,location),list:items!meetings_task_list_id_fkey(id,title)`),
       api(`/meeting_actions?meeting_id=eq.${item.id}&select=task_id,created_at,task:tasks(id,title,assignee_id,due_on,done,list_id)&order=created_at`),
       api(`/events?space_id=eq.${item.space_id}&starts_at=gte.${from}&starts_at=lte.${to}&select=id,title,starts_at&order=starts_at&limit=300`),
       api(`/items?kind=eq.tasklist&space_id=eq.${item.space_id}&select=id,title&order=title`),
+      api(`/items?kind=eq.decisionlog&space_id=eq.${item.space_id}&select=id,title&order=title`),
+      api(`/meeting_decisions?meeting_id=eq.${item.id}&select=decision_id,line,decision:decisions(id,title,log_id,log:items(id,title))&order=created_at`),
     ]);
-    setM(rows[0] || false); setActions(acts.filter((a) => a.task)); setEvents(evs); setLists(ls);
+    setM(rows[0] || false); setActions(acts.filter((a) => a.task)); setEvents(evs); setLists(ls); setLogs(dls); setSent(sd.filter((x) => x.decision));
   }, [item.id, item.space_id]);
   useEffect(() => { load().catch((e) => setError(`The meeting could not load: ${e.message}`)); }, [load]);
   useEffect(() => {
     if (!notice) return;
-    if ((notice.t === 'meetings' && notice.id === item.id) || (notice.t === 'meeting_actions' && notice.meeting === item.id)
-      || (['tasks', 'events', 'items'].includes(notice.t) && notice.space === item.space_id)) load().catch(() => {});
+    if ((notice.t === 'meetings' && notice.id === item.id) || (['meeting_actions', 'meeting_decisions'].includes(notice.t) && notice.meeting === item.id)
+      || (['tasks', 'events', 'items', 'decisions'].includes(notice.t) && notice.space === item.space_id)) load().catch(() => {});
   }, [notice, item.id, item.space_id, load]);
 
   // Every change: show the database's answer if it refuses, and reload so the screen matches the data.
@@ -134,6 +141,7 @@ export default function Meeting({ item, me, members, editable, notice, onOpenEve
             <textarea id={`meeting-${key}`} className="meeting-text" rows={key === 'notes' ? 8 : 4} maxLength={20000} placeholder={hint}
               value={drafts[key] ?? m[key]} onChange={(e) => { setSaved(''); setDrafts((d) => ({ ...d, [key]: e.target.value })); }} onBlur={() => saveSection(key)} />
           </>) : m[key] ? <p className="meeting-read">{m[key]}</p> : <p className="convo-empty">Nothing written yet.</p>}
+          {key === 'decisions' && <MeetingDecisions meeting={m} sent={sent} logs={logs} editable={editable} onChanged={() => load().catch(() => {})} onOpenItem={onOpenItem} />}
         </section>
       ))}
       {saved && <p className="slot-status" role="status">{saved}</p>}

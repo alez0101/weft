@@ -14,6 +14,7 @@ Open **Meetings** on Home, choose the space at the top (a channel, or your perso
 - **When**: the date and time of the meeting.
 - **Calendar event**: pick an event from the same space. The meeting takes the event's time, **Open in Calendar** jumps to it, and the event shows a **Meeting notes** button that opens this page.
 - **Agenda**, **Notes** and **Decisions**: plain text. Each one saves when you click or tab out of it, and everyone looking at the meeting sees it change. Two people can write in different sections at the same time; if two people change the same section, the last one to leave it wins.
+- Each line under **Decisions** can be sent to a decision log in the same space with one press; see the **Meeting decisions to the log** help page.
 
 ### Action items
 
