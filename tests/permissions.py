@@ -4593,6 +4593,140 @@ def repeating_tasks():
           oq(f"select count(*) from weft.tasks where list_id in ('{org}', '{fest}')") == "0")
 
 
+# ---------------------------------------------------------------- comments on tasks
+def task_comments():
+    """Comments on tasks (053): who reads, posts and deletes; authorship; scope; the assistant; search; moves."""
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, V, O, A = uid("user", "u-pub"), uid("user", "u-vol"), uid("user", "u-org"), uid("user", "u-alex")
+    oq = lambda sql: owner_sql(sql)
+    def task(lst, title, **extra):
+        st, rows = call("POST", "/tasks", olive, {"list_id": lst, "title": title, **extra})
+        return rows[0]["id"] if st == 201 else None
+    def comment(tok, task_id, body, **extra):
+        st, rows = call("POST", "/task_comments", tok, {"task_id": task_id, "body": body, **extra})
+        return st, (rows[0] if st == 201 and rows else rows)
+    def count(task_id): return oq(f"select count(*) from weft.task_comments where task_id = '{task_id}'")
+    org = call("POST", "/items", olive, {"space_id": SID["organizers"], "kind": "tasklist", "title": "Org commented"})[1][0]["id"]
+    fest = call("POST", "/items", olive, {"space_id": SID["festival"], "kind": "tasklist", "title": "Festival commented"})[1][0]["id"]
+    ot = task(org, "Book the caterer", assignee_id=A)
+    pt = task(fest, "Hang the banners", assignee_id=P)
+    xt = task(fest, "Order the stage", assignee_id=O)
+
+    # Olive (editor) comments in Organizers; the database sets the author and trims the text.
+    st, c = comment(olive, ot, "  TCOMMENT-ORG-SECRET quote is 4200, too high?  \n")
+    oc = c.get("id") if st == 201 else None
+    check("Comments on tasks: Olive (editor) comments on an Organizers task; she is the author, the text is trimmed (positive control)",
+          st == 201 and c["author_id"] == O and c["body"] == "TCOMMENT-ORG-SECRET quote is 4200, too high?", f"{st} {c}")
+    st, rows = call("GET", f"/task_comments?task_id=eq.{ot}&select=body,author_id", alex)
+    check("Comments on tasks: Alex (owner) reads it (positive control)", st == 200 and len(rows) == 1, str(rows))
+
+    # Outsiders read nothing and post nothing in Organizers.
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = call("GET", f"/task_comments?task_id=eq.{ot}", tok)
+        st2, rows2 = call("GET", "/task_comments?select=task_id,body", tok)
+        st3, rows3 = call("GET", f"/tasks?id=eq.{ot}&select=id,task_comments(body)", tok)
+        check(f"Comments on tasks: {who} reads no Organizers comment, by task, by listing all, or through the task",
+              st == 200 and rows == [] and st2 == 200 and not any("TCOMMENT-ORG" in r["body"] for r in rows2) and rows3 == [], f"{rows} {rows3}")
+        st, _ = comment(tok, ot, "pwned")
+        check(f"Comments on tasks: {who} cannot comment on an Organizers task", refused(st) and count(ot) == "1", str(st))
+
+    # #festival: Pat is a viewer. She reads every comment; she may comment only on the task assigned to her.
+    st, c = comment(olive, xt, "Stage company needs the size by Friday")
+    xc = c.get("id") if st == 201 else None
+    st, rows = call("GET", f"/task_comments?task_id=eq.{xt}&select=body", pat)
+    check("Comments on tasks: Pat (viewer) reads comments in #festival (positive control)", st == 200 and len(rows) == 1, str(rows))
+    st, c = comment(pat, pt, "Banners are in the shed, I will hang them Saturday")
+    pc = c.get("id") if st == 201 else None
+    check("Comments on tasks: Pat (viewer) comments on the task assigned to her (positive control)", st == 201 and c["author_id"] == P, f"{st} {c}")
+    st, _ = comment(pat, xt, "pwned")
+    st2, _ = comment(vic, pt, "pwned")
+    check("Comments on tasks: Pat cannot comment on someone else's task, nor Vic (viewer) on Pat's", refused(st) and refused(st2)
+          and count(xt) == "1" and count(pt) == "1", f"{st} {st2}")
+    st, _ = comment(mint("u-pub", scope="volunteers"), pt, "pwned")
+    check("Comments on tasks: nor Pat on her own task through a token scoped to another channel", refused(st) and count(pt) == "1", str(st))
+    st, _ = comment(olive, pt, "   ")
+    st2, _ = comment(olive, pt, "x" * 1001)
+    check("Comments on tasks: an empty comment and one over 1000 characters are refused", st == 400 and st2 == 400 and count(pt) == "1", f"{st} {st2}")
+
+    # Authorship and time cannot be forged; comments are not edited and do not jump between tasks.
+    st, _ = comment(olive, xt, "forged", author_id=A)
+    st2, _ = comment(olive, xt, "backdated", created_at="2020-01-01T00:00:00Z")
+    check("Comments on tasks: author and time cannot be set by the client", refused(st) and refused(st2) and count(xt) == "1", f"{st} {st2}")
+    st, _ = call("PATCH", f"/task_comments?id=eq.{xc}", olive, {"body": "rewritten"})
+    st2, _ = call("PATCH", f"/task_comments?id=eq.{xc}", olive, {"task_id": ot})
+    check("Comments on tasks: a comment cannot be edited or moved to another task, not even by its author",
+          refused(st) and refused(st2) and oq(f"select task_id::text || body from weft.task_comments where id = '{xc}'") == xt + "Stage company needs the size by Friday", f"{st} {st2}")
+
+    # Deleting: your own, or an owner of the space.
+    st, rows = call("DELETE", f"/task_comments?id=eq.{pc}", vic)
+    st2, rows2 = call("DELETE", f"/task_comments?id=eq.{pc}", olive)
+    check("Comments on tasks: Vic and Olive (editor, not owner) cannot delete Pat's comment", (rows == [] or refused(st)) and (rows2 == [] or refused(st2)) and count(pt) == "1", f"{st} {rows} {st2} {rows2}")
+    st, rows = call("DELETE", f"/task_comments?id=eq.{xc}", pat)
+    check("Comments on tasks: Pat cannot delete Olive's comment", (rows == [] or refused(st)) and count(xt) == "1", f"{st} {rows}")
+    st, rows = call("DELETE", f"/task_comments?id=eq.{pc}", pat)
+    check("Comments on tasks: Pat deletes her own comment (positive control)", st == 200 and len(rows or []) == 1 and count(pt) == "0", f"{st} {rows}")
+    st, rows = call("DELETE", f"/task_comments?id=eq.{xc}", alex)
+    check("Comments on tasks: Alex (owner of #festival) deletes Olive's comment (positive control)", st == 200 and len(rows or []) == 1 and count(xt) == "0", f"{st} {rows}")
+    check("Comments on tasks: the delete is in the audit log under #festival, by Alex, with the text it had",
+          oq(f"select count(*) from weft.audit where table_name = 'task_comments' and row_id = '{xc}' and space_id = '{SID['festival']}' and actor_id = '{A}' and op = 'DELETE' and old_row->>'author_id' = '{O}'") == "1")
+
+    # Channel scope and the assistant.
+    scoped = mint("u-org", scope="festival")
+    comment(olive, xt, "TCOMMENT-FEST size is 8 by 6 metres")
+    st, rows = call("GET", "/task_comments?select=task_id", scoped)
+    st2, _ = comment(scoped, ot, "pwned")
+    check("Comments on tasks: a #festival-scoped token for Olive sees only #festival comments and cannot comment in Organizers",
+          st == 200 and rows and ot not in {r["task_id"] for r in rows} and refused(st2) and count(ot) == "1", f"{st} {st2}")
+    st, rows = call("GET", f"/task_comments?id=eq.{oc}", mint("u-vol", scope="volunteers"))
+    check("Comments on tasks: a scoped token for Vic sees no Organizers comment", st == 200 and rows == [], str(rows))
+    helper = mint("u-org", assistant=True)
+    st, rows = call("GET", f"/task_comments?task_id=eq.{ot}&select=body", helper)
+    check("Comments on tasks: the assistant (for Olive) reads the comment (positive control)", st == 200 and len(rows) == 1, str(rows))
+    st, _ = call("DELETE", f"/task_comments?id=eq.{oc}", helper)
+    st2, _ = comment(helper, ot, "by the assistant")
+    check("Comments on tasks: the assistant cannot delete or post a comment", refused(st) and refused(st2) and count(ot) == "1", f"{st} {st2}")
+    st, rows = call("GET", f"/task_comments?id=eq.{oc}", mint("u-pub", assistant=True))
+    check("Comments on tasks: the assistant for Pat sees no Organizers comment", st == 200 and rows == [], str(rows))
+
+    # Search and the assistant read the list's text summary.
+    st, rows = call("GET", f"/items?id=eq.{org}&select=body_text", olive)
+    check("Comments on tasks: the list summary carries the comment under its task (search and the assistant see it)",
+          st == 200 and "Book the caterer (Alex" in (rows[0]["body_text"] or "") and "\n  Comment by Olive Organizer: TCOMMENT-ORG-SECRET quote is 4200" in (rows[0]["body_text"] or ""), str(rows))
+    st, rows = call("GET", f"/items?body_text=like.*TCOMMENT-ORG*&select=id", pat)
+    check("Comments on tasks: Pat finds no item carrying the Organizers comment", st == 200 and rows == [], str(rows))
+
+    # Moves: a #festival list moved to Volunteers keeps its comments; Pat (not in Volunteers) loses her name on hers,
+    # recorded under #festival only.
+    st, c = comment(pat, pt, "TCOMMENT-PAT done the left side")
+    mc = c.get("id") if st == 201 else None
+    st, _ = call("PATCH", f"/items?id=eq.{fest}", olive, {"space_id": SID["volunteers"]})
+    st2, rows2 = call("GET", f"/task_comments?task_id=eq.{pt}&select=id,author_id,body", vic)
+    check("Comments on tasks: the list moved to Volunteers: its comments go with it, and Pat's (she is not in Volunteers) has no author",
+          st == 200 and st2 == 200 and rows2 == [{"id": mc, "author_id": None, "body": "TCOMMENT-PAT done the left side"}], f"{st} {rows2}")
+    st, rows = call("GET", f"/task_comments?task_id=eq.{xt}&select=author_id", vic)
+    check("Comments on tasks: Olive's comment (she is in Volunteers) keeps its author", st == 200 and rows == [{"author_id": O}], str(rows))
+    check("Comments on tasks: the removed author is recorded under #festival (the space it moved from), never Volunteers",
+          oq(f"select count(*) from weft.audit where table_name = 'task_comments' and row_id = '{mc}' and space_id = '{SID['festival']}' and old_row->>'author_id' = '{P}'") == "1"
+          and oq(f"select count(*) from weft.audit where table_name = 'task_comments' and row_id = '{mc}' and space_id <> '{SID['festival']}'") == "0")
+    st, rows = call("GET", f"/audit?row_id=eq.{mc}&select=space_id", olive)
+    check("Comments on tasks: Olive (a #festival member) still reads that audit row", st == 200 and [r["space_id"] for r in rows] == [SID["festival"]], str(rows))
+    st, rows = call("GET", f"/items?id=eq.{fest}&select=body_text", vic)
+    check("Comments on tasks: the moved list's summary names no one for Pat's comment",
+          st == 200 and "Comment by someone: TCOMMENT-PAT" in (rows[0]["body_text"] or "") and "Pat" not in (rows[0]["body_text"] or ""), str(rows))
+    st, rows = call("GET", f"/task_comments?task_id=eq.{pt}", pat)
+    st2, _ = call("DELETE", f"/task_comments?id=eq.{mc}", pat)
+    check("Comments on tasks: Pat now reads nothing of the moved list and cannot delete the comment that was hers",
+          st == 200 and rows == [] and count(pt) == "1", f"{rows} {st2}")
+
+    # Deleting a task deletes its comments; deleting the list deletes the rest.
+    call("DELETE", f"/tasks?id=eq.{pt}", olive)
+    check("Comments on tasks: deleting a task deletes its comments", count(pt) == "0")
+    for lst in (org, fest):
+        call("DELETE", f"/items?id=eq.{lst}", alex)
+    check("Comments on tasks: deleting the lists deletes their comments (tidy)",
+          oq(f"select count(*) from weft.task_comments where task_id in ('{ot}', '{xt}')") == "0")
+
+
 # ---------------------------------------------------------------- more on the calendar
 def more_on_the_calendar():
     """Milestones and your shifts on the Calendar (the exact queries Calendar.jsx makes), and the saved switches."""
@@ -4833,6 +4967,7 @@ if __name__ == "__main__":
     rsvps()
     repeating_events()
     repeating_tasks()
+    task_comments()
     bookings()
     shifts()
     time_off()

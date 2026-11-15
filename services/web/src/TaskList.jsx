@@ -4,9 +4,11 @@
 // Repeating tasks (050): a task may repeat every day, week or month; ticking it off makes the next one
 // (the database does it, so it works the same from Boards and connected apps).
 // Away warnings (052): an open task whose assignee has time off on its due date says "Pat is away then".
+// Comments on tasks (053): each task has a short comment thread under it (TaskComments.jsx).
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
 import { AwayLive, AwayNote, useAway } from './Away.jsx';
+import { TaskComments, ownsSpace, useTaskComments } from './TaskComments.jsx';
 
 export const today = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
 const addDays = (iso, n) => { const d = new Date(`${iso}T12:00:00`); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
@@ -32,6 +34,8 @@ export default function TaskList({ item, me, members, editable, notice }) {
   const [showDone, setShowDone] = useState(true);
   const [mineOnly, setMineOnly] = useState(false);
   const awayOn = useAway(notice);
+  const { byTask, reload: reloadComments } = useTaskComments(item.id, notice);
+  const owner = ownsSpace(members, item.space_id, me);
 
   const people = members.filter((m) => m.space_id === item.space_id && m.user)
     .map((m) => m.user).sort((a, b) => a.display_name.localeCompare(b.display_name));
@@ -111,6 +115,7 @@ export default function TaskList({ item, me, members, editable, notice }) {
         </>
       )}
       {!t.done && <AwayNote away={awayOn(t.assignee_id, t.due_on)} name={nameOf(t.assignee_id)} isMe={t.assignee_id === me.id} />}
+      <TaskComments task={t} comments={byTask[t.id]} me={me} nameOf={nameOf} canPost={editable || t.assignee_id === me.id} isOwner={owner} onChanged={() => reloadComments().catch(() => {})} />
     </li>
   );
 
@@ -132,7 +137,7 @@ export default function TaskList({ item, me, members, editable, notice }) {
           <button className="btn btn--primary btn--sm" type="submit" disabled={!form.title.trim()}>Add task</button>
           <AwayLive away={awayOn(form.assignee_id, form.due_on)} name={nameOf(form.assignee_id)} isMe={form.assignee_id === me.id} />
         </form>
-      ) : <p className="docs-hint">You can read this list and tick off tasks assigned to you. Ask an owner of the space to make you an editor to change anything else.</p>}
+      ) : <p className="docs-hint">You can read this list, and tick off and comment on tasks assigned to you. Ask an owner of the space to make you an editor to change anything else.</p>}
       {error && <p className="send-error" role="alert">{error}</p>}
       <p className="docs-hint task-info" role="status">{info}</p>
       <div className="task-filters">
