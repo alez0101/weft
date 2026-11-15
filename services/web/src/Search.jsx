@@ -5,12 +5,12 @@ import { Fragment, useEffect, useId, useRef, useState } from 'react';
 import { api, assistant } from './api.js';
 
 const GROUPS = [
-  ['channel', 'Channels'], ['document', 'Documents'], ['wiki', 'Wiki pages'], ['table', 'Tables'], ['tasklist', 'Task lists'], ['poll', 'Polls'], ['form', 'Forms'], ['linklist', 'Link lists'], ['addressbook', 'Address books'], ['decisionlog', 'Decision logs'], ['qa', 'Q and A'], ['checklist', 'Checklists'], ['expenselist', 'Expenses'], ['inventory', 'Inventories'], ['goalset', 'Goals'], ['retro', 'Retros'], ['glossary', 'Glossaries'], ['ideaboard', 'Ideas'], ['meeting', 'Meetings'],
+  ['channel', 'Channels'], ['document', 'Documents'], ['wiki', 'Wiki pages'], ['table', 'Tables'], ['spreadsheet', 'Spreadsheets'], ['tasklist', 'Task lists'], ['poll', 'Polls'], ['form', 'Forms'], ['linklist', 'Link lists'], ['addressbook', 'Address books'], ['decisionlog', 'Decision logs'], ['qa', 'Q and A'], ['checklist', 'Checklists'], ['expenselist', 'Expenses'], ['inventory', 'Inventories'], ['goalset', 'Goals'], ['retro', 'Retros'], ['glossary', 'Glossaries'], ['ideaboard', 'Ideas'], ['meeting', 'Meetings'],
   ['whiteboard', 'Whiteboards'], ['file', 'Files'], ['event', 'Events'],
   ['announcement', 'Announcements'], ['rsvps', 'RSVPs'], ['resource', 'Bookings'], ['shift', 'Shifts'], ['timeoff', 'Time off'], ['kudos', 'Kudos'], ['milestone', 'Timeline'], ['profile', 'Profiles'], ['journal', 'Your journal'],
   ['message', 'Messages'], ['related', 'Related by meaning'],
 ];
-const KIND = { document: 'Document', wiki: 'Wiki page', table: 'Table', tasklist: 'Task list', poll: 'Poll', form: 'Form', linklist: 'Link list', addressbook: 'Address book', decisionlog: 'Decision log', qa: 'Q and A board', checklist: 'Checklist', expenselist: 'Expense list', inventory: 'Inventory', goalset: 'Goal set', retro: 'Retro', glossary: 'Glossary', ideaboard: 'Ideas board', meeting: 'Meeting', whiteboard: 'Whiteboard', file: 'File', event: 'Event', message: 'Message', channel: 'Channel',
+const KIND = { document: 'Document', wiki: 'Wiki page', table: 'Table', spreadsheet: 'Spreadsheet', tasklist: 'Task list', poll: 'Poll', form: 'Form', linklist: 'Link list', addressbook: 'Address book', decisionlog: 'Decision log', qa: 'Q and A board', checklist: 'Checklist', expenselist: 'Expense list', inventory: 'Inventory', goalset: 'Goal set', retro: 'Retro', glossary: 'Glossary', ideaboard: 'Ideas board', meeting: 'Meeting', whiteboard: 'Whiteboard', file: 'File', event: 'Event', message: 'Message', channel: 'Channel',
   announcement: 'Announcement', rsvps: 'RSVPs', resource: 'Thing to book', shift: 'Shift', timeoff: 'Time off', kudos: 'Kudos', milestone: 'Milestone', profile: 'Profile', journal: 'Your journal' };
 // Rows of apps that are not items (048): opened in their own app.
 const RECORD = new Set(['announcement', 'rsvps', 'resource', 'shift', 'timeoff', 'kudos', 'milestone', 'profile', 'journal']);

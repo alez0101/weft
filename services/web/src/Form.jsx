@@ -2,7 +2,7 @@
 // into a table. Every member of the space fills it in, viewers too, and changes or withdraws only their
 // own answer until the form is closed. Only editors and owners see everyone's answers (row-level security
 // returns a viewer only their own row); they also edit the questions, close or reopen, download the
-// answers as CSV, or copy them into a new table in Sheets. The database checks every answer; when it says
+// answers as CSV, or copy them into a new table in Tables. The database checks every answer; when it says
 // no, its reason is shown and the form is reloaded. Live: any change on this form refetches it. A closing time
 // (058) closes it by itself; the screen reloads when that time comes.
 import { useCallback, useEffect, useState } from 'react';
@@ -132,7 +132,7 @@ export default function Form({ item, me, members, editable, notice }) {
       const rows = rowsOf();
       if (rows.length) await api('/table_rows', { method: 'POST', prefer: 'return=minimal',
         body: rows.map((row, i) => ({ table_id: table.id, position: i, cells: Object.fromEntries(row.map((v, j) => [byPos[j].id, v]).filter(([, v]) => v !== '')) })) });
-      setNote(`Copied ${answersLabel(rows.length)} to the table "${title}" in Sheets. It is a copy: later answers are not added to it.`);
+      setNote(`Copied ${answersLabel(rows.length)} to the table "${title}" in Tables. It is a copy: later answers are not added to it.`);
     });
   }
 

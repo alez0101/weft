@@ -1,4 +1,4 @@
--- 068 spreadsheets (SPIKE). A spreadsheet is an item (kind 'spreadsheet') whose .xlsx bytes live in
+-- 068 spreadsheets. A spreadsheet is an item (kind 'spreadsheet') whose .xlsx bytes live in
 -- weft.file_blobs, like a file's. Unlike a file, its bytes change: the spreadsheet engine saves edits back
 -- through the files service, which acts as the person who edited, so only people who can edit the space
 -- can change them. Its text (every cell, by sheet) goes into body_text for search and the assistant.
@@ -14,10 +14,13 @@ language sql stable security definer set search_path = weft, weft_private, pg_te
 $$;
 
 alter table weft.file_blobs add column if not exists updated_at timestamptz not null default now();
+-- Which editing session a spreadsheet is in: the engine keys its sessions on this, so it changes only when a
+-- session ends with a final save (not on the periodic saves made while people are still editing).
+alter table weft.file_blobs add column if not exists version integer not null default 1;
 
 drop policy if exists file_blobs_update on weft.file_blobs;
 create policy file_blobs_update on weft.file_blobs for update to weft_user
   using (weft_private.can_edit(weft_private.file_space(item_id))
          and exists (select 1 from weft.items i where i.id = file_blobs.item_id and i.kind = 'spreadsheet'))
   with check (weft_private.can_edit(weft_private.file_space(item_id)));
-grant update (bytes, size, sha256, text_note, updated_at) on weft.file_blobs to weft_user;
+grant update (bytes, mime, size, sha256, text_note, updated_at, version) on weft.file_blobs to weft_user;

@@ -89,6 +89,25 @@ services:
       DATABASE_URL_FILES: postgres://weft_files:${FILES_SVC_PASSWORD:?set in .env}@postgres:5432/weft
       JWT_SECRET: ${JWT_SECRET}
       FILE_MAX_MB: ${FILE_MAX_MB:-25}
+      OFFICE_JWT_SECRET: ${OFFICE_JWT_SECRET:-}     # empty: no Spreadsheets app
+      OFFICE_FORCESAVE_MINUTES: ${OFFICE_FORCESAVE_MINUTES:-5}
+
+  # The spreadsheet engine (OnlyOffice Docs Community, AGPL v3, run unmodified from its official image).
+  # Optional: it runs only with COMPOSE_PROFILES=office in .env. About 600 MB of memory, a 4.3 GB image,
+  # about a minute to start. Only the web container (at /office/) and the files service talk to it, and it
+  # accepts nothing that is not signed with OFFICE_JWT_SECRET. It keeps no data of its own: sheets live in
+  # the database, and an open session's edits are saved every OFFICE_FORCESAVE_MINUTES.
+  office:
+    image: onlyoffice/documentserver:9.4
+    profiles: [office]
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c", "[ -n \"$$JWT_SECRET\" ] || { echo 'set OFFICE_JWT_SECRET in .env'; exit 1; }; exec /app/ds/run-document-server.sh"]
+    environment:
+      JWT_ENABLED: "true"
+      JWT_SECRET: ${OFFICE_JWT_SECRET:-}
+      JWT_HEADER: Authorization
+      JWT_IN_BODY: "true"
+      ALLOW_PRIVATE_IP_ADDRESS: "true"     # it fetches and saves sheets through the files service on this network
 
   mcp:
     build: ../../services/mcp

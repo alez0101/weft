@@ -27,10 +27,13 @@ lines = [
     f"MCP_SVC_PASSWORD={pw()}",
     f"JWT_SECRET={secrets.token_urlsafe(48)}",
     f"ASSIST_MASTER_KEY={secrets.token_hex(32)}",
+    f"OFFICE_JWT_SECRET={secrets.token_urlsafe(48)}",
     f"BOOTSTRAP_ADMIN_EMAIL={a.admin.strip().lower()}",
 ]
 if a.test:
     lines.append("COOKIE_SECURE=false")
+else:
+    lines.append("COMPOSE_PROFILES=office   # the spreadsheet engine; remove this line to run Weft without Spreadsheets")
 os.makedirs(os.path.dirname(path), exist_ok=True)
 fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
 with os.fdopen(fd, "w") as f:

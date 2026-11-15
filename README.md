@@ -6,7 +6,7 @@ allowed to see, with links to where each answer came from.
 
 **What's in it**
 
-- **Write and plan:** documents, a wiki, whiteboards, tables, meeting notes (decisions go to a decision log in one press), decisions, a glossary
+- **Write and plan:** documents, a wiki, whiteboards, spreadsheets (formulas, charts, Excel and CSV files, edited together), tables, meeting notes (decisions go to a decision log in one press), decisions, a glossary
 - **Organise work:** task lists with repeating tasks, comments and boards, checklists, goals with key results (typed, or counted from a task list), retrospectives (starting from the last one's actions), a timeline
 - **Coordinate people:** a calendar with repeating events and RSVPs, bookings of shared things (weekly, skipping the weeks that clash), shift sign-ups (a day or a week copied on in one go), time off (with "away then" notes where people are picked),
   contacts, profiles (who knows what: find people by skill or by channel; recent kudos on each card)
@@ -30,6 +30,7 @@ Status: a working prototype for small teams. Not hardened for large or hostile m
 | Sign-in | Weft accounts (passwords, invite links), or Cloudflare Access |
 | Co-editing | Hocuspocus and Yjs; BlockNote documents, Excalidraw whiteboards |
 | Tables and calendar | AG Grid Community, FullCalendar |
+| Spreadsheets (optional) | OnlyOffice Docs Community (AGPL v3), run unmodified from its official image as its own container; about 600 MB of memory |
 | Files | stored in Postgres; text read from PDF (pdf.js), Word (mammoth) and text files |
 | Assistant | Claude through the Anthropic API, with an optional Ollama fallback, meaning search, optional personal keys, and personal agents (someone's own OpenAI-compatible agent, such as Hermes Agent, with its own conversations) |
 | AI apps | an MCP connector at `/mcp` with its own OAuth sign-in, so Claude and other apps work in Weft as the person who connected them |

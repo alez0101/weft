@@ -10,7 +10,7 @@ const BASE = process.env.WEFT_BASE || 'http://localhost:3211/';
     p.on('pageerror', (e) => errs.push(`${who}: ${e.message}`));
     await p.goto(BASE, { waitUntil: 'networkidle' });
     await p.getByRole('button', { name: who }).click(); await p.waitForSelector('.rail-title');
-    await p.locator('.app:has-text("Sheets")').click(); await p.waitForSelector('.docs-list'); return p;
+    await p.locator('.app:has-text("Tables")').click(); await p.waitForSelector('.docs-list'); return p;
   };
   const olive = await open('Olive Organizer'); const alex = await open('Alex (test admin)', true);
   for (const p of [olive, alex]) { await p.getByRole('button', { name: 'Porches', exact: true }).click(); await p.waitForSelector('.ag-row'); await p.waitForTimeout(800); }

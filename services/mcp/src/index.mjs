@@ -222,7 +222,7 @@ async function rest(ctx, path, { method = 'GET', body, prefer } = {}) {
 const fmtTime = (t) => (t ? new Date(t).toISOString().replace(/:00\.000Z$/, 'Z').replace('.000Z', 'Z') : null);
 const enc = encodeURIComponent;
 const VIEW = { document: ['documents', 'doc'], wiki: ['wiki', 'page'], whiteboard: ['whiteboard', 'board'], table: ['sheets', 'sheet'],
-  tasklist: ['tasks', 'list'], poll: ['polls', 'poll'], linklist: ['links', 'links'], addressbook: ['contacts', 'book'], decisionlog: ['decisions', 'log'], qa: ['qa', 'qa'], checklist: ['checklists', 'checklist'], expenselist: ['expenses', 'expenses'], inventory: ['inventory', 'inventory'], goalset: ['goals', 'goals'], retro: ['retros', 'retro'], glossary: ['glossary', 'glossary'], ideaboard: ['ideas', 'ideas'], meeting: ['meetings', 'meeting'], file: ['files', 'file'] };
+  tasklist: ['tasks', 'list'], poll: ['polls', 'poll'], linklist: ['links', 'links'], addressbook: ['contacts', 'book'], decisionlog: ['decisions', 'log'], qa: ['qa', 'qa'], checklist: ['checklists', 'checklist'], expenselist: ['expenses', 'expenses'], inventory: ['inventory', 'inventory'], goalset: ['goals', 'goals'], retro: ['retros', 'retro'], glossary: ['glossary', 'glossary'], ideaboard: ['ideas', 'ideas'], meeting: ['meetings', 'meeting'], file: ['files', 'file'], spreadsheet: ['spreadsheets', 'spreadsheet'] };
 // Records (048: rows of apps that are not items) open their app, at their channel where it has one.
 const RECORD_VIEW = { announcement: ['announcements', 'notices', 'space'], kudos: ['kudos', 'kudos', 'space'], milestone: ['timeline', 'timeline', 'space'],
   resource: ['bookings', 'booking', 'id'], rsvps: ['calendar', 'event', 'id'], shift: ['shifts'], timeoff: ['timeoff'], profile: ['profiles'] };
@@ -346,7 +346,7 @@ function buildServer(ctx) {
     description: 'Documents, wiki pages, whiteboards, tables, task lists, polls, link lists, address books, decision logs, Q and A boards, checklists, expense lists, inventories, goal sets, retros, glossaries, ideas boards, meetings and files, most recently changed first.',
   }, {
     channel: chan.optional(),
-    kind: z.enum(['document', 'wiki', 'whiteboard', 'table', 'tasklist', 'poll', 'linklist', 'addressbook', 'decisionlog', 'qa', 'checklist', 'expenselist', 'inventory', 'goalset', 'retro', 'glossary', 'ideaboard', 'meeting', 'file']).optional(),
+    kind: z.enum(['document', 'wiki', 'whiteboard', 'table', 'tasklist', 'poll', 'linklist', 'addressbook', 'decisionlog', 'qa', 'checklist', 'expenselist', 'inventory', 'goalset', 'retro', 'glossary', 'ideaboard', 'meeting', 'file', 'spreadsheet']).optional(),
     limit: z.number().int().min(1).max(200).default(50),
   }, async ({ channel, kind, limit }) => {
     let q = `/items?select=id,kind,title,parent_id,updated_at,space:spaces(name)&order=updated_at.desc&limit=${limit}`;

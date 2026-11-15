@@ -23,7 +23,8 @@ const APPS = [
   { id: 'documents', label: 'Documents', tint: '--p-thu', real: true, glyph: <><path d="M11 6h13l7 7v21H11z" /><path d="M24 6v7h7M16 20h10M16 25h10M16 30h6" /></> },
   { id: 'wiki', label: 'Wiki', tint: '--p-fri', real: true, glyph: <><path d="M8 9c4-2 8-2 12 1 4-3 8-3 12-1v23c-4-2-8-2-12 1-4-3-8-3-12-1z" /><path d="M20 10v23" /></> },
   { id: 'whiteboard', label: 'Whiteboard', tint: '--p-wed', real: true, glyph: <><rect x="6" y="8" width="28" height="20" rx="2" /><path d="M12 22c3-6 6 2 9-4s5 1 7-2M14 34l6-6 6 6" /></> },
-  { id: 'sheets', label: 'Sheets', tint: '--p-tue', real: true, glyph: <><rect x="7" y="8" width="26" height="24" rx="2" /><path d="M7 16h26M7 24h26M16 8v24M25 8v24" /></> },
+  { id: 'sheets', label: 'Tables', tint: '--p-tue', real: true, glyph: <><rect x="7" y="8" width="26" height="24" rx="2" /><path d="M7 16h26M7 24h26M16 8v24M25 8v24" /></> },
+  { id: 'spreadsheets', label: 'Spreadsheets', tint: '--p-sat', real: true, glyph: <><rect x="6" y="7" width="28" height="26" rx="2" /><path d="M6 14h28M14 7v26M6 21h28M6 28h28" /><path d="M20 17.5h9M20 24.5h5" /></> },
   { id: 'calendar', label: 'Calendar', tint: '--p-mon', real: true, glyph: <><rect x="7" y="9" width="26" height="24" rx="2" /><path d="M7 16h26M14 6v6M26 6v6M13 22h4M19 22h4M25 22h2M13 27h4" /></> },
   { id: 'rsvps', label: 'RSVPs', tint: '--p-sun', real: true, glyph: <><rect x="7" y="9" width="26" height="24" rx="2" /><path d="M7 16h26M14 6v6M26 6v6" /><path d="M14 24.5l3.5 3.5L26 20" /></> },
   { id: 'bookings', label: 'Bookings', tint: '--p-tue', real: true, glyph: <><circle cx="13.5" cy="20" r="6.5" /><circle cx="13.5" cy="20" r="2" /><path d="M20 20h14M29 20v5M33.5 20v4" /></> },
@@ -68,7 +69,7 @@ const readHash = () => {
   return {
     tabs, active: active === 'home' || tabs.includes(active) ? active : 'home',
     convo: h.get('convo') || 'weft', rail: RAILS.includes(h.get('chat')) ? h.get('chat') : 'normal',
-    doc: h.get('doc') || null, page: h.get('page') || null, event: h.get('event') || null, board: h.get('board') || null, sheet: h.get('sheet') || null, list: h.get('list') || null, kanban: h.get('kanban') || null, poll: h.get('poll') || null, form: h.get('form') || null, links: h.get('links') || null, book: h.get('book') || null, log: h.get('log') || null, qa: h.get('qa') || null, checklist: h.get('checklist') || null, expenses: h.get('expenses') || null, inventory: h.get('inventory') || null, goals: h.get('goals') || null, retro: h.get('retro') || null, glossary: h.get('glossary') || null, ideas: h.get('ideas') || null, meeting: h.get('meeting') || null, notices: h.get('notices') || null, kudos: h.get('kudos') || null, timeline: h.get('timeline') || null, journal: h.get('journal') || null, booking: h.get('booking') || null, file: h.get('file') || null,
+    doc: h.get('doc') || null, page: h.get('page') || null, event: h.get('event') || null, board: h.get('board') || null, sheet: h.get('sheet') || null, spreadsheet: h.get('spreadsheet') || null, list: h.get('list') || null, kanban: h.get('kanban') || null, poll: h.get('poll') || null, form: h.get('form') || null, links: h.get('links') || null, book: h.get('book') || null, log: h.get('log') || null, qa: h.get('qa') || null, checklist: h.get('checklist') || null, expenses: h.get('expenses') || null, inventory: h.get('inventory') || null, goals: h.get('goals') || null, retro: h.get('retro') || null, glossary: h.get('glossary') || null, ideas: h.get('ideas') || null, meeting: h.get('meeting') || null, notices: h.get('notices') || null, kudos: h.get('kudos') || null, timeline: h.get('timeline') || null, journal: h.get('journal') || null, booking: h.get('booking') || null, file: h.get('file') || null,
   };
 };
 
@@ -281,6 +282,7 @@ export default function App() {
     if (ui.journal) h.set('journal', ui.journal);
     if (ui.booking) h.set('booking', ui.booking);
     if (ui.file) h.set('file', ui.file);
+    if (ui.spreadsheet) h.set('spreadsheet', ui.spreadsheet);
     history.replaceState(null, '', `#${h}`);
   }, [ui, session]);
 
@@ -333,7 +335,7 @@ export default function App() {
   };
   const openItem = async (id) => {
     const r = await api(`/items?id=eq.${id}&select=kind`).catch(() => []);
-    if (r[0]?.kind === 'wiki') openTab('wiki', { page: id }); else if (r[0]?.kind === 'whiteboard') openTab('whiteboard', { board: id }); else if (r[0]?.kind === 'table') openTab('sheets', { sheet: id }); else if (r[0]?.kind === 'tasklist') openTab('tasks', { list: id }); else if (r[0]?.kind === 'poll') openTab('polls', { poll: id }); else if (r[0]?.kind === 'form') openTab('forms', { form: id }); else if (r[0]?.kind === 'linklist') openTab('links', { links: id }); else if (r[0]?.kind === 'addressbook') openTab('contacts', { book: id }); else if (r[0]?.kind === 'decisionlog') openTab('decisions', { log: id }); else if (r[0]?.kind === 'qa') openTab('qa', { qa: id }); else if (r[0]?.kind === 'checklist') openTab('checklists', { checklist: id }); else if (r[0]?.kind === 'expenselist') openTab('expenses', { expenses: id }); else if (r[0]?.kind === 'inventory') openTab('inventory', { inventory: id }); else if (r[0]?.kind === 'goalset') openTab('goals', { goals: id }); else if (r[0]?.kind === 'retro') openTab('retros', { retro: id }); else if (r[0]?.kind === 'glossary') openTab('glossary', { glossary: id }); else if (r[0]?.kind === 'ideaboard') openTab('ideas', { ideas: id }); else if (r[0]?.kind === 'meeting') openTab('meetings', { meeting: id }); else if (r[0]?.kind === 'file') openTab('files', { file: id }); else openTab('documents', { doc: id });
+    if (r[0]?.kind === 'wiki') openTab('wiki', { page: id }); else if (r[0]?.kind === 'whiteboard') openTab('whiteboard', { board: id }); else if (r[0]?.kind === 'table') openTab('sheets', { sheet: id }); else if (r[0]?.kind === 'tasklist') openTab('tasks', { list: id }); else if (r[0]?.kind === 'poll') openTab('polls', { poll: id }); else if (r[0]?.kind === 'form') openTab('forms', { form: id }); else if (r[0]?.kind === 'linklist') openTab('links', { links: id }); else if (r[0]?.kind === 'addressbook') openTab('contacts', { book: id }); else if (r[0]?.kind === 'decisionlog') openTab('decisions', { log: id }); else if (r[0]?.kind === 'qa') openTab('qa', { qa: id }); else if (r[0]?.kind === 'checklist') openTab('checklists', { checklist: id }); else if (r[0]?.kind === 'expenselist') openTab('expenses', { expenses: id }); else if (r[0]?.kind === 'inventory') openTab('inventory', { inventory: id }); else if (r[0]?.kind === 'goalset') openTab('goals', { goals: id }); else if (r[0]?.kind === 'retro') openTab('retros', { retro: id }); else if (r[0]?.kind === 'glossary') openTab('glossary', { glossary: id }); else if (r[0]?.kind === 'ideaboard') openTab('ideas', { ideas: id }); else if (r[0]?.kind === 'meeting') openTab('meetings', { meeting: id }); else if (r[0]?.kind === 'file') openTab('files', { file: id }); else if (r[0]?.kind === 'spreadsheet') openTab('spreadsheets', { spreadsheet: id }); else openTab('documents', { doc: id });
   };
   const closeTab = (id) => setUi((u) => {
     const i = u.tabs.indexOf(id); const tabs = u.tabs.filter((t) => t !== id);
@@ -428,7 +430,8 @@ export default function App() {
             : ui.active === 'timeline' ? <Timeline me={me} spaces={spaces} members={members} notice={notice} openId={ui.timeline} setOpenId={(timeline) => setUi((u) => ({ ...u, timeline }))} />
             : ui.active === 'journal' ? <Journal notice={notice} openDay={ui.journal} setOpenDay={(journal) => setUi((u) => ({ ...u, journal }))} />
             : ui.active === 'announcements' ? <Announcements me={me} spaces={spaces} members={members} notice={notice} openId={ui.notices} setOpenId={(notices) => setUi((u) => ({ ...u, notices }))} />
-            : ui.active === 'files' ? <Docs key="files" kind="file" me={me} members={members} notice={notice} openId={ui.file} setOpenId={(file) => setUi((u) => ({ ...u, file }))} />
+            : ui.active === 'files' ? <Docs key="files" kind="file" me={me} members={members} notice={notice} onOpenItem={openItem} openId={ui.file} setOpenId={(file) => setUi((u) => ({ ...u, file }))} />
+            : ui.active === 'spreadsheets' ? <Docs key="spreadsheets" kind="spreadsheet" me={me} members={members} notice={notice} openId={ui.spreadsheet} setOpenId={(spreadsheet) => setUi((u) => ({ ...u, spreadsheet }))} />
             : ui.active === 'bookings' ? <Bookings me={me} spaces={spaces} members={members} notice={notice} openId={ui.booking} setOpenId={(booking) => setUi((u) => ({ ...u, booking }))} />
             : ui.active === 'profiles' ? <Profiles me={me} spaces={spaces} members={members} notice={notice} ask={ui.askSkill} openKudos={openKudos} />
             : ui.active === 'timeoff' ? <TimeOff me={me} spaces={spaces} members={members} notice={notice} />
