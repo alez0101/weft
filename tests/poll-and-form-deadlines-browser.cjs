@@ -91,6 +91,14 @@ const words = (d) => d.toLocaleString('en-US', { weekday: 'short', day: 'numeric
   // Pat (viewer): the widgets, soonest first, then the poll, read-only.
   const pat = await open('Pat Public');
   await pat.waitForSelector('.widgets-area');
+  // Both widgets are on by default; after tests/run.sh Pat's layout may hold only Recent, so turn them on if needed.
+  const missing = [];
+  for (const t of ['Polls to vote in', 'Forms to fill in']) if (!(await pat.locator(`.widget:has(h3:has-text("${t}"))`).count())) missing.push(t);
+  if (missing.length) {
+    await pat.getByRole('button', { name: 'Customize' }).click();
+    for (const t of missing) await pat.locator('.widget-picker label', { hasText: t }).locator('input').check();
+    await pat.getByRole('button', { name: 'Done', exact: true }).click();
+  }
   const pw = pat.locator('.widget:has(h3:has-text("Polls to vote in"))');
   const fw = pat.locator('.widget:has(h3:has-text("Forms to fill in"))');
   await pw.locator('.widget-row', { hasText: 'Which day for the clean-up?' }).waitFor({ timeout: 6000 });
