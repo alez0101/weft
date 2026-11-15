@@ -424,7 +424,7 @@ export default function App() {
             : ui.active === 'announcements' ? <Announcements me={me} spaces={spaces} members={members} notice={notice} openId={ui.notices} setOpenId={(notices) => setUi((u) => ({ ...u, notices }))} />
             : ui.active === 'files' ? <Docs key="files" kind="file" me={me} members={members} notice={notice} openId={ui.file} setOpenId={(file) => setUi((u) => ({ ...u, file }))} />
             : ui.active === 'bookings' ? <Bookings me={me} spaces={spaces} members={members} notice={notice} openId={ui.booking} setOpenId={(booking) => setUi((u) => ({ ...u, booking }))} />
-            : ui.active === 'profiles' ? <Profiles me={me} spaces={spaces} members={members} notice={notice} ask={ui.askSkill} />
+            : ui.active === 'profiles' ? <Profiles me={me} spaces={spaces} members={members} notice={notice} ask={ui.askSkill} openKudos={openKudos} />
             : ui.active === 'timeoff' ? <TimeOff me={me} spaces={spaces} members={members} notice={notice} />
             : ui.active === 'shifts' ? <Shifts me={me} spaces={spaces} members={members} notice={notice} />
             : ui.active === 'rsvps' ? <Rsvps me={me} notice={notice} onOpenEvent={openEvent} />

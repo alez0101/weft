@@ -20,6 +20,7 @@ On your own kudos, **Edit** changes the words (it then says *edited*) and **Dele
 
 - In the app, one wall per channel, newest first. A kudos for you is marked **you**.
 - In the **Recent kudos** widget on Home: the newest kudos from every channel you are in. Click one to open that channel's wall. It is not on by default; add it with **Customize**.
+- On the person's card in **Profiles**: their newest kudos, for people who are in the same channel (see Kudos on profiles).
 
 Kudos are only for channels, not for your personal space or direct messages. They appear in search, and Weft answers questions from them, for the people in the channel only.
 

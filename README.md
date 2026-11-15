@@ -9,7 +9,7 @@ allowed to see, with links to where each answer came from.
 - **Write and plan:** documents, a wiki, whiteboards, tables, meeting notes (decisions go to a decision log in one press), decisions, a glossary
 - **Organise work:** task lists with repeating tasks, comments and boards, checklists, goals with key results (typed, or counted from a task list), retrospectives, a timeline
 - **Coordinate people:** a calendar with repeating events and RSVPs, bookings of shared things (weekly, skipping the weeks that clash), shift sign-ups (a day or a week copied on in one go), time off (with "away then" notes where people are picked),
-  contacts, profiles (who knows what: find people by skill or by channel)
+  contacts, profiles (who knows what: find people by skill or by channel; recent kudos on each card)
 - **Ask and decide together:** polls and forms (that can close by themselves at a set time), Q and A, ideas boards (planned ideas become tasks, declined ones say why), announcements (with a Got it button and a count of who has seen them), kudos
 - **Keep track:** files, link lists, shared expenses with who owes whom, an inventory with check out and
   check in (with back-by dates, overdue in red), a private journal

@@ -3085,6 +3085,101 @@ def who_knows_what():
         oq(f"delete from weft.profiles where user_id in ('{O}', '{P}', '{V}', '{A}')")
 
 
+def kudos_on_profiles():
+    """Kudos on profiles: weft.kudos_received numbers and counts a person's kudos only from channels the caller is in."""
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, V, O, A = (uid("user", k) for k in ("u-pub", "u-vol", "u-org", "u-alex"))
+    oq = lambda sql: owner_sql(sql)
+    sel = "id,space_id,message,n,received,created_by"
+    ask = lambda tok, q="": call("GET", f"/kudos_received?to_user=eq.{O}&n=lte.3&order=n&select={sel}{q}", tok)
+    ids = lambda rows: [r["id"] for r in rows or []]
+    check("Kudos on profiles: Olive starts with no kudos (the Kudos checks tidy up after themselves)",
+          oq(f"select count(*) from weft.kudos where to_user = '{O}'") == "0")
+    made = {}
+    # Oldest first: one in #festival (Alex), one in Volunteers (Vic, an editor there), three in Organizers (Alex).
+    for key, tok, space, msg in (("fest", alex, "festival", "Thanks for the stage plan"), ("vol", vic, "volunteers", "Thanks for the rota"),
+                                 ("org1", alex, "organizers", "KOP-ORG-SECRET budget"), ("org2", alex, "organizers", "KOP-ORG-SECRET sponsors"),
+                                 ("org3", alex, "organizers", "KOP-ORG-SECRET contract")):
+        st, rows = call("POST", "/kudos", tok, {"space_id": SID[space], "to_user": O, "message": msg})
+        made[key] = rows[0]["id"] if st == 201 else None
+    check("Kudos on profiles: five kudos for Olive are given in three channels (setup)", all(made.values()), str(made))
+    try:
+        st, rows = ask(olive)
+        check("Kudos on profiles: Olive sees her newest three (the Organizers ones) and 5 in all (positive control)",
+              st == 200 and ids(rows) == [made["org3"], made["org2"], made["org1"]] and [r["n"] for r in rows] == [1, 2, 3]
+              and {r["received"] for r in rows} == {5}, f"{st} {rows}")
+        st, rows = ask(pat)
+        check("Kudos on profiles: Pat (only #festival) sees only the #festival kudos, as her newest and 1 in all",
+              st == 200 and ids(rows) == [made["fest"]] and rows[0]["n"] == 1 and rows[0]["received"] == 1, f"{st} {rows}")
+        st, rows = call("GET", f"/kudos_received?message=like.*KOP-ORG*&select=id", pat)
+        st2, rows2 = call("GET", f"/kudos_received?space_id=eq.{SID['organizers']}&select=id,received", pat)
+        check("Kudos on profiles: Pat reads no Organizers kudos, by text or by channel, and no count of them", st == 200 and rows == [] and rows2 == [], f"{rows} {rows2}")
+        st, rows = ask(vic)
+        check("Kudos on profiles: Vic (#festival and Volunteers) sees those two, newest first, 2 in all",
+              st == 200 and ids(rows) == [made["vol"], made["fest"]] and {r["received"] for r in rows} == {2}, f"{st} {rows}")
+        st, rows = call("GET", f"/kudos_received?to_user=eq.{O}&select=id,from:users!created_by(display_name)&order=n&limit=1", pat)
+        check("Kudos on profiles: Pat reads who gave hers (positive control for the name)",
+              st == 200 and len(rows) == 1 and rows[0]["from"] and rows[0]["from"]["display_name"], f"{st} {rows}")
+        # A channel-scoped token: only its channel.
+        scoped = mint("u-org", scope="festival")
+        st, rows = ask(scoped)
+        check("Kudos on profiles: a #festival-scoped token for Olive sees only the #festival kudos, 1 in all",
+              st == 200 and ids(rows) == [made["fest"]] and rows[0]["received"] == 1, f"{st} {rows}")
+        # Nobody writes through the view; the assistant reads only.
+        no = lambda r: r[0] in (401, 403, 500) and isinstance(r[1], dict) and r[1].get("code") in ("42501", "55000")
+        w = [call("POST", "/kudos_received", alex, {"space_id": SID["festival"], "to_user": O, "message": "through the view"}),
+             call("PATCH", f"/kudos_received?id=eq.{made['fest']}", alex, {"message": "pwned"}),
+             call("DELETE", f"/kudos_received?id=eq.{made['fest']}", alex)]
+        check("Kudos on profiles: nobody gives, rewords or deletes a kudos through the view (Alex, who gave it and owns #festival)",
+              all(no(r) for r in w) and oq(f"select message from weft.kudos where id = '{made['fest']}'") == "Thanks for the stage plan",
+              str([(r[0], r[1].get("code") if isinstance(r[1], dict) else r[1]) for r in w]))
+        helper = mint("u-pub", assistant=True)
+        st, rows = ask(helper)
+        d = call("DELETE", f"/kudos_received?id=eq.{made['fest']}", helper)
+        d2 = call("DELETE", f"/kudos?id=eq.{made['fest']}", helper)
+        check("Kudos on profiles: the assistant (for Pat) reads the same one kudos (positive control) and cannot delete it",
+              st == 200 and ids(rows) == [made["fest"]] and no(d) and refused(d2[0])
+              and oq(f"select count(*) from weft.kudos where id = '{made['fest']}'") == "1", f"{st} {rows} {d} {d2[0]}")
+        # Authorship: who gave it is the database's answer, not the client's.
+        st, _ = call("POST", "/kudos", vic, {"space_id": SID["volunteers"], "to_user": O, "message": "forged", "created_by": A})
+        st2, rows2 = ask(olive)
+        check("Kudos on profiles: Vic cannot give one in Alex's name, so Olive's newest stay Alex's",
+              refused(st) and {r["created_by"] for r in rows2} == {A} and {r["received"] for r in rows2} == {5}, f"{st} {rows2}")
+        # Deletes follow: Alex deletes an Organizers kudos, and the next one moves up for Olive; Pat's view is unchanged.
+        st, _ = call("DELETE", f"/kudos?id=eq.{made['org3']}", alex)
+        st2, rows2 = ask(olive)
+        st3, rows3 = ask(pat)
+        check("Kudos on profiles: a deleted kudos leaves Olive's profile, the Volunteers one moves up, 4 in all; Pat still sees her one",
+              st in (200, 204) and ids(rows2) == [made["org2"], made["org1"], made["vol"]] and {r["received"] for r in rows2} == {4}
+              and ids(rows3) == [made["fest"]], f"{rows2} {rows3}")
+        # Membership decides: a new channel with Pat in it, then without her.
+        st, ch = call("POST", "/rpc/create_channel", olive, {"p_name": "kudos on profiles test"})
+        call("POST", "/members", olive, {"space_id": ch, "user_id": A, "role": "editor"}, prefer="return=minimal")
+        call("POST", "/members", olive, {"space_id": ch, "user_id": P, "role": "viewer"}, prefer="return=minimal")
+        st, rows = call("POST", "/kudos", alex, {"space_id": ch, "to_user": O, "message": "Thanks for setting this up"})
+        cn = rows[0]["id"] if st == 201 else None
+        st, rows = ask(pat)
+        check("Kudos on profiles: added to a new channel, Pat sees its kudos for Olive on top, 2 in all (positive control)",
+              cn and ids(rows) == [cn, made["fest"]] and {r["received"] for r in rows} == {2}, f"{st} {rows}")
+        call("DELETE", f"/members?space_id=eq.{ch}&user_id=eq.{P}", olive)
+        st, rows = ask(pat)
+        check("Kudos on profiles: removed from it, Pat no longer sees that kudos or counts it", st == 200 and ids(rows) == [made["fest"]]
+              and rows[0]["received"] == 1, f"{st} {rows}")
+        call("DELETE", f"/spaces?id=eq.{ch}", olive)
+        st, rows = ask(olive)
+        check("Kudos on profiles: deleting the channel takes its kudos off Olive's profile", st == 200 and cn not in ids(rows)
+              and {r["received"] for r in rows} == {4}, f"{st} {rows}")
+        # A disabled account reads nothing.
+        oq(f"update weft.users set disabled = true where id = '{V}'")
+        try:
+            st, rows = ask(vic)
+            check("Kudos on profiles: a disabled account reads no kudos", rows in ([], None) or refused(st), f"{st} {rows}")
+        finally:
+            oq(f"update weft.users set disabled = false where id = '{V}'")
+    finally:
+        oq(f"delete from weft.kudos where to_user = '{O}'")
+
+
 def test_signin(email):
     req = urllib.request.Request(TEST_SIGNIN, method="POST", data=json.dumps({"email": email}).encode(),
                                  headers={"Content-Type": "application/json"})
@@ -6078,6 +6173,7 @@ if __name__ == "__main__":
     retros()
     profiles()
     who_knows_what()
+    kudos_on_profiles()
     people()
     trees()
     prefs_and_files()
