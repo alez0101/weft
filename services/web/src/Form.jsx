@@ -3,9 +3,11 @@
 // own answer until the form is closed. Only editors and owners see everyone's answers (row-level security
 // returns a viewer only their own row); they also edit the questions, close or reopen, download the
 // answers as CSV, or copy them into a new table in Sheets. The database checks every answer; when it says
-// no, its reason is shown and the form is reloaded. Live: any change on this form refetches it.
+// no, its reason is shown and the form is reloaded. Live: any change on this form refetches it. A closing time
+// (058) closes it by itself; the screen reloads when that time comes.
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
+import { DeadlineEditor, deadlineWords, isPast, isShut, useAtTime } from './Deadline.jsx';
 
 const when = (iso) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 const answersLabel = (n) => `${n} ${n === 1 ? 'answer' : 'answers'}`;
@@ -63,7 +65,7 @@ export default function Form({ item, me, members, editable, notice }) {
 
   const load = useCallback(async () => {
     const [state, questions, responses] = await Promise.all([
-      api(`/forms?id=eq.${item.id}&select=closed,closed_at,closed_by`),
+      api(`/forms?id=eq.${item.id}&select=closed,closed_at,closed_by,closes_at`),
       api(`/form_questions?form_id=eq.${item.id}&select=id,label,kind,options,required,position&order=position,created_at`),
       api(`/form_responses?form_id=eq.${item.id}&select=id,respondent_id,answers,created_at,updated_at&order=created_at`),
     ]);
@@ -71,10 +73,11 @@ export default function Form({ item, me, members, editable, notice }) {
   }, [item.id]);
   useEffect(() => { load().catch((e) => setError(`The form could not load: ${e.message}`)); }, [load]);
   useEffect(() => { if (notice?.t === 'forms' && notice.form === item.id) load().catch(() => {}); }, [notice, item.id, load]);
+  useAtTime(data?.state.closes_at, useCallback(() => { load().catch(() => {}); }, [load]));
 
   const mine = data?.responses.find((r) => r.respondent_id === me.id);
   // The draft starts from my saved answer, and follows it when it changes (not while I type).
-  useEffect(() => { setNote(''); }, [data?.state.closed, view]);   // a note about the last action, not a stale one
+  useEffect(() => { setNote(''); }, [data?.state.closed, data?.state.closes_at, view]);   // a note about the last action, not a stale one
   const mineKey = data ? (mine ? `${mine.id}-${mine.updated_at}` : 'none') : null;
   useEffect(() => { if (mineKey) setDraft(mine ? { ...mine.answers } : {}); }, [mineKey]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (data && view === null) setView(editable && !data.responses.length ? 'edit' : 'fill'); }, [data, editable, view]);
@@ -86,10 +89,13 @@ export default function Form({ item, me, members, editable, notice }) {
 
   if (!data) return error ? <p className="send-error" role="alert">{error}</p> : <div className="skeleton" aria-label="Loading the form"><span /><span /><span /></div>;
   const { state, questions, responses } = data;
-  const closed = state.closed;
+  const closed = isShut(state);
   const locked = responses.length > 0 || closed;   // an editor sees every answer, so this is exact for them
 
-  const setClosed = (v) => change(v ? 'Could not close the form' : 'Could not reopen the form', () => api(`/forms?id=eq.${item.id}`, { method: 'PATCH', body: { closed: v }, prefer: 'return=minimal' }));
+  // Reopening a form that closed by itself also clears its closing time.
+  const setClosed = (v) => change(v ? 'Could not close the form' : 'Could not reopen the form', () => api(`/forms?id=eq.${item.id}`, { method: 'PATCH', body: { closed: v, ...(!v && isPast(state.closes_at) ? { closes_at: null } : {}) }, prefer: 'return=minimal' }));
+  const setDeadline = (iso) => change(iso ? 'The closing time was not saved' : 'The closing time was not removed', () => api(`/forms?id=eq.${item.id}`, { method: 'PATCH', body: { closes_at: iso }, prefer: 'return=minimal' }));
+  const dl = deadlineWords(state);
   // Show the change at once; the reload after it puts the database's answer on screen.
   const saveQ = (q, body) => {
     setData((d) => ({ ...d, questions: d.questions.map((x) => (x.id === q.id ? { ...x, ...body } : x)) }));
@@ -168,7 +174,8 @@ export default function Form({ item, me, members, editable, notice }) {
         <p className="poll-state" role="status">
           <span className={`poll-badge${closed ? ' is-closed' : ''}`}>{closed ? 'Closed' : 'Open'}</span>
           {editable ? answersLabel(responses.length) : mine ? 'You have answered' : 'You have not answered yet'}
-          {closed && state.closed_at ? `, closed ${when(state.closed_at)}${state.closed_by ? ` by ${nameOf(state.closed_by)}` : ''}` : ''}
+          {state.closed && state.closed_at ? `, closed ${when(state.closed_at)}${state.closed_by ? ` by ${nameOf(state.closed_by)}` : ''}` : ''}
+          {dl ? `, ${dl}` : ''}
         </p>
         {editable && (
           <span className="pair">
@@ -181,6 +188,7 @@ export default function Form({ item, me, members, editable, notice }) {
           </span>
         )}
       </div>
+      {editable && !state.closed && <DeadlineEditor id={`form-closes-${item.id}`} closesAt={state.closes_at} onSave={setDeadline} busy={busy} />}
       {error && <p className="send-error" role="alert">{error}</p>}
       {note && <p className="slot-status" role="status">{note}</p>}
 
@@ -227,7 +235,7 @@ export default function Form({ item, me, members, editable, notice }) {
             </fieldset>
           </form>
         )}
-        <p className="docs-hint">{closed ? 'This form is closed. Answers stay as they were.'
+        <p className="docs-hint">{closed ? `This form is closed. Answers stay as they were.${editable && !state.closed ? ' Reopen it, or set a later closing time, to take answers again.' : ''}`
           : mine ? `You answered ${when(mine.updated_at)}. You can change your answer until the form is closed.`
             : 'Fields marked * are required.'}{' '}{editable ? 'Only editors and owners of this space see everyone\'s answers.' : 'Only you and the editors and owners of this space see your answer.'}</p>
       </>)}

@@ -376,10 +376,11 @@ function buildServer(ctx) {
     }
     if (i.kind === 'poll') {
       const [p, cs, vs] = await Promise.all([
-        rest(ctx, `/polls?id=eq.${id}&select=closed`), rest(ctx, `/poll_choices?poll_id=eq.${id}&select=id,label&order=position`),
+        rest(ctx, `/polls?id=eq.${id}&select=closed,closes_at`), rest(ctx, `/poll_choices?poll_id=eq.${id}&select=id,label&order=position`),
         rest(ctx, `/poll_votes?poll_id=eq.${id}&select=choice_id`),
       ]);
-      return text({ ...head, closed: !!p[0]?.closed, choices: cs.map((c) => ({ label: c.label, votes: vs.filter((v) => v.choice_id === c.id).length })) });
+      const closesAt = p[0]?.closes_at || null;   // 058: closed by hand, or once its closing time has passed
+      return text({ ...head, closed: !!p[0]?.closed || (!!closesAt && new Date(closesAt) <= new Date()), ...(closesAt ? { closes_at: closesAt } : {}), choices: cs.map((c) => ({ label: c.label, votes: vs.filter((v) => v.choice_id === c.id).length })) });
     }
     return text(`${JSON.stringify(head, null, 1)}\n\n${i.body_text || '(empty)'}`);
   });

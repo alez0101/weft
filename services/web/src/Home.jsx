@@ -15,6 +15,7 @@ import { longDay as milestoneDay, when as milestoneWhen } from './Timeline.jsx';
 import { firstLine, longDay, today as journalToday } from './Journal.jsx';
 import { useAway } from './Away.jsx';
 import { dueWords, isOverdue } from './Inventory.jsx';
+import { closesWords, isShut } from './Deadline.jsx';
 
 const WIDGETS = {
   announcements: 'Announcements',
@@ -126,20 +127,23 @@ function NewComments({ data, onOpenItem }) {
       <span className="widget-sub">{ago(c.created_at)}, {c.task?.list?.title} in {where(c.task?.list?.space)}</span>
     </button></li>))}</ul>;
 }
-// Open polls the person has not voted in yet, newest first. A row opens the poll.
+// The closing time of a poll or form in a widget row (058): "closes Fri 20 Nov, 5:00 PM", in the error colour
+// when it is less than a day away.
+const closesSub = (iso) => iso && <span className={new Date(iso).getTime() - Date.now() < 86400000 ? 'is-late' : undefined}>Closes {closesWords(iso)}, </span>;
+// Open polls the person has not voted in yet: those closing soonest first, then the newest. A row opens the poll.
 function PollsToVote({ data, onOpenItem }) {
   if (!data.length) return <p className="widget-empty">No open polls waiting for your vote.</p>;
   return <ul className="widget-list">{data.map((p) => (
     <li key={p.id}><button type="button" className="widget-row" onClick={() => onOpenItem(p.id)}>
-      <span className="widget-main">{p.title}</span><span className="widget-sub">Poll in {where(p.space)}, {ago(p.updated_at)}</span>
+      <span className="widget-main">{p.title}</span><span className="widget-sub">{closesSub(p.closes_at)}Poll in {where(p.space)}, {ago(p.updated_at)}</span>
     </button></li>))}</ul>;
 }
-// Open forms the person has not answered yet, newest first. A row opens the form.
+// Open forms the person has not answered yet: those closing soonest first, then the newest. A row opens the form.
 function FormsToFill({ data, onOpenItem }) {
   if (!data.length) return <p className="widget-empty">No open forms waiting for you.</p>;
   return <ul className="widget-list">{data.map((f) => (
     <li key={f.id}><button type="button" className="widget-row" onClick={() => onOpenItem(f.id)}>
-      <span className="widget-main">{f.title}</span><span className="widget-sub">Form in {where(f.space)}, {ago(f.updated_at)}</span>
+      <span className="widget-main">{f.title}</span><span className="widget-sub">{closesSub(f.closes_at)}Form in {where(f.space)}, {ago(f.updated_at)}</span>
     </button></li>))}</ul>;
 }
 // The newest questions without an accepted answer, on Q and A boards the person can see. A row opens the board.
@@ -381,8 +385,8 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
         api('/items?select=id,title,kind,updated_at,space:spaces(name,kind)&order=updated_at.desc&limit=6'),
         api('/items?kind=eq.file&select=id,title,kind,updated_at,space:spaces(name,kind)&order=updated_at.desc&limit=5'),
         api(`/tasks?done=is.false&due_on=lte.${week.toISOString().slice(0, 10)}&select=id,title,due_on,repeats,assignee_id,list_id,assignee:users!tasks_assignee_id_fkey(display_name),list:items(title,space:spaces(name,kind))&order=due_on,position&limit=40`),
-        api(`/items?kind=eq.poll&select=id,title,updated_at,space:spaces(name,kind),state:polls(closed),mine:poll_votes(voter_id)&mine.voter_id=eq.${me.id}&order=updated_at.desc&limit=40`),
-        api(`/items?kind=eq.form&select=id,title,updated_at,space:spaces(name,kind),state:forms(closed),mine:form_responses(respondent_id)&mine.respondent_id=eq.${me.id}&order=updated_at.desc&limit=40`),
+        api(`/items?kind=eq.poll&select=id,title,updated_at,space:spaces(name,kind),state:polls(closed,closes_at),mine:poll_votes(voter_id)&mine.voter_id=eq.${me.id}&order=updated_at.desc&limit=40`),
+        api(`/items?kind=eq.form&select=id,title,updated_at,space:spaces(name,kind),state:forms(closed,closes_at),mine:form_responses(respondent_id)&mine.respondent_id=eq.${me.id}&order=updated_at.desc&limit=40`),
         api('/links?select=id,title,list_id,created_at,list:items(title,space:spaces(name,kind))&order=created_at.desc&limit=5'),
         api('/announcements?expires_at=gt.now&select=id,space_id,title,body,expires_at,space:spaces(name,kind)&order=created_at.desc&limit=6'),
         api('/meetings?select=id,held_at,item:items!meetings_id_fkey(title,space:spaces(name,kind))&order=held_at.desc.nullslast&limit=5'),
@@ -410,11 +414,14 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
       const balances = lists.slice(0, 5).map((l) => ({ ...owed.find((b) => b.list_id === l.id), list: l }));
       const shifts = onShifts.filter((s) => s.signups.some((x) => x.user_id === me.id)).slice(0, 5);
       const tasks = [...due.filter((t) => t.assignee_id === me.id), ...due.filter((t) => t.assignee_id !== me.id)].slice(0, 6);
-      const isClosed = (p) => (Array.isArray(p.state) ? p.state[0]?.closed : p.state?.closed);
-      const polls = open.filter((p) => !isClosed(p) && !p.mine?.length).slice(0, 5);
+      // Closed by hand or by its closing time (058); the soonest closing first, then the newest.
+      const stateOf = (p) => (Array.isArray(p.state) ? p.state[0] : p.state);
+      const waiting = (list) => list.filter((p) => !isShut(stateOf(p)) && !p.mine?.length).map((p) => ({ ...p, closes_at: stateOf(p)?.closes_at || null }))
+        .sort((a, b) => (a.closes_at && b.closes_at ? a.closes_at.localeCompare(b.closes_at) : a.closes_at ? -1 : b.closes_at ? 1 : 0)).slice(0, 5);
+      const polls = waiting(open);
       const ideas = [...openIdeas].sort((a, b) => b.votes.length - a.votes.length || b.created_at.localeCompare(a.created_at)).slice(0, 5);
       const retros = retroActions.filter((n) => !n.task?.done).slice(0, 5);
-      const forms = openForms.filter((f) => !isClosed(f) && !f.mine?.length).slice(0, 5);
+      const forms = waiting(openForms);
       setData({ announcements, upcoming, yeses, bookings, shifts, away, tasks, comments, polls, forms, links, contacts, glossary, ideas, kudos, milestones, journal, decisions, questions, checklists, balances, holding, goals, retros, profile, meetings, recent, files }); setError('');
     } catch (e) { setError(`Widgets could not load: ${e.message}`); }
   }, [me.id]);
