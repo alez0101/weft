@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, assistant } from './api.js';
 import { dueLabel, today, REPEATS } from './TaskList.jsx';
-import { until, useNow } from './Announcements.jsx';
+import { until, useNow, GotIt } from './Announcements.jsx';
 import { heldLabel } from './Meeting.jsx';
 import { span } from './Bookings.jsx';
 import { shiftSpan } from './Shifts.jsx';
@@ -284,7 +284,8 @@ function MyJournal({ data, onOpenJournal }) {
   </>;
 }
 // Current announcements in every channel the person is in, newest first. A row opens Announcements there.
-function Notices({ data, onOpenNotices }) {
+// A notice that asks for "Got it" shows the button (or "You got it") under it.
+function Notices({ data, me, onOpenNotices, reload }) {
   const now = useNow();
   const rows = data.filter((a) => new Date(a.expires_at).getTime() > now);
   if (!rows.length) return <p className="widget-empty">No announcements right now.</p>;
@@ -293,7 +294,7 @@ function Notices({ data, onOpenNotices }) {
       <span className="widget-main">{a.title}</span>
       {a.body && <span className="widget-note">{a.body}</span>}
       <span className="widget-sub">{where(a.space)}, until {until(a.expires_at)}</span>
-    </button></li>))}</ul>;
+    </button>{a.ask_ack && <div className="widget-ack"><GotIt a={a} me={me} onChanged={reload} /></div>}</li>))}</ul>;
 }
 // The latest meetings the person can see, by when they are held. A row opens the meeting.
 function Meetings({ data, onOpenItem }) {
@@ -388,7 +389,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
         api(`/items?kind=eq.poll&select=id,title,updated_at,space:spaces(name,kind),state:polls(closed,closes_at),mine:poll_votes(voter_id)&mine.voter_id=eq.${me.id}&order=updated_at.desc&limit=40`),
         api(`/items?kind=eq.form&select=id,title,updated_at,space:spaces(name,kind),state:forms(closed,closes_at),mine:form_responses(respondent_id)&mine.respondent_id=eq.${me.id}&order=updated_at.desc&limit=40`),
         api('/links?select=id,title,list_id,created_at,list:items(title,space:spaces(name,kind))&order=created_at.desc&limit=5'),
-        api('/announcements?expires_at=gt.now&select=id,space_id,title,body,expires_at,space:spaces(name,kind)&order=created_at.desc&limit=6'),
+        api('/announcements?expires_at=gt.now&select=id,space_id,title,body,expires_at,created_by,ask_ack,acks:announcement_acks(user_id),space:spaces(name,kind)&order=created_at.desc&limit=6'),
         api('/meetings?select=id,held_at,item:items!meetings_id_fkey(title,space:spaces(name,kind))&order=held_at.desc.nullslast&limit=5'),
         api(`/events?ends_at=gte.${now.toISOString()}&select=id,title,starts_at,location,space:spaces(name,kind),mine:rsvps!inner(answer)&mine.user_id=eq.${me.id}&mine.answer=eq.going&order=starts_at&limit=5`),
         api(`/bookings?booked_by=eq.${me.id}&ends_at=gt.${now.toISOString()}&select=id,resource_id,starts_at,ends_at,thing:resources(name),space:spaces(name,kind)&order=starts_at&limit=5`),
@@ -428,13 +429,13 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
   useEffect(() => { load(); }, [load]);
   // Live: refresh shortly after anything they show changes (several notices in a row refresh once).
   useEffect(() => {
-    if (!notice || !['events', 'items', 'members', 'tasks', 'task_comments', 'polls', 'forms', 'links', 'contacts', 'glossary', 'ideas', 'kudos', 'milestones', 'journal_entries', 'decisions', 'qa', 'checklists', 'expenses', 'inventory', 'goals', 'retros', 'announcements', 'meetings', 'rsvps', 'bookings', 'resources', 'shifts', 'shift_signups', 'profiles', 'time_off'].includes(notice.t)) return;
+    if (!notice || !['events', 'items', 'members', 'tasks', 'task_comments', 'polls', 'forms', 'links', 'contacts', 'glossary', 'ideas', 'kudos', 'milestones', 'journal_entries', 'decisions', 'qa', 'checklists', 'expenses', 'inventory', 'goals', 'retros', 'announcements', 'announcement_acks', 'meetings', 'rsvps', 'bookings', 'resources', 'shifts', 'shift_signups', 'profiles', 'time_off'].includes(notice.t)) return;
     clearTimeout(timer.current); timer.current = setTimeout(load, 400);
   }, [notice, load]);
 
   if (!order) return null;
   const assistantSpace = spaces.find((s) => s.kind === 'assistant');
-  const body = (k) => (k === 'announcements' ? <Notices data={data.announcements} onOpenNotices={onOpenNotices} />
+  const body = (k) => (k === 'announcements' ? <Notices data={data.announcements} me={me} onOpenNotices={onOpenNotices} reload={load} />
     : k === 'upcoming' ? <Upcoming data={data.upcoming} onOpenEvent={onOpenEvent} />
     : k === 'yeses' ? <Yeses data={data.yeses} onOpenEvent={onOpenEvent} />
     : k === 'bookings' ? <MyBookings data={data.bookings} onOpenBooking={onOpenBooking} />

@@ -164,7 +164,7 @@ export default function Chat({ me, spaces, members, unread, active: activeRaw, s
           <p className="thread-sub">{sub ?? <button type="button" className="link-btn" onClick={() => setPeopleOpen(true)} aria-haspopup="dialog">{memberCount} {memberCount === 1 ? 'member' : 'members'}, see people</button>}{live !== 'live' && active !== ASSISTANT ? ' (reconnecting)' : ''}</p>
           {peopleOpen && current?.kind === 'channel' && <ChannelPeople key={current.id} me={me} space={current} onClose={() => { setPeopleOpen(false); onSpacesChanged().catch(() => {}); }}
             onGone={async () => { setPeopleOpen(false); await onSpacesChanged().catch(() => {}); setActive(ASSISTANT); }} />}
-          {current?.kind === 'channel' && <Pinned spaceId={current.id} notice={notice} onOpenAll={() => onOpenNotices(current.id)} />}
+          {current?.kind === 'channel' && <Pinned spaceId={current.id} notice={notice} me={me} onOpenAll={() => onOpenNotices(current.id)} />}
         </header>
         {active === ASSISTANT ? (
           <div className="thread-empty"><p>Setting up your conversation with Weft…</p></div>

@@ -13,7 +13,7 @@ Open **Announcements** on Home and pick a channel on the left. The number next t
 - **Text**: details, if you need them (up to 1000 characters).
 - **Show until**: when it stops showing. It starts one week from now; you can choose any time up to a year ahead.
 
-Press **Post**. Everyone in the channel sees it at once.
+Press **Post**. Everyone in the channel sees it at once. For a notice nobody may miss, tick **Ask everyone to press “Got it”**: each member then gets a **Got it** button, and you see how many have pressed it (see Seen by on announcements).
 
 On a notice, **Edit** changes its title, text or end time, **End now** takes it down straight away, and **Delete** removes it for good. Ended notices stay listed under **Ended** in the app, where **Show for a week** puts one back up.
 

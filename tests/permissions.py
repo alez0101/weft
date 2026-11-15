@@ -5842,6 +5842,99 @@ def idea_next_steps():
     check("Next steps: deleting the boards removes their ideas", oq(f"select count(*) from weft.ideas where id in ('{f1}', '{f2}', '{f3}', '{o1}', '{o2}')") == "0")
 
 
+def seen_by():
+    """Seen by on announcements: a "Got it" button; each member reads their own, editors and owners read all."""
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, V, O, A = uid("user", "u-pub"), uid("user", "u-vol"), uid("user", "u-org"), uid("user", "u-alex")
+    oq = lambda sql: owner_sql(sql)
+    soon = oq("select to_char(now() + interval '3 days', 'YYYY-MM-DD\"T\"HH24:MI:SSOF')")
+    acks = lambda a: oq(f"select count(*) from weft.announcement_acks where announcement_id = '{a}'")
+    st, rows = call("POST", "/announcements", olive, {"space_id": SID["festival"], "title": "Wear your badge", "expires_at": soon, "ask_ack": True})
+    fest = rows[0]["id"] if st == 201 else None
+    check("Seen by: Olive (editor) posts a #festival notice that asks for Got it (positive control)", fest and rows[0]["ask_ack"] is True, f"{st} {rows}")
+    st, rows = call("POST", "/announcements", olive, {"space_id": SID["organizers"], "title": "ACK-ORG-SECRET budget", "expires_at": soon, "ask_ack": True})
+    org = rows[0]["id"] if st == 201 else None
+    st, rows = call("POST", "/announcements", olive, {"space_id": SID["festival"], "title": "Just so you know", "expires_at": soon})
+    plain = rows[0]["id"] if st == 201 else None
+    check("Seen by: a notice does not ask for Got it unless the poster says so", plain and rows[0]["ask_ack"] is False, f"{st} {rows}")
+    # Pressing it: every member, viewers included; only your own; only in your channels.
+    st, rows = call("POST", "/announcement_acks", pat, {"announcement_id": fest})
+    check("Seen by: Pat (viewer) presses Got it in #festival (positive control), recorded as Pat by the database",
+          st == 201 and rows and rows[0]["user_id"] == P, f"{st} {rows}")
+    st, _ = call("POST", "/announcement_acks", vic, {"announcement_id": fest})
+    call("POST", "/announcement_acks", olive, {"announcement_id": org})
+    check("Seen by: Vic (viewer) presses it too", st == 201, str(st))
+    st, _ = call("POST", "/announcement_acks", pat, {"announcement_id": fest})
+    check("Seen by: pressing twice adds nothing", st == 409 and acks(fest) == "2", str(st))
+    st, _ = call("POST", "/announcement_acks", pat, {"announcement_id": org})
+    st2, _ = call("POST", "/announcement_acks", vic, {"announcement_id": org})
+    check("Seen by: Pat and Vic cannot press Got it on an Organizers notice", refused(st) and refused(st2) and acks(org) == "1", f"{st} {st2}")
+    st, _ = call("POST", "/announcement_acks", olive, {"announcement_id": fest, "user_id": A})
+    st2, _ = call("POST", "/announcement_acks", olive, {"announcement_id": fest, "created_at": "2020-01-01T00:00:00Z"})
+    check("Seen by: Olive cannot press it as Alex, nor set the time (authorship cannot be forged)", refused(st) and refused(st2) and acks(fest) == "2", f"{st} {st2}")
+    st, _ = call("PATCH", f"/announcement_acks?announcement_id=eq.{fest}&user_id=eq.{P}", pat, {"announcement_id": plain})
+    check("Seen by: a Got it cannot be changed or moved to another notice", refused(st), str(st))
+    # Reading: your own; editors and owners read everyone's.
+    for who, tok, me in (("Pat", pat, P), ("Vic", vic, V)):
+        st, rows = call("GET", f"/announcement_acks?announcement_id=eq.{fest}&select=user_id", tok)
+        check(f"Seen by: {who} (viewer) reads only their own Got it", st == 200 and [r["user_id"] for r in rows] == [me], f"{st} {rows}")
+    for who, tok in (("Olive (editor)", olive), ("Alex (owner)", alex)):
+        st, rows = call("GET", f"/announcement_acks?announcement_id=eq.{fest}&select=user_id", tok)
+        check(f"Seen by: {who} reads who pressed it in #festival (positive control)", st == 200 and {r["user_id"] for r in rows} == {P, V}, f"{st} {rows}")
+    st, rows = call("GET", f"/announcement_acks?announcement_id=eq.{org}&select=user_id", pat)
+    st2, rows2 = call("GET", "/announcement_acks?select=announcement_id", vic)
+    check("Seen by: Pat and Vic read nothing about the Organizers notice", st == 200 and rows == [] and st2 == 200 and {r["announcement_id"] for r in rows2} <= {fest}, f"{rows} {rows2}")
+    st, rows = call("GET", f"/announcements?id=eq.{fest}&select=id,acks:announcement_acks(user_id)", pat)
+    check("Seen by: embedded in the notice, Pat still sees only her own", st == 200 and rows and [r["user_id"] for r in rows[0]["acks"]] == [P], str(rows))
+    # Only on notices that ask, and only while showing.
+    st, body = call("POST", "/announcement_acks", pat, {"announcement_id": plain})
+    check("Seen by: a notice that does not ask cannot be pressed", st == 400 and "Got it" in json.dumps(body), f"{st} {body}")
+    # Who may ask: editors and owners, not viewers.
+    st, rows = call("PATCH", f"/announcements?id=eq.{plain}", pat, {"ask_ack": True})
+    check("Seen by: Pat (viewer) cannot make a notice ask for Got it", rows == [] and oq(f"select ask_ack from weft.announcements where id = '{plain}'") == "f", f"{st} {rows}")
+    st, rows = call("PATCH", f"/announcements?id=eq.{plain}", olive, {"ask_ack": True})
+    check("Seen by: Olive (editor) turns it on afterwards (positive control)", st == 200 and rows and rows[0]["ask_ack"] is True, f"{st} {rows}")
+    call("PATCH", f"/announcements?id=eq.{plain}", olive, {"expires_at": oq("select to_char(now(), 'YYYY-MM-DD\"T\"HH24:MI:SS.USOF')")})
+    st, body = call("POST", "/announcement_acks", pat, {"announcement_id": plain})
+    check("Seen by: an ended notice cannot be pressed", st == 400 and "ended" in json.dumps(body), f"{st} {body}")
+    # Taking it back: only your own.
+    st, rows = call("DELETE", f"/announcement_acks?announcement_id=eq.{fest}&user_id=eq.{V}", pat)
+    st2, rows2 = call("DELETE", f"/announcement_acks?announcement_id=eq.{org}", vic)
+    check("Seen by: Pat cannot take back Vic's Got it, Vic cannot remove Olive's in Organizers", rows == [] and rows2 == [] and acks(fest) == "2" and acks(org) == "1", f"{st} {st2}")
+    st, rows = call("DELETE", f"/announcement_acks?announcement_id=eq.{fest}&user_id=eq.{P}", pat)
+    check("Seen by: Pat takes back her own (positive control)", st == 200 and len(rows) == 1 and acks(fest) == "1", f"{st} {rows}")
+    # Channel scope and the assistant.
+    scoped = mint("u-org", scope="festival")
+    st, rows = call("GET", "/announcement_acks?select=announcement_id", scoped)
+    check("Seen by: a #festival-scoped token reads only #festival Got its", st == 200 and rows and {r["announcement_id"] for r in rows} <= {fest, plain}, str(rows))
+    st, _ = call("POST", "/announcement_acks", mint("u-alex", scope="festival"), {"announcement_id": org})
+    check("Seen by: nor presses one in Organizers", refused(st), str(st))
+    helper = mint("u-org", assistant=True)
+    st, _ = call("GET", f"/announcement_acks?announcement_id=eq.{fest}", helper)
+    st2, _ = call("DELETE", f"/announcement_acks?announcement_id=eq.{fest}", helper)
+    st3, _ = call("POST", "/announcement_acks", helper, {"announcement_id": fest})
+    check("Seen by: the assistant cannot read, delete or press Got its", refused(st) and refused(st2) and refused(st3) and acks(fest) == "1", f"{st} {st2} {st3}")
+    # Nothing in the audit log (every member can read it); notices carry no names.
+    check("Seen by: no audit rows name who pressed", oq("select count(*) from weft.audit where table_name = 'announcement_acks'") == "0")
+    # Following the space: leaving the channel, deleting the notice, deleting the channel.
+    st, ch = call("POST", "/rpc/create_channel", olive, {"p_name": "ack test"})
+    call("POST", "/members", olive, {"space_id": ch, "user_id": P, "role": "viewer"}, prefer="return=minimal")
+    st, rows = call("POST", "/announcements", olive, {"space_id": ch, "title": "Read me", "expires_at": soon, "ask_ack": True})
+    cn = rows[0]["id"] if st == 201 else None
+    st, _ = call("POST", "/announcement_acks", pat, {"announcement_id": cn})
+    check("Seen by: added as a viewer, Pat presses Got it there (positive control)", st == 201, str(st))
+    call("DELETE", f"/members?space_id=eq.{ch}&user_id=eq.{P}", olive)
+    st, _ = call("POST", "/announcement_acks", pat, {"announcement_id": cn})
+    check("Seen by: removed from the channel, her Got it is gone and she cannot press again", acks(cn) == "0" and refused(st), str(st))
+    call("POST", "/announcement_acks", olive, {"announcement_id": cn})
+    call("DELETE", f"/spaces?id=eq.{ch}", olive)
+    check("Seen by: deleting the channel deletes its notices' Got its", acks(cn) == "0" and oq(f"select count(*) from weft.announcements where id = '{cn}'") == "0")
+    st, _ = call("DELETE", f"/announcements?id=eq.{fest}", olive)
+    check("Seen by: deleting a notice deletes its Got its", st in (200, 204) and acks(fest) == "0", str(st))
+    for a in (org, plain):
+        call("DELETE", f"/announcements?id=eq.{a}", olive)
+
+
 def teeth():
     """Loosen one policy on purpose and confirm the suite would catch it, then restore it."""
     owner_sql("create policy teeth_leak on weft.items for select to weft_user using (true)")
@@ -5880,6 +5973,7 @@ if __name__ == "__main__":
     goals()
     key_results_from_tasks()
     announcements()
+    seen_by()
     kudos()
     timeline()
     journal()

@@ -3,10 +3,13 @@
 // The same notices show at the top of the channel's chat (Pinned) and in the Home widget. Row-level
 // security decides; when it says no, the reason is shown and the list is reloaded. Live: any change to
 // an announcement refetches.
+// Seen by (061): a notice can ask everyone to press "Got it". Every member sees the button and their own
+// answer; editors and owners also see how many members have pressed it and who has not (the database
+// returns everyone's answers only to them).
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
 
-export const SEL = 'id,space_id,title,body,expires_at,created_at,author:users!announcements_created_by_fkey(display_name)';
+export const SEL = 'id,space_id,title,body,expires_at,created_at,created_by,ask_ack,acks:announcement_acks(user_id),author:users!announcements_created_by_fkey(display_name)';
 const WEEK = 7 * 86400000;
 // datetime-local works in local time, without seconds.
 const toLocal = (d) => { const x = new Date(d); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0, 16); };
@@ -20,14 +23,59 @@ export function useNow() {
   return now;
 }
 
+// "Got it" on a notice that asks for it: the button (or your answer and Undo) for every member while it
+// shows; for editors and owners, how many of the channel's other members have pressed it and who has not.
+export function GotIt({ a, me, members, editable, ended, onChanged }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  if (!a.ask_ack) return null;
+  const acks = a.acks || [];
+  const mine = acks.some((k) => k.user_id === me.id);
+  const press = async (undo) => {
+    setBusy(true);
+    try {
+      await (undo ? api(`/announcement_acks?announcement_id=eq.${a.id}&user_id=eq.${me.id}`, { method: 'DELETE', prefer: 'return=minimal' })
+        : api('/announcement_acks', { method: 'POST', body: { announcement_id: a.id }, prefer: 'return=minimal' }));
+      setError('');
+    } catch (e) { setError(`${undo ? 'Could not undo' : 'Not saved'}: ${e.message}`); }
+    setBusy(false);
+    onChanged?.();
+  };
+  let tally = null;
+  if (editable && members) {
+    const others = members.filter((m) => m.space_id === a.space_id && m.user && m.user.id !== a.created_by);
+    const done = new Set(acks.map((k) => k.user_id));
+    const yes = others.filter((m) => done.has(m.user.id));
+    const missing = others.filter((m) => !done.has(m.user.id)).map((m) => m.user.display_name).sort((x, y) => x.localeCompare(y));
+    tally = (
+      <p className="ack-tally">
+        <span className="ack-count">{others.length ? `${yes.length} of ${others.length} members got it` : 'No other members yet'}</span>
+        {others.length > 0 && <span className="ack-missing">{missing.length ? `Not yet: ${missing.join(', ')}` : 'Everyone has seen it'}</span>}
+      </p>
+    );
+  }
+  const isPoster = a.created_by === me.id;
+  return (
+    <div className="ack">
+      {!ended && !isPoster && (mine
+        ? <p className="ack-done"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 10.5l3.5 3.5 7.5-8" /></svg>You got it
+            <button type="button" className="link-btn ack-undo" disabled={busy} onClick={() => press(true)}>Undo<span className="visually-hidden"> Got it on {a.title}</span></button></p>
+        : <button type="button" className="btn btn--primary btn--sm ack-btn" disabled={busy} onClick={() => press(false)}>Got it<span className="visually-hidden">: {a.title}</span></button>)}
+      {ended && !isPoster && !editable && <p className="ack-done">{mine ? 'You pressed Got it' : 'Asked for Got it'}</p>}
+      {tally}
+      {error && <p className="send-error" role="alert">{error}</p>}
+    </div>
+  );
+}
+
 // The strip at the top of a channel's chat: its current notices, newest first.
-export function Pinned({ spaceId, notice, onOpenAll }) {
+export function Pinned({ spaceId, notice, onOpenAll, me, members }) {
   const [rows, setRows] = useState([]);
   const now = useNow();
   const load = useCallback(() => api(`/announcements?space_id=eq.${spaceId}&expires_at=gt.now&select=${SEL}&order=created_at.desc&limit=20`)
     .then(setRows).catch(() => setRows([])), [spaceId]);
   useEffect(() => { setRows([]); load(); }, [load]);
-  useEffect(() => { if (notice?.t === 'announcements' && notice.space === spaceId) load(); }, [notice, spaceId, load]);
+  useEffect(() => { if ((notice?.t === 'announcements' || notice?.t === 'announcement_acks') && notice.space === spaceId) load(); }, [notice, spaceId, load]);
   const shown = rows.filter((a) => isCurrent(a, now));
   if (!shown.length) return null;
   return (
@@ -37,6 +85,7 @@ export function Pinned({ spaceId, notice, onOpenAll }) {
           <p className="pinned-title"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 8.5v3l9 4V4.5zM13 7.5h1.5a2.5 2.5 0 0 1 0 5H13M6.5 12.5l1 4h2l-1-3.2" /></svg>{a.title}</p>
           {a.body && <p className="pinned-body">{a.body}</p>}
           <p className="pinned-meta">Until {until(a.expires_at)}{a.author?.display_name ? `, from ${a.author.display_name}` : ''}</p>
+          {me && <GotIt a={a} me={me} onChanged={load} />}
         </article>
       ))}
       <button type="button" className="link-btn pinned-all" onClick={onOpenAll}>
@@ -52,7 +101,7 @@ function NoticeForm({ initial, onSave, onCancel, label, idp, submit }) {
     <form className="link-form notice-form" aria-label={label} onSubmit={(e) => {
       e.preventDefault();
       if (!f.title.trim() || !f.until) return;
-      onSave({ title: f.title.trim(), body: f.body.trim(), expires_at: new Date(f.until).toISOString() }, () => setF({ title: '', body: '', until: toLocal(Date.now() + WEEK) }));
+      onSave({ title: f.title.trim(), body: f.body.trim(), expires_at: new Date(f.until).toISOString(), ask_ack: !!f.ask_ack }, () => setF({ title: '', body: '', until: toLocal(Date.now() + WEEK), ask_ack: false }));
     }}>
       <label htmlFor={`${idp}-title`}>Title</label>
       <input id={`${idp}-title`} value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} maxLength={120} required autoComplete="off" placeholder="What everyone should know" />
@@ -60,6 +109,10 @@ function NoticeForm({ initial, onSave, onCancel, label, idp, submit }) {
       <textarea id={`${idp}-body`} value={f.body} onChange={(e) => setF({ ...f, body: e.target.value })} maxLength={1000} rows={3} placeholder="Details (optional)" />
       <label htmlFor={`${idp}-until`}>Show until</label>
       <input id={`${idp}-until`} type="datetime-local" value={f.until} onChange={(e) => setF({ ...f, until: e.target.value })} required />
+      <label className="ack-ask" htmlFor={`${idp}-ack`}>
+        <input id={`${idp}-ack`} type="checkbox" checked={!!f.ask_ack} onChange={(e) => setF({ ...f, ask_ack: e.target.checked })} />
+        Ask everyone to press “Got it”
+      </label>
       <div className="link-form-actions">
         <button className="btn btn--primary btn--sm" type="submit" disabled={!f.title.trim() || !f.until}>{submit}</button>
         {onCancel && <button className="btn btn--sm" type="button" onClick={onCancel}>Cancel</button>}
@@ -68,11 +121,11 @@ function NoticeForm({ initial, onSave, onCancel, label, idp, submit }) {
   );
 }
 
-function Notice({ a, editable, ended, editing, setEditing, change }) {
+function Notice({ a, me, members, editable, ended, editing, setEditing, change, reload }) {
   if (editing === a.id) {
     return (
       <li className="link notice">
-        <NoticeForm initial={{ title: a.title, body: a.body, until: toLocal(a.expires_at) }} label={`Edit ${a.title}`} idp={`notice-${a.id}`} submit="Save"
+        <NoticeForm initial={{ title: a.title, body: a.body, until: toLocal(a.expires_at), ask_ack: a.ask_ack }} label={`Edit ${a.title}`} idp={`notice-${a.id}`} submit="Save"
           onCancel={() => setEditing(null)}
           onSave={async (body) => { if (await change('That change was not saved', () => api(`/announcements?id=eq.${a.id}`, { method: 'PATCH', body, prefer: 'return=minimal' }))) setEditing(null); }} />
       </li>
@@ -83,6 +136,7 @@ function Notice({ a, editable, ended, editing, setEditing, change }) {
     <li className={`link notice${ended ? ' is-ended' : ''}`}>
       <p className="notice-title">{a.title}</p>
       {a.body && <p className="link-note">{a.body}</p>}
+      <GotIt a={a} me={me} members={members} editable={editable} ended={ended} onChanged={reload} />
       <div className="link-foot">
         <span className="notice-when">{ended ? `Ended ${until(a.expires_at)}` : `Showing until ${until(a.expires_at)}`}</span>
         <span className="link-by">{a.author?.display_name ? `Posted by ${a.author.display_name}` : ''}</span>
@@ -118,7 +172,7 @@ export default function Announcements({ me, spaces, members, notice, openId, set
   useEffect(() => { loadCounts(); }, [loadCounts]);
   useEffect(() => { setRows(null); setAdding(false); setEditing(null); load().catch((e) => setError(`Announcements could not load: ${e.message}`)); }, [load]);
   useEffect(() => {
-    if (notice?.t !== 'announcements' && notice?.t !== 'members') return;
+    if (notice?.t !== 'announcements' && notice?.t !== 'announcement_acks' && notice?.t !== 'members') return;
     loadCounts(); if (notice.space === openId) load().catch(() => {});
   }, [notice, openId, load, loadCounts]);
   // Open the first channel with something showing (or the first channel) when none is chosen.
@@ -142,7 +196,7 @@ export default function Announcements({ me, spaces, members, notice, openId, set
   const countIn = (id) => (counts || []).filter((x) => x.space_id === id && isCurrent(x, now)).length;
   const showing = (rows || []).filter((a) => isCurrent(a, now)).sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
   const ended = (rows || []).filter((a) => !isCurrent(a, now)).slice(0, 20);
-  const item = (a, isEnded) => <Notice key={a.id} a={a} editable={editable} ended={isEnded} editing={editing} setEditing={setEditing} change={change} />;
+  const item = (a, isEnded) => <Notice key={a.id} a={a} me={me} members={members} editable={editable} ended={isEnded} editing={editing} setEditing={setEditing} change={change} reload={() => load().catch(() => {})} />;
 
   return (
     <div className="docs">
@@ -174,7 +228,7 @@ export default function Announcements({ me, spaces, members, notice, openId, set
           <div className="docs-links">
             <div className="links">
               {editable ? (adding
-                ? <NoticeForm initial={{ title: '', body: '', until: toLocal(Date.now() + WEEK) }} onSave={post} onCancel={() => setAdding(false)} label="New announcement" idp="notice-new" submit="Post" />
+                ? <NoticeForm initial={{ title: '', body: '', until: toLocal(Date.now() + WEEK), ask_ack: false }} onSave={post} onCancel={() => setAdding(false)} label="New announcement" idp="notice-new" submit="Post" />
                 : <div className="links-bar"><button className="btn btn--primary btn--sm" type="button" onClick={() => setAdding(true)}>New announcement</button>
                     <p className="docs-hint">It shows until the time you choose, at most a year ahead. You can end it early.</p></div>)
                 : <p className="docs-hint">You can read the announcements here. Ask an owner of the channel to make you an editor to post them.</p>}
