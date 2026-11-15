@@ -57,7 +57,8 @@ async function assist(token, path, { method = 'GET', body } = {}) {
 }
 const post = async (who, spaceId, text) => (await api(who.token, '/messages', { method: 'POST', body: { space_id: spaceId, body: text } })).rows?.[0];
 // Ask, then wait for the agent's reply to land in the space (the answer arrives after the 202).
-async function askAgent(who, spaceId, text, agentId) {
+// replyIn: where the answer lands (070: a channel question is answered in the asker's personal space).
+async function askAgent(who, spaceId, text, agentId, replyIn = spaceId) {
   const msg = await post(who, spaceId, text);
   const before = agent.calls.length;
   const r = await assist(who.token, '/assistant/agents/ask', { method: 'POST', body: { message_id: msg.id } });
@@ -65,7 +66,7 @@ async function askAgent(who, spaceId, text, agentId) {
   if (r.status === 202) {
     for (let i = 0; i < 50 && !reply; i++) {
       await sleep(100);
-      reply = (await api(who.token, `/messages?space_id=eq.${spaceId}&author_id=eq.${agentId}&created_at=gt.${encodeURIComponent(msg.created_at)}&select=id,body,author_id,meta&order=created_at.desc&limit=1`)).rows?.[0] || null;
+      reply = (await api(who.token, `/messages?space_id=eq.${replyIn}&author_id=eq.${agentId}&created_at=gt.${encodeURIComponent(msg.created_at)}&select=id,body,author_id,meta&order=created_at.desc&limit=1`)).rows?.[0] || null;
     }
   }
   return { status: r.status, error: r.data?.error, reply, calls: agent.calls.slice(before), msg };
@@ -149,14 +150,26 @@ check('Pat cannot ask in Olive\'s conversation (cannot even see the message)', (
 check('Pat cannot post as Olive\'s agent', (await api(pat.token, '/messages', { method: 'POST', body: { space_id: spaces.festival, body: 'fake', author_id: OLIVE_AGENT } })).status >= 400);
 
 // ---------------- @mention in a channel
-a = await askAgent(olive, spaces.festival, '@olive-bot what does P03 need?', OLIVE_AGENT);
-check('Olive mentions her agent in #festival: it answers there', a.status === 202 && a.reply?.author_id === OLIVE_AGENT, `${a.status} ${a.error || ''}`);
+const OLIVE_HOME = (await api(olive.token, `/spaces?kind=eq.personal&created_by=eq.${olive.user.id}&select=id`)).rows?.[0]?.id;
+a = await askAgent(olive, spaces.festival, '@olive-bot what does P03 need?', OLIVE_AGENT, OLIVE_HOME);
+check('Olive mentions her agent in #festival: it answers in her personal space, saying where she asked',
+  a.status === 202 && a.reply?.author_id === OLIVE_AGENT && /^Answer to your question in #festival:/.test(a.reply?.body || '') && a.reply?.meta?.asked_in === spaces.festival,
+  `${a.status} ${a.error || ''} ${a.reply?.body?.slice(0, 80)}`);
 const sent = a.calls[0]?.messages?.[0]?.content || '';
 check('It was sent the recent #festival messages', sent.includes('porch P03 needs a second extension cord') && sent.includes('#festival'), sent.slice(0, 300));
 check('Without the @name, as Olive asking', /\nOlive[^\n]* asks you: what does P03 need\?$/.test(sent), sent.slice(-120));
 check('Organizers content never reached it from #festival', !sent.includes(SECRET));
 check('The channel is its own session', a.calls[0]?.session === `weft-${spaces.festival}`);
-check('Vic sees the agent\'s reply in #festival', (await api(vic.token, `/messages?space_id=eq.${spaces.festival}&author_id=eq.${OLIVE_AGENT}`)).rows?.length >= 1);
+check('Nothing from the agent appears in #festival', (await api(vic.token, `/messages?space_id=eq.${spaces.festival}&author_id=eq.${OLIVE_AGENT}`)).rows?.length === 0);
+check('The agent is told only Olive reads the answer', /Only Olive[^\n]* will read your reply/.test(sent), sent.slice(0, 200));
+// The rules row may already exist (made by an owner earlier): create it if not, then switch agents off.
+await api(alex.token, '/space_rules', { method: 'POST', body: { space_id: spaces.festival } });
+await api(alex.token, `/space_rules?space_id=eq.${spaces.festival}`, { method: 'PATCH', body: { agents_may_read: false } });
+const callsClosed = agent.calls.length;
+a = await askAgent(olive, spaces.festival, '@olive-bot and now?', OLIVE_AGENT, OLIVE_HOME);
+check('When #festival is closed to AI agents, the mention is refused and the agent is not called',
+  a.status === 403 && /turned off AI agents/.test(a.error || '') && agent.calls.length === callsClosed, `${a.status} ${a.error}`);
+await api(alex.token, `/space_rules?space_id=eq.${spaces.festival}`, { method: 'PATCH', body: { agents_may_read: true } });
 check('A channel message without a mention is not a question', (await assist(olive.token, '/assistant/agents/ask', { method: 'POST', body: { message_id: om.id } })).status === 400);
 
 // ---------------- busy, failing, turned off
@@ -196,7 +209,7 @@ check('Vic can start his own conversation', typeof VC === 'string');
 r = await assist(alex.token, `/assistant/admin/agents/${OLIVE_AGENT}`, { method: 'DELETE' });
 check('Admin removes the agent', r.status === 200 && (await assist(alex.token, '/assistant/admin/agents')).data?.length === 0);
 check('Its conversations go with it', (await api(vic.token, `/spaces?kind=eq.agent`)).rows.length === 0 && (await rpc(vic, 'my_agents')).rows.length === 0);
-check('Its old channel replies stay, marked removed', (await api(vic.token, `/messages?space_id=eq.${spaces.festival}&author_id=eq.${OLIVE_AGENT}&select=author:users(display_name)`)).rows?.[0]?.author?.display_name === 'Olive helper (removed)');
+check('Its old answers in Olive\'s personal space stay, marked removed', (await api(olive.token, `/messages?space_id=eq.${OLIVE_HOME}&author_id=eq.${OLIVE_AGENT}&select=author:users(display_name)`)).rows?.[0]?.author?.display_name === 'Olive helper (removed)');
 
 // ---------------- report
 const failed = results.filter((x) => !x.ok);

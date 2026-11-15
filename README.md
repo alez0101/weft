@@ -14,10 +14,12 @@ allowed to see, with links to where each answer came from.
 - **Keep track:** files, link lists, shared expenses with who owes whom (pay-backs recorded in one press), an inventory with check out and
   check in (with back-by dates, overdue in red), a private journal
 - **Around it all:** chat, search across everything, Home widgets, plain downloads (CSV, .ics, vCard) made in the browser, and a connector for AI apps (MCP)
+- **Projects:** a channel (or your personal space) holds projects, each with its own chat, instructions for the assistant and pinned documents; the assistant follows Weft's rules, then the channel's, then the project's, then each person's own
 
 One rule decides who sees what (you see something only if you are a member of its space), and
 Postgres enforces it with row-level security on every path: the API, live updates, co-editing,
-search and the assistant. More than 1,500 automated checks prove it, including that restricted content
+search and the assistant. Outside AI agents (connected apps and personal agents) read what their person can see, except
+channels closed to them, and the database lets them change things only in that person's personal space. More than 1,500 automated checks prove it, including that restricted content
 never reaches the model for someone who cannot see it.
 
 Status: a working prototype for small teams. Not hardened for large or hostile multi-tenant use.
@@ -80,7 +82,7 @@ Operations page has the details.
 ## Tests
 
 ```sh
-tests/run.sh          # builds a separate test stack, runs seven suites (1673 checks), removes it
+tests/run.sh          # builds a separate test stack, runs nine suites (2360 checks), removes it
 tests/run.sh --keep   # leaves the test stack up for the browser checks in tests/*.cjs
 ```
 

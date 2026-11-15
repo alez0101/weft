@@ -312,3 +312,23 @@ body { height: 100dvh; background: var(--color-paper-2); }
 .agent-rename { margin-top: var(--space-2xs); }
 .agent-rename input { flex: 1; min-width: 0; }
 .shell[data-rail="collapsed"] .agent-group .convo-empty { display: none; }
+
+/* Projects inside channels (069): the strip under a conversation's title, its settings, and project groups in app lists. */
+.project-strip { display: grid; gap: var(--space-2xs); margin-top: var(--space-xs); }
+.project-strip .link-btn { font-size: var(--text-xs); }
+.project-rules-btn { margin-left: auto; }
+.project-new { flex-wrap: wrap; }
+.project-new input { flex: 1 1 8rem; min-width: 0; }
+.project-following { margin-top: var(--space-2xs); font-size: var(--text-xs); }
+.project-panel { display: grid; gap: var(--space-sm); margin-top: var(--space-xs); padding: var(--space-sm); border-radius: var(--radius-card);
+  background: var(--color-paper-2); box-shadow: 0 0 0 1px var(--color-rule); max-height: 60vh; overflow: auto; }
+.project-form { display: grid; gap: var(--space-xs); }
+.project-field { display: grid; gap: var(--space-3xs); font-size: var(--text-sm); color: var(--color-ink-2); }
+.project-field input, .project-field textarea { font: inherit; color: var(--color-ink); background: var(--color-paper); border: var(--rule-hair) solid var(--color-rule);
+  border-radius: var(--radius-input); padding: var(--space-xs); resize: vertical; }
+.project-field input:focus-visible, .project-field textarea:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+.project-readonly { color: var(--color-ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.project-pins ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3xs); }
+.project-danger { border-top: var(--rule-hair) solid var(--color-rule); padding-top: var(--space-xs); }
+.tree-project { margin: var(--space-2xs) 0 0; padding-left: var(--space-xs); font-size: var(--text-xs); font-weight: 600; color: var(--color-muted); }
+.docs-project ul { padding-left: var(--space-xs); }

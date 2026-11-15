@@ -6461,6 +6461,254 @@ def teeth():
     check("Teeth: policy restored, Pat sees nothing again", st == 200 and rows == [], "")
 
 
+# ---------------------------------------------------------------- projects inside channels (069)
+def projects():
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    A, O, P = uid("user", "u-alex"), uid("user", "u-org"), uid("user", "u-pub")
+    oq = lambda sql: owner_sql(sql)
+    F, ORG = SID["festival"], SID["organizers"]
+
+    # Owners make projects; editors and viewers do not.
+    st, rows = call("POST", "/projects", alex, {"space_id": F, "name": "  Scouting for Food \n", "instructions": "Pickup is Saturday."})
+    fp = rows[0]["id"] if st == 201 else None
+    check("Projects: Alex (owner) makes a project in #festival (positive control), name trimmed, created_by set by the database",
+          fp and rows[0]["name"] == "Scouting for Food" and rows[0]["created_by"] == A and rows[0]["archived_at"] is None, f"{st} {rows}")
+    st, rows = call("POST", "/projects", alex, {"space_id": ORG, "name": "PROJECT-ORG-SECRET budget"})
+    op = rows[0]["id"] if st == 201 else None
+    check("Projects: Alex makes a project in Organizers (positive control)", op is not None, f"{st} {rows}")
+    st, _ = call("POST", "/projects", olive, {"space_id": F, "name": "Olive's project"})
+    st2, _ = call("POST", "/projects", pat, {"space_id": F, "name": "Pat's project"})
+    check("Projects: Olive (editor) and Pat (viewer) cannot make projects in #festival", refused(st) and refused(st2), f"{st} {st2}")
+    st, _ = call("POST", "/projects", alex, {"space_id": F, "name": "scouting FOR food"})
+    check("Projects: two projects in one space cannot share a name (any case)", st == 409, str(st))
+    st, rows = call("POST", "/projects", olive, {"space_id": SID["personal-u-org"], "name": "My drafts"})
+    pp = rows[0]["id"] if st == 201 else None
+    check("Projects: Olive makes a project in her personal space (positive control)", pp is not None, f"{st} {rows}")
+    st, body = call("POST", "/projects", olive, {"space_id": SID["assistant-u-org"], "name": "nope"})
+    check("Projects: only channels and personal spaces have projects (assistant space refused with the reason)",
+          st == 400 and "channel" in json.dumps(body), f"{st} {body}")
+    st, body = call("POST", "/projects", olive, {"space_id": SID["dm-alex-olive"], "name": "nope"})
+    check("Projects: a direct message has no projects (an editor there is not an owner)", refused(st) or st == 400, f"{st} {body}")
+    st, body = call("POST", "/projects", pat, {"space_id": ORG, "name": "probe"})
+    check("Projects: an outsider's attempt gets the plain refusal, not the guard's reason", refused(st) and "channel" not in json.dumps(body), f"{st} {body}")
+
+    # Reading follows membership.
+    st, rows = call("GET", f"/projects?space_id=eq.{F}&select=id,name,instructions", pat)
+    check("Projects: Pat (viewer) reads #festival's projects and their instructions (positive control)",
+          st == 200 and [r["id"] for r in rows] == [fp] and rows[0]["instructions"] == "Pickup is Saturday.", f"{st} {rows}")
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = call("GET", "/projects?name=like.*PROJECT-ORG*&select=id", tok)
+        st2, rows2 = call("GET", f"/projects?id=eq.{op}&select=id", tok)
+        check(f"Projects: {who} gets no Organizers projects, by name or by id", st == 200 and rows == [] and st2 == 200 and rows2 == [], f"{rows} {rows2}")
+    st, rows = call("GET", f"/projects?id=eq.{pp}&select=id", alex)
+    check("Projects: Alex cannot see Olive's personal projects", st == 200 and rows == [], str(rows))
+    st, rows = call("GET", "/projects?select=space_id", mint("u-alex", scope="festival"))
+    check("Projects: a channel-scoped token sees only that channel's projects",
+          st == 200 and rows and {r["space_id"] for r in rows} == {F}, str(rows))
+    st, rows = call("GET", f"/projects?space_id=eq.{F}&select=id", mint("u-pub", assistant=True))
+    check("Projects: the assistant role reads projects for the asker (positive control)", st == 200 and len(rows) == 1, str(rows))
+
+    # Changing: owners only; space and authorship cannot move.
+    st, rows = call("PATCH", f"/projects?id=eq.{fp}", olive, {"instructions": "pwned"})
+    st2, rows2 = call("DELETE", f"/projects?id=eq.{fp}", olive)
+    check("Projects: Olive (editor) cannot change or delete a #festival project", rows == [] and rows2 == []
+          and oq(f"select instructions from weft.projects where id = '{fp}'") == "Pickup is Saturday.", f"{st} {st2}")
+    st, rows = call("PATCH", f"/projects?id=eq.{fp}", alex, {"instructions": "Pickup is Sunday."})
+    check("Projects: Alex (owner) changes the instructions (positive control)", st == 200 and rows and rows[0]["instructions"] == "Pickup is Sunday.", f"{st} {rows}")
+    st, _ = call("PATCH", f"/projects?id=eq.{fp}", alex, {"space_id": ORG})
+    st2, _ = call("PATCH", f"/projects?id=eq.{fp}", alex, {"created_by": O})
+    check("Projects: space and author cannot be changed", st in (400, 401, 403) and st2 in (400, 401, 403)
+          and oq(f"select space_id::text || created_by::text from weft.projects where id = '{fp}'") == F + A, f"{st} {st2}")
+    st, rows = call("GET", f"/audit?table_name=eq.projects&row_id=eq.{fp}&select=old_row", pat)
+    check("Projects: earlier instructions stay in the audit log, readable by the channel's members",
+          st == 200 and any(r["old_row"].get("instructions") == "Pickup is Saturday." for r in rows), f"{st} {rows}")
+    call("PATCH", f"/projects?id=eq.{op}", alex, {"instructions": "AUDIT-ORG-SECRET"})
+    st, rows = call("GET", f"/audit?table_name=eq.projects&row_id=eq.{op}", pat)
+    check("Projects: Pat cannot read an Organizers project's earlier instructions", st == 200 and rows == [], str(rows))
+    st, _ = call("POST", "/projects", mint("u-alex", assistant=True), {"space_id": F, "name": "by the assistant"})
+    st2, _ = call("DELETE", f"/projects?id=eq.{fp}", mint("u-alex", assistant=True))
+    check("Projects: the assistant role cannot make or delete projects", refused(st) and refused(st2)
+          and oq(f"select count(*) from weft.projects where id = '{fp}'") == "1", f"{st} {st2}")
+
+    # Home project on items and events.
+    st, rows = call("POST", "/items", olive, {"space_id": F, "kind": "document", "title": "Route sheet", "project_id": fp})
+    item = rows[0]["id"] if st == 201 else None
+    check("Projects: Olive (editor) makes a document in the #festival project (positive control)", item and rows[0]["project_id"] == fp, f"{st} {rows}")
+    st, body = call("POST", "/items", olive, {"space_id": F, "kind": "document", "title": "x", "project_id": op})
+    check("Projects: an item's project must be in its own space", st == 400 and "project" in json.dumps(body), f"{st} {body}")
+    st, body = call("POST", "/items", pat, {"space_id": ORG, "kind": "document", "title": "probe", "project_id": op})
+    check("Projects: an outsider gets the plain refusal, not the project reason", refused(st) and "project" not in json.dumps(body), f"{st} {body}")
+    st, rows = call("PATCH", f"/items?id=eq.{item}", pat, {"project_id": None})
+    check("Projects: Pat (viewer) cannot take an item out of its project",
+          rows == [] and oq(f"select project_id from weft.items where id = '{item}'") == fp, f"{st} {rows}")
+    st, rows = call("POST", "/events", olive, {"space_id": F, "title": "Drop day", "starts_at": "2027-11-04T09:00:00Z",
+                                                "ends_at": "2027-11-04T12:00:00Z", "project_id": fp})
+    ev = rows[0]["id"] if st == 201 else None
+    check("Projects: Olive adds an event to the project (positive control)", ev and rows[0]["project_id"] == fp, f"{st} {rows}")
+    st, body = call("POST", "/events", olive, {"space_id": F, "title": "x", "starts_at": "2027-11-04T09:00:00Z",
+                                                "ends_at": "2027-11-04T12:00:00Z", "project_id": op})
+    check("Projects: an event's project must be in its own space", st == 400, f"{st} {body}")
+
+    # Pins: owners only, same space, at most 10.
+    st, rows = call("POST", "/project_pins", olive, {"project_id": fp, "item_id": item})
+    check("Projects: Olive (editor) cannot pin", refused(st), f"{st} {rows}")
+    st, rows = call("POST", "/project_pins", alex, {"project_id": fp, "item_id": item})
+    pin = rows[0]["id"] if st == 201 else None
+    check("Projects: Alex (owner) pins the route sheet (positive control); space copied from the project",
+          pin and rows[0]["space_id"] == F, f"{st} {rows}")
+    st, body = call("POST", "/project_pins", alex, {"project_id": fp, "item_id": HOST_CONTACTS})
+    check("Projects: an item from another space cannot be pinned", st == 400 and "same space" in json.dumps(body), f"{st} {body}")
+    st, body = call("POST", "/project_pins", pat, {"project_id": op, "item_id": HOST_CONTACTS})
+    check("Projects: an outsider cannot pin into an Organizers project, and hears no reason", refused(st) and "space" not in json.dumps(body), f"{st} {body}")
+    st, rows = call("GET", f"/project_pins?project_id=eq.{fp}&select=item_id", pat)
+    check("Projects: Pat (viewer) sees the pins (positive control)", st == 200 and [r["item_id"] for r in rows] == [item], str(rows))
+    extra = []
+    for n in range(10):
+        st, rows = call("POST", "/items", alex, {"space_id": F, "kind": "document", "title": f"pin {n}"})
+        extra.append(rows[0]["id"])
+    oks = [call("POST", "/project_pins", alex, {"project_id": fp, "item_id": i})[0] for i in extra]
+    check("Projects: the 11th pin is refused", oks[:9] == [201] * 9 and oks[9] == 400, str(oks))
+    oq("delete from weft.items where id in (" + ",".join(f"'{i}'" for i in extra) + ")")
+
+    # Project chat.
+    st, rows = call("POST", "/messages", pat, {"space_id": F, "body": "When is pickup?", "project_id": fp})
+    m = rows[0]["id"] if st == 201 else None
+    check("Projects: Pat (viewer, a member) posts in the project's chat (positive control)", m and rows[0]["project_id"] == fp, f"{st} {rows}")
+    st, rows = call("POST", "/messages", olive, {"space_id": F, "body": "Sunday.", "thread_root_id": m})
+    check("Projects: a reply follows its root's project", st == 201 and rows[0]["project_id"] == fp, f"{st} {rows}")
+    st, rows = call("POST", "/messages", olive, {"space_id": F, "body": "general", "thread_root_id": m, "project_id": None})
+    check("Projects: a reply cannot leave its root's project", st == 201 and rows[0]["project_id"] == fp, f"{st} {rows}")
+    st, body = call("POST", "/messages", olive, {"space_id": F, "body": "x", "project_id": op})
+    check("Projects: a message's project must be in its space", st == 400, f"{st} {body}")
+    st, body = call("POST", "/messages", pat, {"space_id": ORG, "body": "probe", "project_id": op})
+    check("Projects: an outsider posting into an Organizers project gets the plain refusal", refused(st) and "project" not in json.dumps(body), f"{st} {body}")
+    st, rows = call("GET", f"/messages?project_id=eq.{fp}&select=id", vic)
+    check("Projects: Vic (#festival member) reads the project chat (positive control)", st == 200 and len(rows) == 3, str(rows))
+    st, rows = call("PATCH", f"/messages?id=eq.{m}", pat, {"project_id": None})
+    check("Projects: a message cannot be moved out of its project", st in (400, 401, 403)
+          and oq(f"select project_id from weft.messages where id = '{m}'") == fp, str(st))
+    st, rows = call("PATCH", f"/projects?id=eq.{fp}", alex, {"archived_at": "2027-01-01T00:00:00Z"})
+    st2, body = call("POST", "/messages", pat, {"space_id": F, "body": "late", "project_id": fp})
+    check("Projects: an archived project takes no new messages", st == 200 and st2 == 400 and "archived" in json.dumps(body), f"{st} {st2} {body}")
+    call("PATCH", f"/projects?id=eq.{fp}", alex, {"archived_at": None})
+    st, rows = call("POST", "/messages", mint("u-pub", assistant=True, scope="festival"),
+                    {"space_id": F, "author_id": ASSISTANT, "body": "Pickup is Sunday.", "project_id": fp})
+    check("Projects: the assistant answers in the project chat (positive control)", st == 201 and rows[0]["project_id"] == fp, f"{st} {rows}")
+
+    # A move to another space clears the project and the pins, and leaves nothing pointing back.
+    st, rows = call("PATCH", f"/items?id=eq.{item}", olive, {"space_id": ORG})
+    check("Projects: moving an item to Organizers clears its #festival project",
+          st == 200 and rows and rows[0]["space_id"] == ORG and rows[0]["project_id"] is None, f"{st} {rows}")
+    check("Projects: ...and unpins it", oq(f"select count(*) from weft.project_pins where item_id = '{item}'") == "0")
+    st, rows = call("PATCH", f"/items?id=eq.{item}", alex, {"space_id": F, "project_id": fp})
+    check("Projects: a move can set a project in the new space in the same write (positive control)",
+          st == 200 and rows and rows[0]["project_id"] == fp, f"{st} {rows}")
+
+    # Deleting a project: its chat goes, its items and events stay in the channel.
+    st, rows = call("POST", "/projects", alex, {"space_id": F, "name": "Short-lived"})
+    sp = rows[0]["id"]
+    call("POST", "/messages", pat, {"space_id": F, "body": "CHAT-OF-SHORT-LIVED", "project_id": sp})
+    call("PATCH", f"/items?id=eq.{item}", olive, {"project_id": sp})
+    st, rows = call("DELETE", f"/projects?id=eq.{sp}", alex)
+    check("Projects: deleting a project deletes its chat but keeps its items, with no project",
+          st == 200 and oq("select count(*) from weft.messages where body = 'CHAT-OF-SHORT-LIVED'") == "0"
+          and oq(f"select coalesce(project_id::text, 'none') from weft.items where id = '{item}'") == "none", f"{st}")
+
+    # A space's own rules.
+    st, rows = call("POST", "/space_rules", alex, {"space_id": F, "instructions": "Be brief.", "agents_may_read": False})
+    check("Projects: Alex (owner) sets #festival's rules (positive control), updated_by set by the database",
+          st == 201 and rows[0]["updated_by"] == A and rows[0]["agents_may_read"] is False, f"{st} {rows}")
+    st, _ = call("POST", "/space_rules", alex, {"space_id": ORG, "instructions": "RULES-ORG-SECRET"})
+    st2, _ = call("PATCH", f"/space_rules?space_id=eq.{F}", olive, {"instructions": "pwned"})
+    check("Projects: Olive (editor) cannot change channel rules", oq(f"select instructions from weft.space_rules where space_id = '{F}'") == "Be brief.", str(st2))
+    st, rows = call("GET", "/space_rules?select=space_id,instructions", pat)
+    check("Projects: Pat reads #festival's rules and not Organizers'", st == 200 and [r["space_id"] for r in rows] == [F], str(rows))
+    st, body = call("POST", "/space_rules", alex, {"space_id": SID["assistant-u-alex"], "instructions": "x"})
+    check("Projects: only channels and personal spaces have rules", st == 400, f"{st} {body}")
+    st, _ = call("POST", "/space_rules", pat, {"space_id": SID["personal-u-pub"], "instructions": "Mine."})
+    check("Projects: Pat sets rules for their personal space (positive control)", st == 201, str(st))
+    st, _ = call("DELETE", f"/space_rules?space_id=eq.{F}", alex)
+    check("Projects: rules are never deleted, only emptied", refused(st) and oq(f"select count(*) from weft.space_rules where space_id = '{F}'") == "1", str(st))
+
+    # A person's own rules: only theirs.
+    st, _ = call("POST", "/user_prefs?on_conflict=user_id", pat, {"ai_instructions": "Use bullet points."},
+                 prefer="resolution=merge-duplicates,return=minimal")
+    st2, rows = call("GET", "/user_prefs?select=ai_instructions", pat)
+    check("Projects: Pat sets and reads their own rules (positive control)", st in (200, 201, 204) and rows and rows[0]["ai_instructions"] == "Use bullet points.", f"{st} {rows}")
+    st, rows = call("GET", "/user_prefs?select=user_id,ai_instructions", olive)
+    check("Projects: Olive cannot read Pat's rules", st == 200 and all(r["user_id"] == O for r in rows), str(rows))
+    st, _ = call("PATCH", "/user_prefs", pat, {"ai_instructions": "x" * 4001})
+    check("Projects: personal rules are limited to 4000 characters", st == 400, str(st))
+
+
+# ---------------------------------------------------------------- the agent fence (070)
+def agent_fence():
+    olive, alex = mint("u-org"), mint("u-alex")
+    ag = mint("u-org", agent=True)
+    ag_home = mint("u-org", agent=True, scope="personal-u-org")
+    oq = lambda sql: owner_sql(sql)
+    F, ORG, VOL = SID["festival"], SID["organizers"], SID["volunteers"]
+    call("PATCH", f"/space_rules?space_id=eq.{F}", alex, {"agents_may_read": True})
+
+    st, rows = call("GET", f"/items?space_id=eq.{ORG}&select=id", ag)
+    check("Agent fence: an AI app reads Organizers as Olive (positive control)", st == 200 and len(rows) >= 1, f"{st} {rows}")
+    st, rows = call("POST", "/rpc/search", ag, {"p_q": "host", "p_limit": 5})
+    check("Agent fence: an AI app may search with POST (read-only function)", st == 200, f"{st} {rows}")
+    st, body = call("POST", "/messages", ag, {"space_id": F, "body": "AGENT-WROTE-IN-FESTIVAL"})
+    st2, _ = call("POST", "/items", ag, {"space_id": ORG, "kind": "document", "title": "AGENT-WROTE-IN-ORG"})
+    st3, _ = call("PATCH", f"/items?id=eq.{RUN_OF_SHOW}", ag, {"title": "pwned"})
+    st4, _ = call("DELETE", f"/messages?space_id=eq.{F}", ag)
+    check("Agent fence: an unscoped AI app token writes nothing at all (post, create, change, delete)",
+          all(refused(x) for x in (st, st2, st3, st4)) and "personal space" in json.dumps(body)
+          and oq("select count(*) from weft.messages where body = 'AGENT-WROTE-IN-FESTIVAL'") == "0"
+          and oq("select count(*) from weft.items where title like 'AGENT-WROTE%'") == "0"
+          and oq(f"select title from weft.items where id = '{RUN_OF_SHOW}'") != "pwned", f"{st} {st2} {st3} {st4}")
+    st, rows = call("POST", "/items", ag_home, {"space_id": SID["personal-u-org"], "kind": "document", "title": "Drafted by Claude"})
+    check("Agent fence: an AI app token scoped to Olive's personal space creates there (positive control)", st == 201, f"{st} {rows}")
+    st, _ = call("POST", "/messages", ag_home, {"space_id": F, "body": "AGENT-SCOPED-IN-FESTIVAL"})
+    check("Agent fence: the personal-scoped token still cannot write in a channel",
+          refused(st) and oq("select count(*) from weft.messages where body = 'AGENT-SCOPED-IN-FESTIVAL'") == "0", str(st))
+    st, _ = call("POST", "/messages", mint("u-org", agent=True, scope="festival"), {"space_id": F, "body": "AGENT-FEST-SCOPE"})
+    st2, _ = call("POST", "/messages", mint("u-org", agent=True, scope="personal-u-pub"), {"space_id": SID["personal-u-pub"], "body": "AGENT-OTHERS-HOME"})
+    check("Agent fence: scoping to a channel, or to someone else's personal space, does not open writes",
+          refused(st) and refused(st2) and oq("select count(*) from weft.messages where body like 'AGENT-%'") == "0", f"{st} {st2}")
+    st, _ = call("POST", "/messages", olive, {"space_id": F, "body": "Olive herself"})
+    check("Agent fence: Olive's own token still posts in #festival (positive control)", st == 201, str(st))
+    st, body = call("GET", "/items?select=id")
+    check("Agent fence: a request without a token still gets the plain refusal (the hook works for anonymous calls)",
+          st in (401, 403) and "pre_request" not in json.dumps(body), f"{st} {body}")
+
+    # A channel closed to AI agents is invisible to agent tokens on every path.
+    st, _ = call("POST", "/space_rules", alex, {"space_id": VOL, "agents_may_read": False})
+    st2, rows = call("GET", "/spaces?select=id", ag)
+    st3, rows3 = call("GET", f"/messages?space_id=eq.{VOL}&select=id", ag)
+    st4, rows4 = call("GET", f"/messages?space_id=eq.{VOL}&select=id", mint("u-org", assistant=True, agent=True))
+    check("Agent fence: Alex closes #volunteers to AI agents; Olive's AI app no longer sees it, its messages, or through the assistant role",
+          st == 201 and VOL not in {r["id"] for r in rows} and rows3 == [] and rows4 == [], f"{st} {rows3} {rows4}")
+    st, rows = call("GET", f"/messages?space_id=eq.{VOL}&select=id", olive)
+    st2, rows2 = call("GET", "/spaces?select=id", ag)
+    check("Agent fence: Olive herself still reads #volunteers, and her AI app still sees the open channels (positive controls)",
+          st == 200 and len(rows) >= 1 and {F, ORG} <= {r["id"] for r in rows2}, f"{rows} {rows2}")
+    st, rows = call("POST", "/rpc/search", ag, {"p_q": "volunteer", "p_limit": 25})
+    check("Agent fence: search by an AI app finds nothing from a closed channel",
+          st == 200 and all(r.get("space_id") != VOL for r in rows), str([r.get("space_id") for r in rows or []]))
+    call("PATCH", f"/space_rules?space_id=eq.{VOL}", alex, {"agents_may_read": True})
+
+    # A personal agent answers only in private places.
+    agent_id = uid("user", "olive-hermes")
+    oq(f"insert into weft.users (id, email, display_name, is_assistant) values ('{agent_id}', 'olive-hermes@agents.invalid', 'Olive''s Hermes', true) on conflict do nothing")
+    oq(f"insert into weft_private.agents (id, owner_id, handle, base_url) values ('{agent_id}', '{uid('user', 'u-org')}', 'olive-hermes', 'http://agent.invalid/v1') on conflict do nothing")
+    st, _ = call("POST", "/messages", mint("u-org", assistant=True, scope="personal-u-org"),
+                 {"space_id": SID["personal-u-org"], "author_id": agent_id, "body": "Answer to your question in #festival: Sunday."})
+    check("Agent fence: Olive's personal agent answers in her personal space (positive control)", st == 201, str(st))
+    for key in ("festival", "dm-alex-olive"):
+        st, _ = call("POST", "/messages", mint("u-org", assistant=True, scope=key), {"space_id": SID[key], "author_id": agent_id, "body": "AGENT-REPLY-OUTSIDE"})
+        check(f"Agent fence: Olive's personal agent cannot reply in {key}", refused(st), str(st))
+    check("Agent fence: ...and nothing it wrote landed outside", oq("select count(*) from weft.messages where body = 'AGENT-REPLY-OUTSIDE'") == "0")
+    # Leave no stand-in agent behind for the other suites.
+    oq(f"delete from weft.messages where author_id = '{agent_id}'; delete from weft_private.agents where id = '{agent_id}'; delete from weft.users where id = '{agent_id}'")
+
+
 if __name__ == "__main__":
     read_matrix()
     writes()
@@ -6517,6 +6765,8 @@ if __name__ == "__main__":
     search()
     index_the_rest()
     wikis()
+    projects()
+    agent_fence()
     if "--teeth" in sys.argv:
         teeth()
     width = max(len(n) for n, _, _ in results)

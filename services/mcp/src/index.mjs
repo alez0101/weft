@@ -72,7 +72,10 @@ async function weftUser(req) {
     return payload.role === 'weft_user' && payload.sub ? payload.sub : null;
   } catch { return null; }
 }
-const mintFor = (userId) => new SignJWT({ role: 'weft_user' })
+// Every token for a connected app is marked agent = true (070). The database then hides channels whose owners
+// closed them to AI apps, and refuses every write unless the token is also scoped to the person's own personal
+// space: AI apps read what the person can see, but change things only in Personal. The person moves results on.
+const mintFor = (userId, scope = null) => new SignJWT({ role: 'weft_user', agent: true, ...(scope ? { scope_space: scope } : {}) })
   .setProtectedHeader({ alg: 'HS256', typ: 'JWT' }).setSubject(userId).setIssuedAt().setExpirationTime('300s').sign(JWT_SECRET);
 
 // ---------------------------------------------------------------- OAuth
@@ -201,9 +204,21 @@ async function connections(req, res, id) {
 class Refused extends Error {}
 
 // The API as the person. A read-only grant can only read (GET), whatever a tool asks for.
+// The person's own personal space: the only place a connected app may change anything.
+async function personalSpace(ctx) {
+  if (!ctx.personal) {
+    const [s] = await rest(ctx, `/spaces?kind=eq.personal&created_by=eq.${ctx.user}&select=id`);
+    if (!s) throw new Refused('Weft could not find your personal space.');
+    ctx.personal = s.id;
+  }
+  return ctx.personal;
+}
+const FENCE = 'Weft refused: AI apps can make changes only in the person\'s Personal space. Create it there (channel "personal"); they can move it into a channel or project themselves.';
+
 async function rest(ctx, path, { method = 'GET', body, prefer } = {}) {
   if (ctx.access !== 'write' && method !== 'GET') throw new Refused('This connection is read-only. Reconnect Weft with read and write access to make changes.');
-  const headers = { Authorization: `Bearer ${await mintFor(ctx.user)}` };
+  const token = method === 'GET' ? await mintFor(ctx.user) : await mintFor(ctx.user, await personalSpace(ctx));
+  const headers = { Authorization: `Bearer ${token}` };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (prefer) headers.Prefer = prefer;
   const r = await fetch(`${POSTGREST}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -211,6 +226,7 @@ async function rest(ctx, path, { method = 'GET', body, prefer } = {}) {
   let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
   if (!r.ok) {
     const msg = data?.message || `${r.status}`;
+    if (method !== 'GET' && (r.status === 401 || r.status === 403 || /row-level security|permission denied|personal space/i.test(msg))) throw new Refused(FENCE);
     if (r.status === 401 || r.status === 403 || /row-level security|permission denied/i.test(msg)) {
       throw new Refused('Weft refused: you do not have permission for that here (viewers can read and chat, editors and owners can change things).');
     }
@@ -272,12 +288,22 @@ const READ = { readOnlyHint: true, openWorldHint: false };
 const WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
 const EDIT = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false };
 const chan = z.string().min(1).max(200).describe('Channel id, or its name (e.g. "general" or "#general"), or "personal" for your own space');
+const proj = z.string().min(1).max(200).describe('A project in that channel: its id or name (see list_channels). Leave out for the channel\'s general area.');
+
+// A project (069) by id or name, inside a space already resolved.
+async function projectOf(ctx, space, ref) {
+  ref = String(ref || '').trim();
+  const rows = await rest(ctx, `/projects?space_id=eq.${space.id}&select=id,name,instructions,archived_at`);
+  const p = UUID.test(ref) ? rows.find((r) => r.id === ref) : rows.find((r) => r.name.toLowerCase() === ref.toLowerCase());
+  if (!p) throw new Refused(`No project called "${ref}" in ${space.kind === 'personal' ? 'your personal space' : `#${space.name}`}. Use list_channels to see its projects.`);
+  return p;
+}
 
 function buildServer(ctx) {
   const server = new McpServer({ name: 'weft', title: 'Weft', version: '1.0.0' }, {
     instructions: `Weft is a team workspace (chat channels, documents, wiki, whiteboards, tables, task lists, polls, files, calendar). You act as ${ctx.name}, and see only what they can see. `
       + `Everything is organised in channels (spaces); "personal" is their own space. Search first when you do not know where something is. `
-      + `Give people the links in results so they can open things in Weft.${ctx.access === 'write' ? ' Anything you post or create appears under their name, so say what you are about to change before changing it unless they asked you to.' : ' This connection is read-only.'}`,
+      + `Give people the links in results so they can open things in Weft.${ctx.access === 'write' ? ' You can read every channel they can see, but you can create and change things only in their personal space (channel "personal"); they move results into a channel or project themselves. Anything you create appears under their name.' : ' This connection is read-only.'}`,
   });
   const tool = (name, meta, schema, fn) => server.registerTool(name, { ...meta, inputSchema: schema }, async (args) => {
     try { return await fn(args); } catch (e) {
@@ -291,13 +317,36 @@ function buildServer(ctx) {
   tool('whoami', { title: 'Who am I in Weft', description: 'Who this connection acts as, and whether it can make changes.', annotations: READ }, {}, async () =>
     text({ name: ctx.name, user_id: ctx.user, access: ctx.access === 'write' ? 'read and write' : 'read only', weft: base }));
 
-  tool('list_channels', { title: 'List channels', description: 'The channels, direct messages and personal space you are in, with your role in each (owner, editor or viewer).', annotations: READ }, {}, async () => {
+  tool('list_channels', { title: 'List channels', description: 'The channels, direct messages and personal space you are in, with your role in each (owner, editor or viewer) and the projects inside each channel.', annotations: READ }, {}, async () => {
     const [spaces, mine] = await Promise.all([
       rest(ctx, '/spaces?kind=in.(channel,dm,personal)&select=id,kind,name&order=name'),
       rest(ctx, `/members?user_id=eq.${ctx.user}&select=space_id,role`),
     ]);
     const role = Object.fromEntries(mine.map((m) => [m.space_id, m.role]));
-    return text(spaces.map((s) => ({ id: s.id, name: s.name, kind: s.kind, your_role: role[s.id] || 'viewer' })));
+    const projects = await rest(ctx, '/projects?archived_at=is.null&select=id,space_id,name&order=name');
+    return text(spaces.map((s) => {
+      const ps = projects.filter((p) => p.space_id === s.id).map((p) => ({ id: p.id, name: p.name }));
+      return { id: s.id, name: s.name, kind: s.kind, your_role: role[s.id] || 'viewer', ...(ps.length ? { projects: ps } : {}) };
+    }));
+  });
+
+  tool('read_project', {
+    title: 'Read a project', annotations: READ,
+    description: 'A project inside a channel: its instructions and the channel\'s rules (follow them when you work on this project), its pinned documents and its latest chat. Read this before working on a project.',
+  }, { channel: chan, project: proj }, async ({ channel, project }) => {
+    const s = await spaceOf(ctx, channel);
+    const p = await projectOf(ctx, s, project);
+    const [rules, pins, msgs] = await Promise.all([
+      rest(ctx, `/space_rules?space_id=eq.${s.id}&select=instructions`),
+      rest(ctx, `/project_pins?project_id=eq.${p.id}&select=item:items(id,kind,title)&order=position,created_at`),
+      rest(ctx, `/messages?project_id=eq.${p.id}&select=id,body,created_at,author:users(display_name)&order=created_at.desc&limit=20`),
+    ]);
+    return text({
+      project: p.name, id: p.id, channel: s.name, channel_id: s.id, ...(p.archived_at ? { archived: true } : {}),
+      channel_rules: rules[0]?.instructions || '', project_instructions: p.instructions || '',
+      pinned: pins.map((x) => x.item).filter(Boolean).map((i) => ({ id: i.id, kind: i.kind, title: i.title, link: linkTo(base, i.kind, i.id) })),
+      recent_chat: msgs.reverse().map((m) => ({ id: m.id, from: m.author?.display_name, at: fmtTime(m.created_at), text: m.body })),
+    });
   });
 
   tool('read_messages', {
@@ -308,13 +357,15 @@ function buildServer(ctx) {
     limit: z.number().int().min(1).max(100).default(30).describe('How many messages (default 30)'),
     before: z.string().optional().describe('Only messages before this time (ISO 8601), to page back'),
     thread: z.string().regex(UUID).optional().describe('A message id: read that message and its replies'),
-  }, async ({ channel, limit, before, thread }) => {
+    project: proj.optional(),
+  }, async ({ channel, limit, before, thread, project }) => {
     const s = await spaceOf(ctx, channel);
-    let q = `/messages?space_id=eq.${s.id}&select=id,body,created_at,edited_at,thread_root_id,author:users(display_name)&order=created_at.desc&limit=${limit}`;
+    const p = project ? await projectOf(ctx, s, project) : null;
+    let q = `/messages?space_id=eq.${s.id}&project_id=${p ? `eq.${p.id}` : 'is.null'}&select=id,body,created_at,edited_at,thread_root_id,author:users(display_name)&order=created_at.desc&limit=${limit}`;
     if (before) q += `&created_at=lt.${enc(new Date(before).toISOString())}`;
     if (thread) q += `&or=(id.eq.${thread},thread_root_id.eq.${thread})`;
     const rows = (await rest(ctx, q)).reverse();
-    return text({ channel: s.name, messages: rows.map((m) => ({ id: m.id, from: m.author?.display_name, at: fmtTime(m.created_at), ...(m.thread_root_id ? { reply_to: m.thread_root_id } : {}), text: m.body })) });
+    return text({ channel: s.name, ...(p ? { project: p.name } : {}), messages: rows.map((m) => ({ id: m.id, from: m.author?.display_name, at: fmtTime(m.created_at), ...(m.thread_root_id ? { reply_to: m.thread_root_id } : {}), text: m.body })) });
   });
 
   tool('search', {
@@ -348,12 +399,18 @@ function buildServer(ctx) {
     channel: chan.optional(),
     kind: z.enum(['document', 'wiki', 'whiteboard', 'table', 'tasklist', 'poll', 'linklist', 'addressbook', 'decisionlog', 'qa', 'checklist', 'expenselist', 'inventory', 'goalset', 'retro', 'glossary', 'ideaboard', 'meeting', 'file', 'spreadsheet']).optional(),
     limit: z.number().int().min(1).max(200).default(50),
-  }, async ({ channel, kind, limit }) => {
-    let q = `/items?select=id,kind,title,parent_id,updated_at,space:spaces(name)&order=updated_at.desc&limit=${limit}`;
-    if (channel) q += `&space_id=eq.${(await spaceOf(ctx, channel)).id}`;
+    project: proj.optional(),
+  }, async ({ channel, kind, limit, project }) => {
+    let q = `/items?select=id,kind,title,parent_id,updated_at,project:projects(name),space:spaces(name)&order=updated_at.desc&limit=${limit}`;
+    if (project && !channel) throw new Refused('Say which channel the project is in.');
+    if (channel) {
+      const s = await spaceOf(ctx, channel);
+      q += `&space_id=eq.${s.id}`;
+      if (project) q += `&project_id=eq.${(await projectOf(ctx, s, project)).id}`;
+    }
     if (kind) q += `&kind=eq.${kind}`;
     const rows = await rest(ctx, q);
-    return text(rows.map((i) => ({ id: i.id, kind: i.kind, title: i.title, channel: i.space?.name, ...(i.parent_id ? { parent_page: i.parent_id } : {}), updated: fmtTime(i.updated_at), link: linkTo(base, i.kind, i.id) })));
+    return text(rows.map((i) => ({ id: i.id, kind: i.kind, title: i.title, channel: i.space?.name, ...(i.project ? { project: i.project.name } : {}), ...(i.parent_id ? { parent_page: i.parent_id } : {}), updated: fmtTime(i.updated_at), link: linkTo(base, i.kind, i.id) })));
   });
 
   tool('read_item', {
@@ -428,29 +485,33 @@ function buildServer(ctx) {
   // ---------- light writes: post, create, edit, schedule, tick off. Nothing deletes.
   tool('post_message', {
     title: 'Post a message', annotations: WRITE,
-    description: 'Post a chat message in a channel as you. Give reply_to (a message id) to answer in its thread.',
+    description: 'Post a chat message as you, in your personal space (channel "personal"), optionally in one of its projects. Connected apps can only post in Personal; the person moves anything worth sharing into a channel. Give reply_to (a message id) to answer in its thread.',
   }, {
     channel: chan,
     text: z.string().min(1).max(20000),
     reply_to: z.string().regex(UUID).optional(),
-  }, async ({ channel, text: body, reply_to }) => {
+    project: proj.optional(),
+  }, async ({ channel, text: body, reply_to, project }) => {
     const s = await spaceOf(ctx, channel);
-    const [m] = await rest(ctx, '/messages?select=id,created_at', { method: 'POST', body: { space_id: s.id, body, thread_root_id: reply_to || null }, prefer: 'return=representation' });
-    return text({ posted: true, id: m.id, channel: s.name, at: fmtTime(m.created_at) });
+    const p = project ? await projectOf(ctx, s, project) : null;
+    const [m] = await rest(ctx, '/messages?select=id,created_at', { method: 'POST', body: { space_id: s.id, body, thread_root_id: reply_to || null, ...(p ? { project_id: p.id } : {}) }, prefer: 'return=representation' });
+    return text({ posted: true, id: m.id, channel: s.name, ...(p ? { project: p.name } : {}), at: fmtTime(m.created_at) });
   });
 
   tool('create_page', {
     title: 'Create a document, wiki page or task list', annotations: WRITE,
-    description: 'Create a document or wiki page from Markdown (headings, lists, bold, links, tables), or an empty task list. Wiki pages can sit under a parent page.',
+    description: 'Create a document or wiki page from Markdown (headings, lists, bold, links, tables), or an empty task list, in your personal space (channel "personal"), optionally in one of its projects. Connected apps create only in Personal; the person moves it into a channel or project. Wiki pages can sit under a parent page.',
   }, {
     channel: chan,
+    project: proj.optional(),
     kind: z.enum(['document', 'wiki', 'tasklist']),
     title: z.string().min(1).max(200),
     markdown: z.string().max(200000).default('').describe('The content (ignored for a task list)'),
     parent_page: z.string().regex(UUID).optional().describe('Wiki only: the page to put it under'),
-  }, async ({ channel, kind, title, markdown, parent_page }) => {
+  }, async ({ channel, kind, title, markdown, parent_page, project }) => {
     const s = await spaceOf(ctx, channel);
-    const row = { space_id: s.id, kind, title, body_text: kind === 'tasklist' ? null : markdown || null, parent_id: kind === 'wiki' ? parent_page || null : null };
+    const p = project ? await projectOf(ctx, s, project) : null;
+    const row = { space_id: s.id, kind, title, body_text: kind === 'tasklist' ? null : markdown || null, parent_id: kind === 'wiki' ? parent_page || null : null, ...(p ? { project_id: p.id } : {}) };
     const [i] = await rest(ctx, '/items?select=id,kind,title', { method: 'POST', body: row, prefer: 'return=representation' });
     return text({ created: true, id: i.id, kind: i.kind, title: i.title, channel: s.name, link: linkTo(base, i.kind, i.id) });
   });
@@ -476,7 +537,7 @@ function buildServer(ctx) {
     if (markdown) {
       const r = await fetch(`${COLLAB_EDIT}/edit`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: await mintFor(ctx.user), id, mode, markdown }),
+        body: JSON.stringify({ token: await mintFor(ctx.user, await personalSpace(ctx)), id, mode, markdown }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Refused(d.error || 'The page could not be changed.');

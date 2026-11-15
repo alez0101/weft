@@ -14,7 +14,9 @@ If you have your own AI agent (for example a Hermes agent you already chat with 
 
 ### In channels
 
-Mention your agent by its @name in a channel or direct message you are in (the message box shows the @name). It answers there, and everyone in that channel reads the answer. In a channel it is sent that channel's recent messages so it knows what you are talking about, and nothing from anywhere else.
+Mention your agent by its @name in a channel or direct message you are in (the message box shows the @name). It is sent that channel's recent messages so it knows what you are talking about, and nothing from anywhere else. It answers in your **Personal** space (at the top of the chat list), where only you can see it, starting with where you asked. If the answer is worth sharing, copy it into the channel yourself.
+
+If a channel's owners have turned off **Allow AI agents to read this channel**, your agent cannot be asked there.
 
 Only you can ask your own agent anything. If someone else mentions it, nothing happens.
 

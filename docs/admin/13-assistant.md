@@ -9,8 +9,9 @@ summary: How a question is answered, search, models and failover, proposals, cos
 2. The app calls `/assistant/ask` with that message. The assistant reads it as you and only accepts your own messages.
 3. It mints a 2-minute `weft_assistant` token for you. In a channel the token is scoped to that channel, because the whole channel reads the answer; in your own conversation it is not scoped.
 4. It finds material with that token: keyword search over messages, documents, wiki pages, whiteboard text, tables, files and events, the channel's latest messages when scoped, events when the question is about time, and meaning search (below).
-5. The model sees only those numbered items and must cite them. An answer with no valid citation becomes "I couldn't find anything about that in what you can see."
-6. The answer is posted as Weft, with its citations, the model that wrote it and any fallback reason.
+5. Rules (069), in order after Weft's own: the space's rules, the project's instructions (when asked in a project chat) and the asker's own rules (style only), all read with the asker's tokens. The project's pinned items come first among the numbered items and are never cut. Instructions guide the answer; they are not sources. In a project chat, the recent messages are that project's, and the answer is posted there.
+6. The model sees only those numbered items and must cite them. An answer with no valid citation becomes "I couldn't find anything about that in what you can see."
+7. The answer is posted as Weft, with its citations, the model that wrote it and any fallback reason.
 
 ### Meaning search
 

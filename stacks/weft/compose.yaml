@@ -37,6 +37,7 @@ services:
       PGRST_DB_ANON_ROLE: weft_anon
       PGRST_JWT_SECRET: ${JWT_SECRET:?set in .env}
       PGRST_DB_CHANNEL_ENABLED: "true"
+      PGRST_DB_PRE_REQUEST: weft_private.pre_request   # 070: the agent write fence
       PGRST_LOG_LEVEL: warn
     ports:
       - "127.0.0.1:${WEFT_API_PORT:-3100}:3000"

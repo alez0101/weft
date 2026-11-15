@@ -7,6 +7,7 @@ summary: Where to ask, what to expect, and examples.
 
 - **In your Weft conversation** (top of the chat rail): Weft uses everything you can open, across all your channels, documents and events. Only you see this conversation.
 - **In a channel**: start your message with **@Weft**. Weft only uses that channel's messages, documents and events, because everyone in the channel reads the answer. It can only post to, and add events in, that channel.
+- **In a project's chat**: the same as in a channel, and Weft also follows the project's instructions and reads its pinned documents first. See **Projects**.
 
 ### What you get back
 

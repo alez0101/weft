@@ -15,6 +15,7 @@ import TimeOff from './TimeOff.jsx';
 import Profiles from './Profiles.jsx';
 import Widgets from './Home.jsx';
 import ModelKey from './ModelKey.jsx';
+import { MyRules } from './Projects.jsx';
 import Connect, { CONNECTING, ConnectedApps } from './Connect.jsx';
 import SearchBox from './Search.jsx';
 import { applyMode, storedMode } from './mode.js';
@@ -184,6 +185,7 @@ function AccountMenu({ me, info, onSignOut }) {
   const [status, setStatus] = useState('');
   const [keyOpen, setKeyOpen] = useState(false);
   const [appsOpen, setAppsOpen] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
   const canPassword = info.mode !== 'test' && info.methods.includes('password');
   return (
     <div className="account">
@@ -208,12 +210,14 @@ function AccountMenu({ me, info, onSignOut }) {
           )}
           {status && <p className="slot-status" role="status">{status}</p>}
           <button className="btn btn--sm" type="button" onClick={() => { setKeyOpen(true); setOpen(false); }}>Your model key</button>
+          <button className="btn btn--sm" type="button" onClick={() => { setRulesOpen(true); setOpen(false); }}>Your rules for Weft</button>
           <button className="btn btn--sm" type="button" onClick={() => { setAppsOpen(true); setOpen(false); }}>Connected apps</button>
           {canPassword && <button className="btn btn--sm" type="button" onClick={onSignOut}>Sign out</button>}
         </div>
       )}
       {keyOpen && <ModelKey onClose={() => setKeyOpen(false)} />}
       {appsOpen && <ConnectedApps onClose={() => setAppsOpen(false)} />}
+      {rulesOpen && <MyRules onClose={() => setRulesOpen(false)} />}
     </div>
   );
 }
@@ -239,6 +243,7 @@ export default function App() {
   // `spaces` so no app offers an agent conversation as a place to put things.
   const [agents, setAgents] = useState([]);
   const [agentSpaces, setAgentSpaces] = useState([]);
+  const [personal, setPersonal] = useState(null);   // your personal space: a conversation of its own (070)
   const [members, setMembers] = useState([]);
   const [unread, setUnread] = useState([]);
   const [notice, setNotice] = useState(null);
@@ -288,13 +293,14 @@ export default function App() {
   }, [ui, session]);
 
   const refreshSpaces = useCallback(async () => {
-    const [s, m, a, ag] = await Promise.all([
+    const [s, m, a, ag, p] = await Promise.all([
       api('/spaces?kind=in.(channel,dm,assistant)&select=id,kind,name,everyone,admins_only&order=name'),
       api('/members?select=space_id,role,user:users(id,display_name)'),
       api('/rpc/my_agents').catch(() => []),
       api('/spaces?kind=eq.agent&select=id,kind,name,agent_id,created_at&order=created_at.desc').catch(() => []),
+      api('/spaces?kind=eq.personal&select=id,kind,name').catch(() => []),
     ]);
-    setSpaces(s); setMembers(m); setAgents(a); setAgentSpaces(ag);
+    setSpaces(s); setMembers(m); setAgents(a); setAgentSpaces(ag); setPersonal(p[0] || null);
   }, []);
   const refreshUnread = useCallback(() => api('/unread').then(setUnread).catch(() => {}), []);
 
@@ -311,9 +317,9 @@ export default function App() {
 
   // A conversation that is no longer visible (left the space) falls back to the assistant.
   useEffect(() => {
-    if (session && spaces.length && ui.convo !== 'weft' && !spaces.some((s) => s.id === ui.convo) && !agentSpaces.some((s) => s.id === ui.convo)) setUi((u) => ({ ...u, convo: 'weft' }));
+    if (session && spaces.length && ui.convo !== 'weft' && !spaces.some((s) => s.id === ui.convo) && !agentSpaces.some((s) => s.id === ui.convo) && personal?.id !== ui.convo) setUi((u) => ({ ...u, convo: 'weft' }));
     if (session && isAdmin === false && ui.tabs.includes('settings')) setUi((u) => ({ ...u, tabs: u.tabs.filter((t) => t !== 'settings'), active: u.active === 'settings' ? 'home' : u.active }));
-  }, [spaces, agentSpaces, session, ui.convo, ui.tabs, isAdmin]);
+  }, [spaces, agentSpaces, personal, session, ui.convo, ui.tabs, isAdmin]);
 
   const openTab = (id, extra = {}) => setUi((u) => ({ ...u, ...extra, pane: 'apps', tabs: u.tabs.includes(id) ? u.tabs : [...u.tabs, id], active: id }));
   // A weft://item link from chat: open it in Documents or Wiki. If we cannot see it, Documents shows "no access".
@@ -397,7 +403,7 @@ export default function App() {
         <AccountMenu me={me} info={mode} onSignOut={async () => { await signOut(); location.hash = ''; location.reload(); }} />
       </header>
 
-      <Chat me={me} spaces={spaces} agents={agents} agentSpaces={agentSpaces} members={members} unread={unread} active={ui.convo} onSpacesChanged={refreshSpaces}
+      <Chat me={me} spaces={spaces} personal={personal} agents={agents} agentSpaces={agentSpaces} members={members} unread={unread} active={ui.convo} onSpacesChanged={refreshSpaces}
         setActive={(convo) => setUi((u) => ({ ...u, convo, pane: 'chat' }))} rail={ui.rail} setRail={(rail) => setUi((u) => ({ ...u, rail }))}
         notice={notice} live={live} onOpenItem={openItem} onOpenEvent={openEvent} onOpenNotices={openNotices} onOpenRecord={openRecord} jump={jump} />
 

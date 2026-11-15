@@ -87,6 +87,9 @@ export default function Docs({ kind, view, me, members, openId, setOpenId, notic
   const [status, setStatus] = useState('');
   const [title, setTitle] = useState('');
   const [newSpace, setNewSpace] = useState('');
+  const [newProject, setNewProject] = useState('');   // 069: '' is the space's general area
+  const [projects, setProjects] = useState([]);
+  const [pins, setPins] = useState([]);
   const [shareTo, setShareTo] = useState('');
   const [note, setNote] = useState('');
   const [missing, setMissing] = useState(false);
@@ -95,15 +98,17 @@ export default function Docs({ kind, view, me, members, openId, setOpenId, notic
 
   const load = useCallback(async () => {
     try {
-      const [s, i] = await Promise.all([
+      const [s, i, p, pn] = await Promise.all([
         api('/spaces?kind=in.(channel,personal)&select=id,kind,name&order=kind.desc,name'),
-        api(`/items?kind=eq.${kind}&select=id,title,space_id,parent_id,updated_at,managed&order=${kind === 'meeting' ? 'created_at.desc' : 'title'}`),
+        api(`/items?kind=eq.${kind}&select=id,title,space_id,project_id,parent_id,updated_at,managed&order=${kind === 'meeting' ? 'created_at.desc' : 'title'}`),
+        api('/projects?archived_at=is.null&select=id,space_id,name&order=name').catch(() => []),
+        api('/project_pins?select=id,item_id,project_id').catch(() => []),
       ]);
-      setSpaces(s); setItems(i); setError('');
+      setSpaces(s); setItems(i); setProjects(p); setPins(pn); setError('');
     } catch (e) { setError(e.message); }
   }, [kind]);
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { if (notice?.t === 'items') load(); }, [notice, load]);
+  useEffect(() => { if (['items', 'projects', 'project_pins'].includes(notice?.t)) load(); }, [notice, load]);
   // A page republished from the repo reopens with a fresh copy (never merged into the old one).
   const [fresh, setFresh] = useState(0);
   useEffect(() => { if (notice?.t === 'doc_reset' && notice.id === openId) { setFresh((n) => n + 1); load(); } }, [notice, openId, load]);
@@ -131,12 +136,12 @@ export default function Docs({ kind, view, me, members, openId, setOpenId, notic
 
   async function create() {
     if (kind === 'spreadsheet') {
-      try { const row = await newSpreadsheet(newSpace, 'Untitled spreadsheet'); await load(); setOpenId(row.id); } catch (e) { setError(`Could not create: ${e.message}`); }
+      try { const row = await newSpreadsheet(newSpace, 'Untitled spreadsheet'); await intoProject(row); await load(); setOpenId(row.id); } catch (e) { setError(`Could not create: ${e.message}`); }
       return;
     }
     try {
       const parent = kind === 'wiki' && current && current.space_id === newSpace ? current.id : null;
-      const [row] = await api('/items', { method: 'POST', body: { space_id: newSpace, kind, title: kind === 'wiki' ? 'New page' : kind === 'whiteboard' ? 'Untitled whiteboard' : kind === 'table' ? 'Untitled table' : kind === 'tasklist' ? 'New task list' : kind === 'poll' ? 'New poll' : kind === 'form' ? 'New form' : kind === 'linklist' ? 'Useful links' : kind === 'addressbook' ? 'Contacts' : kind === 'decisionlog' ? 'Decisions' : kind === 'qa' ? 'Questions' : kind === 'checklist' ? 'New checklist' : kind === 'expenselist' ? 'Shared costs' : kind === 'inventory' ? 'Our things' : kind === 'goalset' ? 'Goals' : kind === 'retro' ? 'Retro' : kind === 'glossary' ? 'Glossary' : kind === 'ideaboard' ? 'Ideas' : kind === 'meeting' ? `Meeting ${new Date().toLocaleDateString([], { month: 'short', day: 'numeric' })}` : 'Untitled document', parent_id: parent }, prefer: 'return=representation' });
+      const [row] = await api('/items', { method: 'POST', body: { space_id: newSpace, ...(newProject ? { project_id: newProject } : {}), kind, title: kind === 'wiki' ? 'New page' : kind === 'whiteboard' ? 'Untitled whiteboard' : kind === 'table' ? 'Untitled table' : kind === 'tasklist' ? 'New task list' : kind === 'poll' ? 'New poll' : kind === 'form' ? 'New form' : kind === 'linklist' ? 'Useful links' : kind === 'addressbook' ? 'Contacts' : kind === 'decisionlog' ? 'Decisions' : kind === 'qa' ? 'Questions' : kind === 'checklist' ? 'New checklist' : kind === 'expenselist' ? 'Shared costs' : kind === 'inventory' ? 'Our things' : kind === 'goalset' ? 'Goals' : kind === 'retro' ? 'Retro' : kind === 'glossary' ? 'Glossary' : kind === 'ideaboard' ? 'Ideas' : kind === 'meeting' ? `Meeting ${new Date().toLocaleDateString([], { month: 'short', day: 'numeric' })}` : 'Untitled document', parent_id: parent }, prefer: 'return=representation' });
       if (kind === 'poll') await api('/poll_choices', { method: 'POST', body: [{ poll_id: row.id, label: 'Yes', position: 0 }, { poll_id: row.id, label: 'No', position: 1 }], prefer: 'return=minimal' });
       if (kind === 'form') await api('/form_questions', { method: 'POST', body: { form_id: row.id, label: 'Your name', kind: 'short', required: true, position: 0 }, prefer: 'return=minimal' });
       if (kind === 'table') await api('/table_columns', { method: 'POST', body: { table_id: row.id, name: 'Name', type: 'text', position: 0 }, prefer: 'return=minimal' });
@@ -149,7 +154,7 @@ export default function Docs({ kind, view, me, members, openId, setOpenId, notic
     setError(''); let last = null;
     for (const [n, f] of files.entries()) {
       setUploading(`${kind === 'spreadsheet' ? 'Opening' : 'Uploading'} ${f.name}${files.length > 1 ? ` (${n + 1} of ${files.length})` : ''}…`);
-      try { last = kind === 'spreadsheet' ? await newSpreadsheet(newSpace, f.name, f) : await uploadFile(newSpace, f); } catch (e) { setError(`${f.name}: ${e.message}`); }
+      try { last = kind === 'spreadsheet' ? await newSpreadsheet(newSpace, f.name, f) : await uploadFile(newSpace, f); await intoProject(last); } catch (e) { setError(`${f.name}: ${e.message}`); }
     }
     setUploading(''); await load(); if (last) setOpenId(last.id);
   }
@@ -157,14 +162,39 @@ export default function Docs({ kind, view, me, members, openId, setOpenId, notic
     if (!current || title.trim() === current.title || !title.trim()) return;
     try { await api(`/items?id=eq.${current.id}`, { method: 'PATCH', body: { title: title.trim() }, prefer: 'return=minimal' }); load(); } catch (e) { setError(`Could not rename: ${e.message}`); }
   }
-  async function moveTo(spaceId) {
+  // Files and spreadsheets are made by their own services; put them in the chosen project afterwards.
+  async function intoProject(row) {
+    if (row?.id && newProject) await api(`/items?id=eq.${row.id}`, { method: 'PATCH', body: { project_id: newProject }, prefer: 'return=minimal' });
+  }
+  // A place is a space, or a project in it ("space|project"). Moving keeps the author (created_by never changes).
+  async function moveTo(place) {
+    const [spaceId, projectId = ''] = place.split('|');
     const target = spaces.find((s) => s.id === spaceId);
     if (!current || !target) return;
+    const sameSpace = spaceId === current.space_id;
+    const proj = projects.find((p) => p.id === projectId);
     try {
-      await api(`/items?id=eq.${current.id}`, { method: 'PATCH', body: { space_id: spaceId, parent_id: null }, prefer: 'return=minimal' });
-      setNote(`Moved to ${spaceLabel(target)}. Only people in ${spaceLabel(target)} can open it now.`); load();
+      await api(`/items?id=eq.${current.id}`, { method: 'PATCH', body: { space_id: spaceId, project_id: projectId || null, ...(sameSpace ? {} : { parent_id: null }) }, prefer: 'return=minimal' });
+      setNote(sameSpace ? (proj ? `Moved into ${proj.name}.` : `Moved out of its project, into ${spaceLabel(target)}.`)
+        : `Moved to ${spaceLabel(target)}${proj ? ` › ${proj.name}` : ''}. Only people in ${spaceLabel(target)} can open it now.`);
+      load();
     } catch (e) { setError(`Could not move: ${e.message}`); }
   }
+  const pinOf = (item) => pins.find((p) => p.item_id === item?.id && p.project_id === item?.project_id);
+  async function togglePin() {
+    const pin = pinOf(current);
+    try {
+      if (pin) await api(`/project_pins?id=eq.${pin.id}`, { method: 'DELETE', prefer: 'return=minimal' });
+      else await api('/project_pins', { method: 'POST', body: { project_id: current.project_id, item_id: current.id }, prefer: 'return=minimal' });
+      setNote(pin ? 'Unpinned. Weft finds it through search like everything else.' : 'Pinned. Weft now always reads this when answering in the project.');
+      load();
+    } catch (e) { setError(`Could not ${pin ? 'unpin' : 'pin'}: ${e.message}`); }
+  }
+  const projectsIn = (spaceId) => projects.filter((p) => p.space_id === spaceId);
+  const placeOptions = (list) => list.flatMap((s) => [
+    <option key={s.id} value={`${s.id}|`}>{spaceLabel(s)}</option>,
+    ...projectsIn(s.id).map((p) => <option key={p.id} value={`${s.id}|${p.id}`}>{spaceLabel(s)} › {p.name}</option>),
+  ]);
   async function remove() {
     if (!current || !window.confirm(`Delete "${current.title}"? Everyone in ${spaceLabel(currentSpace)} will lose it.${kind === 'wiki' ? ' Its sub-pages move to the top level.' : ''}`)) return;
     try { await api(`/items?id=eq.${current.id}`, { method: 'DELETE', prefer: 'return=minimal' }); setOpenId(null); load(); }
@@ -200,8 +230,9 @@ export default function Docs({ kind, view, me, members, openId, setOpenId, notic
         onDrop={kind === 'file' ? (e) => { e.preventDefault(); setDragging(false); upload(e.dataTransfer.files); } : undefined}>
         <div className="docs-new">
           <label className="visually-hidden" htmlFor={`new-${kind}`}>Space for the new {noun}</label>
-          <select id={`new-${kind}`} value={newSpace} onChange={(e) => setNewSpace(e.target.value)} disabled={!editable.length}>
-            {editable.map((s) => <option key={s.id} value={s.id}>{spaceLabel(s)}</option>)}
+          <select id={`new-${kind}`} value={`${newSpace}|${newProject}`} disabled={!editable.length}
+            onChange={(e) => { const [sp, pr = ''] = e.target.value.split('|'); setNewSpace(sp); setNewProject(pr); }}>
+            {placeOptions(editable)}
           </select>
           {kind === 'file' ? (
             <label className={`btn btn--primary btn--sm file-pick${!newSpace || uploading ? ' is-disabled' : ''}`}>
@@ -220,7 +251,13 @@ export default function Docs({ kind, view, me, members, openId, setOpenId, notic
           : groups.map(({ s, rows }) => (
             <div key={s.id} className="docs-group">
               <p className="tree-group">{spaceLabel(s)}</p>
-              <ul>{renderRows(rows)}</ul>
+              {projectsIn(s.id).filter((p) => rows.some((r) => r.project_id === p.id)).map((p) => (
+                <div key={p.id} className="docs-project">
+                  <p className="tree-project">{p.name}</p>
+                  <ul>{renderRows(rows.filter((r) => r.project_id === p.id))}</ul>
+                </div>
+              ))}
+              <ul>{renderRows(rows.filter((r) => !r.project_id || !projectsIn(s.id).some((p) => p.id === r.project_id)))}</ul>
             </div>
           ))}
       </nav>
@@ -236,7 +273,7 @@ export default function Docs({ kind, view, me, members, openId, setOpenId, notic
                 onChange={(e) => setTitle(e.target.value)} onBlur={saveTitle} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
               <button type="button" className="icon-btn docs-more-btn" aria-expanded={moreOpen} aria-label="Share, move or delete" title="Share, move or delete"
                 onClick={() => setMoreOpen((v) => !v)}><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="5" cy="10" r="1.2" /><circle cx="10" cy="10" r="1.2" /><circle cx="15" cy="10" r="1.2" /></svg></button>
-              <p className="docs-meta"><span>{spaceLabel(currentSpace || {})}</span>{status && <span className="docs-status">{status}</span>}</p>
+              <p className="docs-meta"><span>{spaceLabel(currentSpace || {})}{current.project_id && projects.find((p) => p.id === current.project_id) ? ` › ${projects.find((p) => p.id === current.project_id).name}` : ''}</span>{status && <span className="docs-status">{status}</span>}</p>
               <div className="docs-share">
                 <label className="visually-hidden" htmlFor={`share-${kind}`}>Share to channel</label>
                 <select id={`share-${kind}`} value={shareTo} onChange={(e) => setShareTo(e.target.value)}>
@@ -249,8 +286,11 @@ export default function Docs({ kind, view, me, members, openId, setOpenId, notic
                   <label className="visually-hidden" htmlFor={`move-${kind}`}>Move to space</label>
                   <select id={`move-${kind}`} value="" onChange={(e) => { if (e.target.value) moveTo(e.target.value); }}>
                     <option value="">Move to…</option>
-                    {editable.filter((s) => s.id !== current.space_id).map((s) => <option key={s.id} value={s.id}>{spaceLabel(s)}</option>)}
+                    {placeOptions(editable).filter((o) => o.props.value !== `${current.space_id}|${current.project_id || ''}`)}
                   </select>
+                  {current.project_id && myRole(current.space_id) === 'owner' && (
+                    <button className="btn btn--sm" type="button" aria-pressed={!!pinOf(current)} onClick={togglePin}>{pinOf(current) ? 'Unpin for Weft' : 'Pin for Weft'}</button>
+                  )}
                   <button className="btn btn--sm" onClick={remove}>Delete</button>
                 </>)}
               </div>
