@@ -12,6 +12,7 @@ import os
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
@@ -3918,6 +3919,140 @@ def bookings():
     call("DELETE", f"/resources?id=eq.{room}", alex)
 
 
+def repeating_bookings():
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, O, A = uid("user", "u-pub"), uid("user", "u-org"), uid("user", "u-alex")
+    oq = lambda sql: owner_sql(sql)
+    rpc = lambda tok, body: call("POST", "/rpc/book_weekly", tok, body)
+    utc = lambda rows: ",".join(oq(f"select to_char('{r['starts_at']}'::timestamptz at time zone 'UTC', 'MM-DD HH24:MI')") for r in rows)
+    st, rows = call("POST", "/resources", olive, {"space_id": SID["organizers"], "name": "RB-ORG-SECRET room"})
+    room = rows[0]["id"] if st == 201 else None
+    st, rows = call("POST", "/resources", olive, {"space_id": SID["festival"], "name": "RB festival van"})
+    van = rows[0]["id"] if st == 201 else None
+    # Alex already has the room on the third week.
+    st, rows = call("POST", "/bookings", alex, {"resource_id": room, "starts_at": "2027-03-24T17:30:00Z", "ends_at": "2027-03-24T19:00:00Z"})
+    check("Repeating bookings: setup, Alex books the Organizers room once", st == 201 and room and van, f"{st} {rows}")
+    # Olive books it weekly, in Berlin time, across the clock change of 28 March 2027.
+    week = {"p_resource": room, "p_starts": "2027-03-10T17:00:00Z", "p_ends": "2027-03-10T18:00:00Z", "p_weeks": 5, "p_note": " RB-ORG-SECRET budget ", "p_tz": "Europe/Berlin"}
+    st, res = rpc(olive, week)
+    ok = st == 200 and isinstance(res, dict)
+    sid = res["series"] if ok else None
+    check("Repeating bookings: Olive (editor) books the Organizers room weekly for 5 weeks; 4 booked, 1 refused (positive control)",
+          ok and len(res["booked"]) == 4 and len(res["clashed"]) == 1, f"{st} {res}")
+    check("Repeating bookings: the refused week is the one that clashes, and it says whose booking is in the way",
+          ok and utc(res["clashed"]) == "03-24 17:00" and (res["clashed"][0].get("by") or "").startswith("Alex"), str(res))
+    check("Repeating bookings: the weeks keep the local time across a clock change (18:00 Berlin is 17:00 UTC, then 16:00 UTC)",
+          ok and utc(res["booked"]) == "03-10 17:00,03-17 17:00,03-31 16:00,04-07 16:00", str(res))
+    check("Repeating bookings: each week is an ordinary booking by Olive in Organizers, note trimmed, in the series",
+          oq(f"select count(*) from weft.bookings where series_id = '{sid}' and booked_by = '{O}' and space_id = '{SID['organizers']}' and note = 'RB-ORG-SECRET budget' and ends_at - starts_at = interval '1 hour'") == "4")
+    check("Repeating bookings: the series is the room's, in Organizers, made by Olive (set by the database)",
+          oq(f"select resource_id::text || space_id::text || created_by::text || weeks || tz from weft.booking_series where id = '{sid}'") == f"{room}{SID['organizers']}{O}5Europe/Berlin")
+    # Reading follows membership.
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = call("GET", f"/booking_series?id=eq.{sid}", tok)
+        st2, rows2 = call("GET", f"/bookings?series_id=eq.{sid}&select=id", tok)
+        st3, rows3 = call("GET", "/booking_series?select=id,resource_id", tok)
+        check(f"Repeating bookings: {who} sees no Organizers series nor its bookings", st == 200 and rows == [] and rows2 == []
+              and room not in {r["resource_id"] for r in rows3 or []}, f"{rows} {rows2} {rows3}")
+    st, rows = call("GET", f"/bookings?series_id=eq.{sid}&select=id,series:booking_series(weeks)", olive)
+    check("Repeating bookings: Olive reads her bookings with their series (positive control)", st == 200 and len(rows) == 4 and rows[0]["series"] == {"weeks": 5}, str(rows))
+    # Outsiders cannot book weekly in Organizers, and learn nothing from trying.
+    later = {**week, "p_starts": "2027-06-01T10:00:00Z", "p_ends": "2027-06-01T11:00:00Z"}
+    st, b = rpc(vic, later)
+    st2, b2 = rpc(vic, {**later, "p_resource": uid("resource", "nothing")})
+    st3, b3 = rpc(vic, week)
+    st4, b4 = rpc(pat, later)
+    check("Repeating bookings: Vic and Pat cannot book the Organizers room weekly; the same answer whether it is free, taken or does not exist",
+          all(refused(x) for x in (st, st2, st3, st4)) and len({json.dumps(x.get("message") if isinstance(x, dict) else x) for x in (b, b2, b3, b4)}) == 1
+          and oq(f"select count(*) from weft.booking_series where resource_id = '{room}'") == "1", f"{st} {st2} {st3} {st4} {b} {b2}")
+    # #festival: viewers read, editors book.
+    fw = {"p_resource": van, "p_starts": "2027-05-04T08:00:00Z", "p_ends": "2027-05-04T10:00:00Z", "p_weeks": 3, "p_tz": "UTC"}
+    st, _ = rpc(pat, fw)
+    st2, _ = rpc(vic, fw)
+    check("Repeating bookings: Pat and Vic (viewers in #festival) cannot book the van weekly", refused(st) and refused(st2)
+          and oq(f"select count(*) from weft.bookings where resource_id = '{van}'") == "0", f"{st} {st2}")
+    st, fres = rpc(olive, fw)
+    fsid = fres["series"] if st == 200 else None
+    check("Repeating bookings: Olive books the #festival van weekly for 3 weeks, none clash (positive control)",
+          st == 200 and len(fres["booked"]) == 3 and fres["clashed"] == [], f"{st} {fres}")
+    st, rows = call("GET", f"/bookings?series_id=eq.{fsid}&select=id,series:booking_series(weeks)", pat)
+    check("Repeating bookings: Pat (viewer) reads the #festival series and its 3 bookings (positive control)", st == 200 and len(rows) == 3 and rows[0]["series"]["weeks"] == 3, str(rows))
+    # When every week clashes, nothing is made and the answer lists the dates.
+    n = oq("select count(*) from weft.booking_series")
+    st, body = rpc(alex, fw)
+    check("Repeating bookings: when every week clashes, it is refused with the dates, and no series is left behind",
+          st in (400, 409) and isinstance(body, dict) and body.get("code") == "23P01" and "2027-05-04, 2027-05-11, 2027-05-18" in body.get("message", "")
+          and oq("select count(*) from weft.booking_series") == n, f"{st} {body}")
+    # Sensible input.
+    bad = [{**fw, "p_weeks": 1}, {**fw, "p_weeks": 27}, {**fw, "p_ends": "2027-05-12T09:00:00Z"}, {**fw, "p_ends": "2027-05-04T07:00:00Z"},
+           {**fw, "p_tz": "Mars/Olympus"}, {**fw, "p_starts": "2020-05-04T08:00:00Z", "p_ends": "2020-05-04T10:00:00Z"}, {**fw, "p_starts": "2027-08-01T08:00:00Z", "p_ends": "2027-08-01T09:00:00Z", "p_note": "x" * 201}]
+    sts = [rpc(olive, x)[0] for x in bad]
+    check("Repeating bookings: 1 or 27 weeks, longer than a week, ending before it starts, an unknown time zone, a first week that has ended or a long note are refused, leaving nothing",
+          all(x == 400 for x in sts) and oq("select count(*) from weft.booking_series") == n, str(sts))
+    # A booking joins only its own booker's series for the same thing; series_id never changes.
+    free = {"resource_id": van, "starts_at": "2027-07-01T08:00:00Z", "ends_at": "2027-07-01T09:00:00Z"}
+    st, body = call("POST", "/bookings", alex, {**free, "series_id": fsid})
+    st2, body2 = call("POST", "/bookings", olive, {**free, "series_id": sid})
+    check("Repeating bookings: Alex cannot add a booking to Olive's series, nor Olive put a van booking in the room's series",
+          st == 400 and "series" in json.dumps(body) and st2 == 400 and oq(f"select count(*) from weft.bookings where resource_id = '{van}' and starts_at = '2027-07-01T08:00:00Z'") == "0", f"{st} {body} {st2} {body2}")
+    st, rows = call("POST", "/bookings", olive, {**free, "series_id": fsid})
+    extra = rows[0]["id"] if st == 201 else None
+    check("Repeating bookings: Olive adds a booking to her own van series (positive control)", extra and rows[0]["series_id"] == fsid, f"{st} {rows}")
+    st, _ = call("PATCH", f"/bookings?id=eq.{extra}", olive, {"series_id": sid})
+    st2, _ = call("POST", "/bookings", pat, {**free, "starts_at": "2027-07-02T08:00:00Z", "ends_at": "2027-07-02T09:00:00Z", "series_id": fsid})
+    check("Repeating bookings: a booking's series cannot be changed, and Pat (viewer) cannot join one", refused(st) and refused(st2)
+          and oq(f"select series_id from weft.bookings where id = '{extra}'") == fsid, f"{st} {st2}")
+    # A series is never forged, changed or deleted directly.
+    st, _ = call("POST", "/booking_series", olive, {"resource_id": van, "weeks": 3, "created_by": A})
+    st2, _ = call("POST", "/booking_series", olive, {"resource_id": van, "weeks": 3, "space_id": SID["organizers"]})
+    st3, r3 = call("PATCH", f"/booking_series?id=eq.{fsid}", olive, {"weeks": 26})
+    st4, r4 = call("DELETE", f"/booking_series?id=eq.{fsid}", alex)
+    st5, _ = call("POST", "/booking_series", vic, {"resource_id": room, "weeks": 3})
+    check("Repeating bookings: a series' author or channel cannot be forged, a series is not changed or deleted directly, and Vic cannot make one in Organizers",
+          all(refused(x) or (isinstance(r, list) and r == []) for x, r in ((st, None), (st2, None), (st3, r3), (st4, r4), (st5, None)))
+          and refused(st) and refused(st2) and refused(st5)
+          and oq(f"select weeks::text || created_by::text from weft.booking_series where id = '{fsid}'") == f"3{O}", f"{st} {st2} {st3} {st4} {st5}")
+    # Channel scope and the assistant.
+    scoped = mint("u-org", scope="festival")
+    st, rows = call("GET", f"/booking_series?id=in.({sid},{fsid})&select=space_id", scoped)
+    check("Repeating bookings: a #festival-scoped token sees only the #festival series", rows and {r["space_id"] for r in rows} == {SID["festival"]}, str(rows))
+    st, _ = rpc(scoped, later)
+    check("Repeating bookings: nor books weekly in Organizers", refused(st), str(st))
+    helper = mint("u-org", assistant=True)
+    st, rows = call("GET", f"/booking_series?id=eq.{sid}&select=id", helper)
+    check("Repeating bookings: the assistant (for Olive) reads the Organizers series (positive control)", st == 200 and len(rows) == 1, str(rows))
+    st, _ = rpc(helper, later)
+    st2, _ = call("DELETE", f"/bookings?series_id=eq.{sid}", helper)
+    st3, _ = call("DELETE", f"/booking_series?id=eq.{sid}", helper)
+    st4, _ = call("POST", "/booking_series", helper, {"resource_id": room, "weeks": 3})
+    check("Repeating bookings: the assistant cannot book weekly, cancel a series' bookings, or delete or make a series",
+          all(refused(x) for x in (st, st2, st3, st4)) and oq(f"select count(*) from weft.bookings where series_id = '{sid}'") == "4", f"{st} {st2} {st3} {st4}")
+    st, rows = call("GET", f"/booking_series?id=eq.{sid}&select=id", mint("u-pub", assistant=True))
+    check("Repeating bookings: the assistant for Pat reads no Organizers series", st == 200 and rows == [], str(rows))
+    # Cancelling this and the later ones: the booker or an owner; others cannot; an ended week stays.
+    third = urllib.parse.quote(fres["booked"][1]["starts_at"]) if fsid else ""
+    st, rows = call("DELETE", f"/bookings?series_id=eq.{fsid}&starts_at=gte.{third}&ends_at=gt.now", pat)
+    st2, rows2 = call("DELETE", f"/bookings?series_id=eq.{fsid}&starts_at=gte.{third}", mint("u-org", scope="organizers"))
+    check("Repeating bookings: Pat (viewer), or Olive with an Organizers-scoped token, cannot cancel the van series",
+          rows == [] and rows2 == [] and oq(f"select count(*) from weft.bookings where series_id = '{fsid}'") == "4", f"{st} {rows} {st2} {rows2}")
+    past = oq(f"insert into weft.bookings (resource_id, space_id, starts_at, ends_at, booked_by, series_id) values ('{van}', '{SID['festival']}', now() - interval '7 days', now() - interval '7 days' + interval '1 hour', '{O}', '{fsid}') returning id").splitlines()[0]
+    st, rows = call("DELETE", f"/bookings?series_id=eq.{fsid}&starts_at=gte.{third}&ends_at=gt.now", olive)
+    check("Repeating bookings: Olive cancels the second week and the later ones (positive control); the first week and an ended one stay",
+          st == 200 and len(rows or []) == 3 and oq(f"select count(*) from weft.bookings where series_id = '{fsid}'") == "2"
+          and oq(f"select count(*) from weft.bookings where id = '{past}'") == "1", f"{st} {rows}")
+    st, _ = call("DELETE", f"/bookings?series_id=eq.{fsid}", olive)
+    check("Repeating bookings: cancelling a whole series that has an ended week is refused (an ended booking is fixed)",
+          refused(st) and oq(f"select count(*) from weft.bookings where id = '{past}'") == "1", str(st))
+    st, rows = call("DELETE", f"/bookings?series_id=eq.{sid}&ends_at=gt.now", alex)
+    check("Repeating bookings: Alex (owner of Organizers) can cancel Olive's weekly bookings there", st == 200 and len(rows or []) == 4, f"{st} {rows}")
+    # Deleting the thing deletes its series and their bookings, the ended one too.
+    st, _ = call("DELETE", f"/resources?id=eq.{van}", alex)
+    check("Repeating bookings: deleting the van deletes its series and every booking in them", st in (200, 204)
+          and oq(f"select count(*) from weft.booking_series where id = '{fsid}'") == "0" and oq(f"select count(*) from weft.bookings where id = '{past}'") == "0", str(st))
+    call("DELETE", f"/resources?id=eq.{room}", alex)
+    check("Repeating bookings: deleting the room deletes its series", oq(f"select count(*) from weft.booking_series where id = '{sid}'") == "0")
+
+
 def shifts():
     pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
     P, V, O, A = uid("user", "u-pub"), uid("user", "u-vol"), uid("user", "u-org"), uid("user", "u-alex")
@@ -5227,6 +5362,7 @@ if __name__ == "__main__":
     task_comments()
     meeting_decisions()
     bookings()
+    repeating_bookings()
     shifts()
     time_off()
     away_warnings()

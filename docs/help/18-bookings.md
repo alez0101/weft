@@ -17,6 +17,8 @@ Press **Book** and choose the day, the start and the end (press **Ends on anothe
 
 To move or shorten your booking, press **Change**; to give the slot back, press **Cancel booking**. Once a booking has ended it stays as it was.
 
+To book the same time every week, choose **Every week** under **Repeat** and say for how many weeks. Weeks that clash with another booking are skipped, and Weft tells you which. See the help page **Repeating bookings**.
+
 ### On the Calendar and Home
 
 Bookings show on the **Calendar** as "Van: Olive", in the colour of their channel. Untick **Bookings** there to hide them. Click one to open it in Bookings (you change bookings there, not on the Calendar).
