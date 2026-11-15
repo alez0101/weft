@@ -12,7 +12,7 @@ allowed to see, with links to where each answer came from.
   contacts, profiles
 - **Ask and decide together:** polls, forms, Q and A, ideas boards, announcements, kudos
 - **Keep track:** files, link lists, shared expenses with who owes whom, an inventory with check out and
-  check in, a private journal
+  check in (with back-by dates, overdue in red), a private journal
 - **Around it all:** chat, search across everything, Home widgets, and a connector for AI apps (MCP)
 
 One rule decides who sees what (you see something only if you are a member of its space), and

@@ -14,6 +14,7 @@ import { nameOf } from './Kudos.jsx';
 import { longDay as milestoneDay, when as milestoneWhen } from './Timeline.jsx';
 import { firstLine, longDay, today as journalToday } from './Journal.jsx';
 import { useAway } from './Away.jsx';
+import { dueWords, isOverdue } from './Inventory.jsx';
 
 const WIDGETS = {
   announcements: 'Announcements',
@@ -168,12 +169,15 @@ function MyBalances({ data, onOpenItem }) {
       <span className="widget-main">{b.net_cents > 0 ? `You are owed ${money(b.net_cents)}` : `You owe ${money(-b.net_cents)}`}</span><span className="widget-sub">{b.list?.title} in {where(b.list?.space)}</span>
     </button></li>))}</ul>;
 }
-// Things checked out to the person, longest held first, with the inventory they belong to. A row opens it.
+// Things checked out to the person, soonest back-by date first (overdue ones in red, 055), then those with no
+// date, longest held first, with the inventory they belong to. A row opens it.
 function ThingsYouHave({ data, onOpenItem }) {
   if (!data.length) return <p className="widget-empty">You have nothing checked out. Shared things are in Inventory.</p>;
+  const t0 = today();
   return <ul className="widget-list">{data.map((t) => (
     <li key={t.id}><button type="button" className="widget-row" onClick={() => onOpenItem(t.inventory_id)}>
-      <span className="widget-main">{t.name}</span><span className="widget-sub">since {new Date(t.held_since).toLocaleDateString([], { day: 'numeric', month: 'short' })}, {t.inventory?.title} in {where(t.inventory?.space)}</span>
+      <span className="widget-main">{t.name}</span>
+      <span className="widget-sub">{t.due_back && <span className={isOverdue(t, t0) ? 'is-late' : undefined}>{dueWords(t.due_back, t0).replace(/^./, (c) => c.toUpperCase())}, </span>}since {new Date(t.held_since).toLocaleDateString([], { day: 'numeric', month: 'short' })}, {t.inventory?.title} in {where(t.inventory?.space)}</span>
     </button></li>))}</ul>;
 }
 // Goal sets the person can see, most recently changed first, each with its overall progress. A row opens it.
@@ -391,7 +395,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
         api('/questions?accepted_id=is.null&select=id,title,board_id,board:items(title,space:spaces(name,kind)),answers:answers!answers_question_id_fkey(id)&order=created_at.desc&limit=5'),
         api('/checklist_runs?finished=is.false&select=id,label,started_at,checklist_id,checklist:items(title,space:spaces(name,kind)),steps:checklist_run_steps(done)&order=started_at.desc&limit=5'),
         api(`/expense_balances?user_id=eq.${me.id}&net_cents=neq.0&select=list_id,net_cents`),
-        api(`/inventory_things?holder_id=eq.${me.id}&select=id,name,held_since,inventory_id,inventory:items(title,space:spaces(name,kind))&order=held_since&limit=6`),
+        api(`/inventory_things?holder_id=eq.${me.id}&select=id,name,holder_id,held_since,due_back,inventory_id,inventory:items(title,space:spaces(name,kind))&order=due_back.asc.nullslast,held_since&limit=6`),
         (() => { const mon = weekStart(dayKey(now)); return api(`/time_off?starts_on=lte.${addDays(mon, 6)}&ends_on=gte.${mon}&select=id,user_id,starts_on,ends_on,note,who:users!time_off_user_id_fkey(display_name),space:spaces(name,kind)&order=starts_on,ends_on&limit=60`); })(),
         api('/items?kind=eq.goalset&select=id,title,updated_at,space:spaces(name,kind),goals(krs:key_results(progress))&order=updated_at.desc&limit=5'),
         api(`/retro_notes?kind=eq.action&created_at=gte.${new Date(Date.now() - 60 * 86400000).toISOString()}&select=id,body,retro_id,task:tasks(done),retro:items(title,space:spaces(name,kind))&order=created_at.desc&limit=40`),

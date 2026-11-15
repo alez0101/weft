@@ -6,14 +6,29 @@
 // Row-level security and the guard trigger decide; when they say no, the reason is shown and the
 // inventory is reloaded. Live: any change to this inventory's things refetches it. Weft (search and the
 // assistant) reads the inventory's text summary, kept by the database.
+// Due-back dates (055): a thing that is out can carry a "back by" date, set when checking out or later by an
+// editor or by whoever has it; checking in clears it. Overdue things say so in red; "Checked out now" is
+// sorted by the date, overdue first.
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
+import { today } from './TaskList.jsx';
 
-const THINGS = 'id,name,location,note,holder_id,held_since,holder:users!inventory_things_holder_id_fkey(display_name)';
+const THINGS = 'id,name,location,note,holder_id,held_since,due_back,holder:users!inventory_things_holder_id_fkey(display_name)';
 const MOVES = 'id,thing_id,action,holder_id,at,holder:users!inventory_moves_holder_id_fkey(display_name),by:users!inventory_moves_by_id_fkey(display_name)';
 const day = (iso) => new Date(iso).toLocaleDateString([], { day: 'numeric', month: 'short' });
 const stamp = (iso) => new Date(iso).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
 const NOWHERE = 'No place set';
+// A back-by date as words, and whether it has passed. Dates are plain days (YYYY-MM-DD), compared as text.
+const dueDay = (d) => new Date(`${d}T12:00:00`).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
+export const isOverdue = (x, t = today()) => Boolean(x.holder_id && x.due_back && x.due_back < t);
+export const dueWords = (d, t = today()) => {
+  if (!d) return '';
+  if (d < t) return `was due back ${dueDay(d)}, overdue`;
+  if (d === t) return 'due back today';
+  return `back by ${dueDay(d)}`;
+};
+// By back-by date, overdue first, things with no date last.
+export const byDue = (a, b) => (a.due_back ? 0 : 1) - (b.due_back ? 0 : 1) || (a.due_back || '').localeCompare(b.due_back || '');
 
 function ThingForm({ initial, places, onSave, onCancel, label, idp, submit }) {
   const [f, setF] = useState(initial);
@@ -43,7 +58,8 @@ export default function Inventory({ item, me, members, editable, notice }) {
   const [error, setError] = useState('');
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [lending, setLending] = useState(null);   // { id, to } while an editor picks who to check out to
+  const [lending, setLending] = useState(null);   // { id, to, due } while an editor picks who to check out to
+  const [dating, setDating] = useState(null);     // { id, due } while someone sets a back-by date
   const [query, setQuery] = useState('');
   const [show, setShow] = useState('all');
 
@@ -65,8 +81,10 @@ export default function Inventory({ item, me, members, editable, notice }) {
     const rows = await api(`/inventory_things?id=eq.${x.id}&${where}`, { method: 'PATCH', body, prefer: 'return=representation' });
     if (!rows.length) throw new Error(gone);
   };
-  const checkOut = (x, to) => change(`Could not check out ${x.name}`, () => patch(x, 'holder_id=is.null', { holder_id: to },
+  const checkOut = (x, to, due) => change(`Could not check out ${x.name}`, () => patch(x, 'holder_id=is.null', { holder_id: to, ...(due ? { due_back: due } : {}) },
     'someone else has just checked it out, or you cannot check it out')).then((ok) => { if (ok) setLending(null); });
+  const setDue = (x, due) => change(`Could not set the date for ${x.name}`, () => patch(x, `holder_id=eq.${x.holder_id}`, { due_back: due || null },
+    'it has just been checked in or out by someone else, or you cannot change its date')).then((ok) => { if (ok) setDating(null); });
   const checkIn = (x) => change(`Could not check in ${x.name}`, () => patch(x, `holder_id=eq.${x.holder_id}`, { holder_id: null },
     'it has just been checked in or out by someone else, or you cannot check it in'));
   const add = async (body) => {
@@ -89,8 +107,10 @@ export default function Inventory({ item, me, members, editable, notice }) {
   const places = [...new Set(things.map((x) => x.location).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   const out = things.filter((x) => x.holder_id);
   const mine = out.filter((x) => x.holder_id === me.id);
+  const t0 = today();
+  const late = out.filter((x) => isOverdue(x, t0));
   const q = query.trim().toLowerCase();
-  const shown = things.filter((x) => (show === 'all' || (show === 'in' && !x.holder_id) || (show === 'out' && x.holder_id) || (show === 'mine' && x.holder_id === me.id))
+  const shown = things.filter((x) => (show === 'all' || (show === 'in' && !x.holder_id) || (show === 'out' && x.holder_id) || (show === 'mine' && x.holder_id === me.id) || (show === 'late' && isOverdue(x, t0)))
     && (!q || [x.name, x.location, x.note, x.holder?.display_name].some((s) => (s || '').toLowerCase().includes(q))));
   const groups = {};
   shown.forEach((x) => { (groups[x.location || NOWHERE] = groups[x.location || NOWHERE] || []).push(x); });
@@ -99,7 +119,7 @@ export default function Inventory({ item, me, members, editable, notice }) {
   const names = Object.fromEntries(things.map((x) => [x.id, x.name]));
   const moveText = (m) => `${m.action === 'out' ? 'Checked out to' : 'Checked in from'} ${m.holder_id === me.id ? 'you' : m.holder?.display_name || 'someone who left'}`
     + (m.by?.display_name && m.by.display_name !== m.holder?.display_name ? ` by ${m.by.display_name}` : '');
-  const FILTERS = [['all', 'All'], ['in', 'In'], ['out', 'Checked out'], ['mine', 'With you']];
+  const FILTERS = [['all', 'All'], ['in', 'In'], ['out', 'Checked out'], ['mine', 'With you'], ['late', 'Overdue']];
 
   return (
     <div className="links inventory">
@@ -117,7 +137,7 @@ export default function Inventory({ item, me, members, editable, notice }) {
             {FILTERS.map(([k, l]) => <button key={k} type="button" className="link-tag" aria-pressed={show === k} onClick={() => setShow(k)}>{l}</button>)}
           </div>
           <span className="task-count" role="status">{shown.length === things.length
-            ? `${things.length} thing${things.length === 1 ? '' : 's'}, ${out.length} checked out` : `${shown.length} of ${things.length}`}</span>
+            ? `${things.length} thing${things.length === 1 ? '' : 's'}, ${out.length} checked out${late.length ? `, ${late.length} overdue` : ''}` : `${shown.length} of ${things.length}`}</span>
         </div>
       )}
       <div className="cl-grid">
@@ -128,9 +148,9 @@ export default function Inventory({ item, me, members, editable, notice }) {
               <h3 className="cl-section">{place} <span className="task-count">{groups[place].length}</span></h3>
               <ul className="link-list" aria-label={place}>
                 {groups[place].map((x) => {
-                  const h = history(x.id); const canIn = x.holder_id && (editable || x.holder_id === me.id);
+                  const h = history(x.id); const canIn = x.holder_id && (editable || x.holder_id === me.id); const od = isOverdue(x, t0);
                   return (
-                    <li key={x.id} className={`link inv-thing${x.holder_id ? ' is-out' : ''}`}>
+                    <li key={x.id} className={`link inv-thing${x.holder_id ? ' is-out' : ''}${od ? ' is-overdue' : ''}`}>
                       {editing === x.id ? (
                         <ThingForm initial={{ name: x.name, location: x.location, note: x.note }} places={places} onSave={(b) => save(x, b)} onCancel={() => setEditing(null)}
                           label={`Edit ${x.name}`} idp={`inv-${x.id}`} submit="Save" />
@@ -138,24 +158,37 @@ export default function Inventory({ item, me, members, editable, notice }) {
                         <div className="inv-head">
                           <h4 className="inv-name">{x.name}</h4>
                           <span className={`inv-state${x.holder_id ? ' is-out' : ''}`}>{x.holder_id ? `With ${nameOf(x)}` : 'In'}</span>
+                          {od && <span className="inv-state is-overdue">Overdue</span>}
                         </div>
-                        {x.holder_id && <p className="inv-meta">Checked out to <strong>{nameOf(x)}</strong> since <time dateTime={x.held_since}>{day(x.held_since)}</time></p>}
+                        {x.holder_id && <p className="inv-meta">Checked out to <strong>{nameOf(x)}</strong> since <time dateTime={x.held_since}>{day(x.held_since)}</time>
+                          {x.due_back && <>, <time dateTime={x.due_back} className={`inv-due${od ? ' is-late' : ''}`}>{dueWords(x.due_back, t0)}</time></>}</p>}
                         {x.note && <p className="link-note">{x.note}</p>}
                         {lending?.id === x.id ? (
-                          <form className="inv-lend" aria-label={`Check out ${x.name}`} onSubmit={(e) => { e.preventDefault(); if (lending.to) checkOut(x, lending.to); }}>
+                          <form className="inv-lend" aria-label={`Check out ${x.name}`} noValidate onSubmit={(e) => { e.preventDefault(); if (lending.to) checkOut(x, lending.to, lending.due); }}>
                             <label htmlFor={`inv-to-${x.id}`}>Check out to</label>
                             <select id={`inv-to-${x.id}`} className="decision-select" value={lending.to} onChange={(e) => setLending({ ...lending, to: e.target.value })}>
                               {people.map((p) => <option key={p.id} value={p.id}>{p.name}{p.id === me.id ? ' (you)' : ''}</option>)}
                             </select>
+                            <label htmlFor={`inv-due-${x.id}`}>Back by</label>
+                            <input id={`inv-due-${x.id}`} type="date" className="inv-date" min={t0} value={lending.due} onChange={(e) => setLending({ ...lending, due: e.target.value })} />
                             <button className="btn btn--primary btn--sm" type="submit">Check out</button>
                             <button className="btn btn--sm" type="button" onClick={() => setLending(null)}>Cancel</button>
+                          </form>
+                        ) : dating?.id === x.id ? (
+                          <form className="inv-lend" aria-label={`Back by date for ${x.name}`} noValidate onSubmit={(e) => { e.preventDefault(); setDue(x, dating.due); }}>
+                            <label htmlFor={`inv-set-${x.id}`}>Back by</label>
+                            <input id={`inv-set-${x.id}`} type="date" className="inv-date" min={x.due_back && x.due_back < t0 ? x.due_back : t0} value={dating.due} onChange={(e) => setDating({ ...dating, due: e.target.value })} />
+                            <button className="btn btn--primary btn--sm" type="submit">Save date</button>
+                            {x.due_back && <button className="btn btn--sm" type="button" onClick={() => setDue(x, null)}>No date</button>}
+                            <button className="btn btn--sm" type="button" onClick={() => setDating(null)}>Cancel</button>
                           </form>
                         ) : (
                           <div className="link-foot">
                             {!x.holder_id && (editable
-                              ? <button className="btn btn--primary btn--sm" type="button" onClick={() => setLending({ id: x.id, to: inSpace ? me.id : people[0]?.id || '' })}>Check out<span className="visually-hidden"> {x.name}</span></button>
+                              ? <button className="btn btn--primary btn--sm" type="button" onClick={() => setLending({ id: x.id, to: inSpace ? me.id : people[0]?.id || '', due: '' })}>Check out<span className="visually-hidden"> {x.name}</span></button>
                               : inSpace && <button className="btn btn--primary btn--sm" type="button" onClick={() => checkOut(x, me.id)}>Check out to me<span className="visually-hidden"> {x.name}</span></button>)}
                             {canIn && <button className="btn btn--sm" type="button" onClick={() => checkIn(x)}>Check in<span className="visually-hidden"> {x.name}</span></button>}
+                            {canIn && <button className="btn btn--sm" type="button" onClick={() => setDating({ id: x.id, due: x.due_back || '' })}>{x.due_back ? 'Change date' : 'Set back by date'}<span className="visually-hidden"> for {x.name}</span></button>}
                             {editable && <>
                               <button className="btn btn--sm" type="button" onClick={() => setEditing(x.id)}>Edit<span className="visually-hidden"> {x.name}</span></button>
                               <button className="btn btn--sm" type="button" onClick={() => remove(x)}>Delete<span className="visually-hidden"> {x.name}</span></button>
@@ -181,8 +214,9 @@ export default function Inventory({ item, me, members, editable, notice }) {
           <h3 id="inv-out-title" className="cl-section">Checked out now <span className="task-count">{out.length || ''}</span></h3>
           {!out.length ? <p className="convo-empty">Everything is in its place.</p> : (
             <ul className="inv-out" aria-label="Checked out now">
-              {[...out].sort((a, b) => nameOf(a).localeCompare(nameOf(b)) || a.name.localeCompare(b.name)).map((x) => (
-                <li key={x.id}><strong>{x.name}</strong> <span>with {nameOf(x)}, since {day(x.held_since)}</span></li>
+              {[...out].sort((a, b) => byDue(a, b) || nameOf(a).localeCompare(nameOf(b)) || a.name.localeCompare(b.name)).map((x) => (
+                <li key={x.id} className={isOverdue(x, t0) ? 'is-overdue' : undefined}><strong>{x.name}</strong> <span>with {nameOf(x)}, since {day(x.held_since)}
+                  {x.due_back && <>, <span className={isOverdue(x, t0) ? 'is-late' : undefined}>{dueWords(x.due_back, t0)}</span></>}</span></li>
               ))}
             </ul>
           )}
