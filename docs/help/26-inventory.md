@@ -23,6 +23,7 @@ Things are shown grouped by where they are kept. **Edit** changes a thing and **
 
 - A thing that nobody has says **In**. Press **Check out**, choose who is taking it (it starts as you) and press **Check out** again. It now says who has it and since when.
 - When it comes back, press **Check in**. It says **In** again.
+- A thing that is out can have a **back by** date; overdue things show in red. See **Due-back dates**.
 - If you are a viewer in the space, you can still borrow things: press **Check out to me** on a thing that is in, and **Check in** when you bring it back. You cannot check things out to other people or check in what someone else has.
 - If two people press **Check out** on the same thing at the same time, the second is told that someone has just checked it out.
 
@@ -33,7 +34,7 @@ Someone who leaves the space still shows as having what they took, so nothing go
 ### Finding things
 
 - Type in the box above the list to find a thing by its name, where it is kept, its note or who has it. **In**, **Checked out** and **With you** narrow the list.
-- The **Things you have** widget on Home lists what is checked out to you, in every inventory. It is not on by default: add it with **Customize**.
+- The **Things you have** widget on Home lists what is checked out to you, in every inventory, soonest back-by date first. It is not on by default: add it with **Customize**.
 - The search box at the top finds inventories by the things in them, and Weft can answer questions such as "who has the gazebo?" or "where is the extension lead kept?".
 
 ### Who can see what

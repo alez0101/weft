@@ -1672,6 +1672,124 @@ def inventory():
     call("DELETE", f"/items?id=eq.{fest}", olive)
 
 
+def due_back_dates():
+    """055: a back-by date on a checked-out thing. Same space rules as Inventory; editors set it for anyone,
+    a viewer only on what they have; checking in clears it; no dates in the past; the summary carries it."""
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, V, O = uid("user", "u-pub"), uid("user", "u-vol"), uid("user", "u-org")
+    oq = lambda sql: owner_sql(sql)
+    due = lambda t: oq(f"select coalesce(due_back::text, '') from weft.inventory_things where id = '{t}'")
+    holder = lambda t: oq(f"select coalesce(holder_id::text, '') from weft.inventory_things where id = '{t}'")
+    d = lambda n: oq(f"select (current_date + {n})::text")
+    D3, D7, D10, PAST, FAR = d(3), d(7), d(10), d(-5), d(6 * 366)
+    st, rows = call("POST", "/items", olive, {"space_id": SID["organizers"], "kind": "inventory", "title": "DB org gear"})
+    org = rows[0]["id"] if st == 201 else None
+    st2, rows = call("POST", "/items", olive, {"space_id": SID["festival"], "kind": "inventory", "title": "DB festival gear"})
+    fest = rows[0]["id"] if st2 == 201 else None
+    check("Due back: Olive makes inventories in Organizers and #festival", org and fest, f"{st} {st2}")
+    mk = lambda inv, name, **kw: (lambda r: r[1][0]["id"] if r[0] == 201 else None)(call("POST", "/inventory_things", olive, {"inventory_id": inv, "name": name, **kw}))
+    ot = mk(org, "DB-SECRET drill", holder_id=O, due_back=D7)
+    tent, lamp, saw = mk(fest, "DB tent"), mk(fest, "DB lamp"), mk(fest, "DB saw")
+    check("Due back: Olive adds a thing already checked out with a date (positive control)", ot and due(ot) == D7 and holder(ot) == O, f"{ot} {due(ot) if ot else ''}")
+    st, rows = call("POST", "/inventory_things", olive, {"inventory_id": fest, "name": "DB in-thing", "due_back": D7})
+    inn = rows[0]["id"] if st == 201 else None
+    check("Due back: a thing added in (nobody has it) gets no date, whatever is sent", inn and due(inn) == "", f"{st} {rows}")
+
+    # Reading: members only.
+    st, rows = call("GET", f"/inventory_things?inventory_id=eq.{org}&select=due_back", pat)
+    st2, rows2 = call("GET", f"/inventory_things?due_back=not.is.null&select=id", pat)
+    check("Due back: Pat sees no Organizers dates, not even by filtering on the date", rows == [] and ot not in [r["id"] for r in rows2 or []], f"{rows} {rows2}")
+    st, rows = call("GET", f"/inventory_things?id=eq.{ot}&select=due_back", olive)
+    check("Due back: Olive reads the Organizers date (positive control)", st == 200 and rows and rows[0]["due_back"] == D7, f"{st} {rows}")
+
+    # Editors: check out with a date, change it, clear it.
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{tent}&holder_id=is.null", olive, {"holder_id": V, "due_back": D7})
+    check("Due back: Olive checks the tent out to Vic, back in a week (positive control)", st == 200 and rows and rows[0]["due_back"] == D7 and holder(tent) == V, f"{st} {rows}")
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{tent}", olive, {"due_back": D10})
+    check("Due back: Olive moves Vic's date (positive control)", st == 200 and due(tent) == D10, f"{st} {rows}")
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{tent}", olive, {"due_back": None})
+    check("Due back: Olive clears it (positive control)", st == 200 and due(tent) == "", f"{st} {rows}")
+    call("PATCH", f"/inventory_things?id=eq.{tent}", olive, {"due_back": D3})
+
+    # Viewers: only on what they have.
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{tent}", vic, {"due_back": D10})
+    st2, rows2 = call("PATCH", f"/inventory_things?id=eq.{tent}", pat, {"due_back": D10})
+    check("Due back: Vic (viewer, has the tent) sets his own date (positive control)", st == 200 and rows, f"{st} {rows}")
+    check("Due back: Pat (viewer) cannot change the date of a thing Vic has", rows2 == [] and due(tent) == D10, f"{st2} {rows2} {due(tent)}")
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{lamp}", pat, {"due_back": D3})
+    check("Due back: Pat cannot put a date on a thing that is in", (st == 200 or refused(st)) and due(lamp) == "", f"{st} {rows}")
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{lamp}&holder_id=is.null", pat, {"holder_id": P, "due_back": D3})
+    check("Due back: Pat checks the lamp out to herself with a date (positive control)", st == 200 and holder(lamp) == P and due(lamp) == D3, f"{st} {rows}")
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{lamp}", pat, {"due_back": D7})
+    check("Due back: and moves her own date (positive control)", st == 200 and due(lamp) == D7, f"{st} {rows}")
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{lamp}", pat, {"due_back": D10, "note": "keeping it"})
+    check("Due back: but cannot change a note along with it", refused(st) and due(lamp) == D7, f"{st} {rows}")
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{saw}", pat, {"holder_id": V, "due_back": D3})
+    check("Due back: nor check out to someone else with a date", refused(st) and holder(saw) == "" and due(saw) == "", f"{st} {rows}")
+
+    # The dates themselves.
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{lamp}", pat, {"due_back": PAST})
+    st2, rows2 = call("PATCH", f"/inventory_things?id=eq.{tent}", olive, {"due_back": PAST})
+    check("Due back: a date in the past is refused, for viewers and editors", st == 400 and st2 == 400 and "past" in json.dumps(rows2) and due(lamp) == D7 and due(tent) == D10, f"{st} {st2} {rows2}")
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{tent}", olive, {"due_back": FAR})
+    check("Due back: a date more than five years ahead is refused", st == 400 and due(tent) == D10, f"{st} {rows}")
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{tent}", olive, {"due_back": "not a date"})
+    check("Due back: something that is not a date is refused", st == 400 and due(tent) == D10, f"{st} {rows}")
+    # Nobody may set a past date, so make one overdue as the owner with triggers off, then refresh its summary.
+    oq(f"begin; set local session_replication_role = replica; update weft.inventory_things set due_back = current_date - 3 where id = '{tent}'; commit;")
+    oq(f"select weft_private.refresh_inventory_text('{fest}')")
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{tent}", olive, {"note": "two poles"})
+    check("Due back: an overdue thing can still be edited (its old date stays)", st == 200 and due(tent) == d(-3), f"{st} {rows}")
+    st, rows = call("GET", f"/inventory_things?inventory_id=eq.{fest}&due_back=lt.{d(0)}&holder_id=not.is.null&select=name", pat)
+    check("Due back: Pat can find what is overdue in #festival (positive control)", st == 200 and [r["name"] for r in rows] == ["DB tent"], f"{st} {rows}")
+
+    # Text summary for search and the assistant.
+    st, rows = call("GET", f"/items?id=eq.{fest}&select=body_text", pat)
+    body = (rows[0]["body_text"] if rows else "") or ""
+    check("Due back: the #festival summary says when things are due back", f"- DB lamp, checked out to Pat Public since {d(0)}, back by {D7}" in body and "back by " + d(-3) in body, body)
+    st, rows = call("POST", "/rpc/search", pat, {"p_q": "DB-SECRET"})
+    check("Due back: Pat does not find the Organizers summary in search", rows == [], f"{rows}")
+
+    # Checking in clears the date.
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{lamp}", pat, {"holder_id": None})
+    check("Due back: Pat checks the lamp in and its date is cleared (positive control)", st == 200 and holder(lamp) == "" and due(lamp) == "", f"{st} {rows}")
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{tent}", olive, {"holder_id": None, "due_back": D3})
+    check("Due back: checking in clears the date even if one is sent", st == 200 and due(tent) == "", f"{st} {rows}")
+
+    # Authorship and times still cannot be forged; the assistant and scoped tokens.
+    st, _ = call("PATCH", f"/inventory_things?id=eq.{ot}", olive, {"due_back": D10, "held_since": "2020-01-01T00:00:00Z"})
+    check("Due back: held_since still cannot be set along with a date", refused(st) and due(ot) == D7, str(st))
+    helper = mint("u-org", assistant=True)
+    st, rows = call("GET", f"/inventory_things?id=eq.{ot}&select=due_back", helper)
+    st2, _ = call("PATCH", f"/inventory_things?id=eq.{ot}", helper, {"due_back": D10})
+    st3, _ = call("DELETE", f"/inventory_things?id=eq.{ot}", helper)
+    check("Due back: the assistant reads the date (positive control) but cannot change it or delete", st == 200 and rows and rows[0]["due_back"] == D7
+          and refused(st2) and refused(st3) and due(ot) == D7, f"{st} {st2} {st3}")
+    scoped = mint("u-org", scope="festival")
+    st, rows = call("GET", f"/inventory_things?inventory_id=in.({org},{fest})&due_back=not.is.null&select=inventory_id", scoped)
+    st2, rows2 = call("PATCH", f"/inventory_things?id=eq.{ot}", scoped, {"due_back": D10})
+    check("Due back: a #festival-scoped token sees no Organizers date and cannot change one", st == 200 and org not in {r["inventory_id"] for r in rows or []}
+          and rows2 == [] and due(ot) == D7, f"{rows} {rows2}")
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{saw}&holder_id=is.null", scoped, {"holder_id": O, "due_back": D3})
+    check("Due back: and checks out in #festival with a date (positive control)", st == 200 and due(saw) == D3, f"{st} {rows}")
+
+    # Audit and moves follow the space.
+    st, _ = call("PATCH", f"/inventory_things?id=eq.{ot}", olive, {"due_back": D10})
+    st2, _ = call("PATCH", f"/inventory_things?id=eq.{ot}", olive, {"due_back": D7})
+    check("Due back: Olive moves her own Organizers date and back (positive control)", st == 200 and st2 == 200 and due(ot) == D7, f"{st} {st2}")
+    st, rows = call("GET", f"/audit?row_id=eq.{ot}&select=op", olive)
+    st2, rows2 = call("GET", f"/audit?row_id=eq.{ot}&select=op", pat)
+    check("Due back: date changes in Organizers are audited for Organizers members only", len(rows or []) >= 1 and rows2 == [], f"{rows} {rows2}")
+    st, _ = call("PATCH", f"/items?id=eq.{org}", olive, {"space_id": SID["festival"]})
+    st2, rows = call("GET", f"/inventory_things?id=eq.{ot}&select=due_back", pat)
+    check("Due back: an inventory moved into #festival brings its dates into Pat's sight", st == 200 and rows and rows[0]["due_back"] == D7, f"{st} {rows}")
+    st, rows = call("PATCH", f"/inventory_things?id=eq.{ot}", pat, {"due_back": D10})
+    check("Due back: and Pat still cannot change a date on what Olive has", rows == [] and due(ot) == D7, f"{st} {rows}")
+    for i in (org, fest):
+        call("DELETE", f"/items?id=eq.{i}", olive)
+    check("Due back: tidied up", oq("select count(*) from weft.items where title in ('DB org gear', 'DB festival gear')") == "0")
+
+
 def goals():
     pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
     O, A, P = uid("user", "u-org"), uid("user", "u-alex"), uid("user", "u-pub")
@@ -5096,6 +5214,7 @@ if __name__ == "__main__":
     checklists()
     expenses()
     inventory()
+    due_back_dates()
     goals()
     announcements()
     kudos()
