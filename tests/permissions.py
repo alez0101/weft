@@ -5703,6 +5703,145 @@ def key_results_from_tasks():
     check("KR from tasks: deleting the sets removes their key results", oq(f"select count(*) from weft.key_results where id in ('{fk}', '{fk2}', '{ok_}', '{ek}')") == "0")
 
 
+def idea_next_steps():
+    """060: an owner adds a planned idea as a task to a list in the board's own space (weft.idea_to_task), and gives a
+    short reason when declining one. Members read both; only owners set them; moves and deletes clear the link, and a
+    moved board's clean-up is recorded under the space it left."""
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    A = uid("user", "u-alex")
+    oq = lambda sql: owner_sql(sql)
+    mk = lambda space, kind, title: (lambda r: r[1][0]["id"] if r[0] == 201 else None)(call("POST", "/items", olive, {"space_id": SID[space], "kind": kind, "title": title}))
+    idea = lambda board, title: (lambda r: r[1][0]["id"] if r[0] == 201 else None)(call("POST", "/ideas", olive, {"board_id": board, "title": title}))
+    task = lambda lst, title: (lambda r: r[1][0]["id"] if r[0] == 201 else None)(call("POST", "/tasks", olive, {"list_id": lst, "title": title}))
+    col = lambda i, c: oq(f"select coalesce({c}::text, '-') from weft.ideas where id = '{i}'")
+    ntasks = lambda title: oq(f"select count(*) from weft.tasks where title = '{title}'")
+    to_task = lambda tok, i, lst: call("POST", "/rpc/idea_to_task", tok, {"p_idea": i, "p_list": lst})
+    fest, org = mk("festival", "ideaboard", "NSI festival ideas"), mk("organizers", "ideaboard", "NSI-SECRET org ideas")
+    fl, ol, vl = mk("festival", "tasklist", "NSI festival prep"), mk("organizers", "tasklist", "NSI-SECRET org list"), mk("volunteers", "tasklist", "NSI volunteer list")
+    doc = mk("festival", "document", "NSI a document")
+    f1, f2, f3 = idea(fest, "NSI water refill point"), idea(fest, "NSI fireworks"), idea(fest, "NSI bike racks")
+    o1, o2 = idea(org, "NSI-SECRET raise prices"), idea(org, "NSI-SECRET new sponsor")
+    check("Next steps: Olive makes boards, ideas, task lists in #festival, Organizers and Volunteers", all((fest, org, fl, ol, vl, doc, f1, f2, f3, o1, o2)))
+    for i in (f1, f3, o2):
+        call("PATCH", f"/ideas?id=eq.{i}", alex, {"status": "planned"})
+
+    # A planned idea becomes a task: owners, a list in the same space, once.
+    st, row = to_task(alex, f1, fl)
+    t1 = row.get("id") if st == 200 and isinstance(row, dict) else None
+    check("Next steps: Alex (owner) adds a planned idea as a task to a #festival list (positive control): titled like the idea, made by Alex, linked",
+          t1 and row["title"] == "NSI water refill point" and row["list_id"] == fl and row["created_by"] == A and not row["done"] and col(f1, "task_id") == t1, f"{st} {row}")
+    st, rows = call("GET", f"/ideas?id=eq.{f1}&select=task_id,task:tasks!ideas_task_id_fkey(title,done,list:items!tasks_list_id_fkey(title))", pat)
+    check("Next steps: Pat (viewer) sees the idea's task and its list (positive control)", st == 200 and rows and rows[0]["task_id"] == t1
+          and rows[0]["task"]["list"]["title"] == "NSI festival prep", f"{st} {rows}")
+    st, rows = to_task(alex, f1, fl)
+    check("Next steps: an idea becomes a task only once", st == 400 and "already a task" in json.dumps(rows) and ntasks("NSI water refill point") == "1", f"{st} {rows}")
+    st, rows = to_task(alex, f2, fl)
+    check("Next steps: a new (not planned) idea does not become a task", st == 400 and "planned" in json.dumps(rows) and ntasks("NSI fireworks") == "0", f"{st} {rows}")
+    for target, why in ((ol, "an Organizers list"), (vl, "a Volunteers list"), (doc, "a document"), (uid("item", "no-such-list"), "nothing")):
+        st, rows = to_task(alex, f3, target)
+        check(f"Next steps: a #festival idea cannot become a task in {why}", st == 400 and "same space" in json.dumps(rows) and ntasks("NSI bike racks") == "0", f"{st} {rows}")
+    st, rows = to_task(olive, f3, fl)
+    check("Next steps: Olive (editor) cannot add an idea as a task, is told why, and no stray task is left", st == 403 and "owner of the space" in json.dumps(rows)
+          and ntasks("NSI bike racks") == "0" and col(f3, "task_id") == "-", f"{st} {rows}")
+    st, rows = to_task(pat, f3, fl)
+    st2, rows2 = to_task(vic, f3, fl)
+    check("Next steps: Pat and Vic (viewers) cannot either, and no task is made", refused(st) and refused(st2) and ntasks("NSI bike racks") == "0", f"{st} {st2}")
+    st, rows = to_task(pat, o2, ol)
+    check("Next steps: Pat cannot add an Organizers idea, and is told only that it is not there", refused(st) and "no such idea" in json.dumps(rows)
+          and col(o2, "task_id") == "-" and ntasks("NSI-SECRET new sponsor") == "0", f"{st} {rows}")
+    scoped = mint("u-alex", scope="festival")
+    st, rows = to_task(scoped, o2, ol)
+    check("Next steps: a #festival-scoped token of Alex's cannot add an Organizers idea", refused(st) and col(o2, "task_id") == "-", f"{st} {rows}")
+    helper = mint("u-alex", assistant=True)
+    st, rows = call("GET", f"/ideas?id=eq.{f1}&select=task_id,decline_reason", helper)
+    st2, _ = to_task(helper, f3, fl)
+    st3, _ = call("PATCH", f"/ideas?id=eq.{f1}", helper, {"task_id": None})
+    st4, _ = call("DELETE", f"/ideas?id=eq.{f1}", helper)
+    check("Next steps: the assistant reads the link (positive control) but cannot add, clear or delete", st == 200 and rows and rows[0]["task_id"] == t1
+          and refused(st2) and refused(st3) and refused(st4) and col(f1, "task_id") == t1, f"{st} {st2} {st3} {st4}")
+
+    # Linking directly: owners, a planned idea, a task in the same space.
+    t3 = task(fl, "NSI existing task")
+    otask = task(ol, "NSI-SECRET org task")
+    st, rows = call("PATCH", f"/ideas?id=eq.{f3}", olive, {"task_id": t3})
+    st2, rows2 = call("PATCH", f"/ideas?id=eq.{f3}", pat, {"task_id": t3})
+    check("Next steps: Olive (told why) and Pat cannot link an idea to a task", st == 403 and "owner of the space" in json.dumps(rows) and rows2 == [] and col(f3, "task_id") == "-", f"{st} {st2} {rows2}")
+    st, rows = call("PATCH", f"/ideas?id=eq.{f3}", alex, {"task_id": otask})
+    check("Next steps: an owner cannot link a #festival idea to an Organizers task", st == 400 and "same space" in json.dumps(rows) and col(f3, "task_id") == "-", f"{st} {rows}")
+    st, rows = call("PATCH", f"/ideas?id=eq.{f2}", alex, {"task_id": t3})
+    check("Next steps: nor link an idea that is not planned", st == 400 and col(f2, "task_id") == "-", f"{st} {rows}")
+    st, rows = call("PATCH", f"/ideas?id=eq.{f3}", alex, {"task_id": t3})
+    st2, rows2 = call("PATCH", f"/ideas?id=eq.{f3}", alex, {"task_id": None})
+    check("Next steps: an owner links a planned idea to an existing #festival task and unlinks it (positive control)",
+          st == 200 and rows and rows[0]["task_id"] == t3 and st2 == 200 and rows2 and rows2[0]["task_id"] is None, f"{st} {st2}")
+    st, _ = call("POST", "/ideas", olive, {"board_id": fest, "title": "NSI forged link", "task_id": t3})
+    st2, _ = call("POST", "/ideas", olive, {"board_id": fest, "title": "NSI forged reason", "decline_reason": "x"})
+    check("Next steps: a new idea cannot come with a task or a reason", refused(st) and refused(st2) and ntasks("NSI forged link") == "0"
+          and oq("select count(*) from weft.ideas where title like 'NSI forged%'") == "0", f"{st} {st2}")
+
+    # Declining with a reason: owners only, only on a declined idea, shown to members.
+    st, rows = call("PATCH", f"/ideas?id=eq.{f2}", alex, {"status": "declined", "decline_reason": "  Too   costly\n this year "})
+    check("Next steps: Alex declines an idea with a reason, kept on one line (positive control)", st == 200 and rows and rows[0]["decline_reason"] == "Too costly this year", f"{st} {rows}")
+    st, rows = call("GET", f"/ideas?id=eq.{f2}&select=decline_reason", pat)
+    check("Next steps: Pat reads the reason (positive control)", st == 200 and rows and rows[0]["decline_reason"] == "Too costly this year", f"{st} {rows}")
+    st, rows = call("PATCH", f"/ideas?id=eq.{f2}", olive, {"decline_reason": "rewritten by Olive"})
+    st2, rows2 = call("PATCH", f"/ideas?id=eq.{f2}", pat, {"decline_reason": "pwned"})
+    check("Next steps: Olive (told why) and Pat cannot change the reason", st == 403 and "owner of the space" in json.dumps(rows) and rows2 == []
+          and col(f2, "decline_reason") == "Too costly this year", f"{st} {rows} {st2}")
+    st, rows = call("PATCH", f"/ideas?id=eq.{f3}", alex, {"decline_reason": "not declined"})
+    check("Next steps: a reason cannot be given for an idea that is not declined", st == 400 and "declined idea" in json.dumps(rows) and col(f3, "decline_reason") == "", f"{st} {rows}")
+    st, _ = call("PATCH", f"/ideas?id=eq.{f2}", alex, {"decline_reason": "x" * 301})
+    check("Next steps: a reason over 300 characters is refused", st == 400 and col(f2, "decline_reason") == "Too costly this year", str(st))
+    st, rows = call("PATCH", f"/ideas?id=eq.{f2}", alex, {"decline_reason": "The fire service said no"})
+    check("Next steps: an owner changes the reason (positive control)", st == 200 and rows and rows[0]["decline_reason"] == "The fire service said no", f"{st} {rows}")
+    st, rows = call("PATCH", f"/ideas?id=eq.{o1}", alex, {"status": "declined", "decline_reason": "NSI-REASON-SECRET budget"})
+    check("Next steps: Alex declines an Organizers idea with a reason (positive control)", st == 200 and rows and rows[0]["decline_reason"] == "NSI-REASON-SECRET budget", f"{st} {rows}")
+    st, rows = call("GET", "/ideas?decline_reason=like.*NSI-REASON*&select=id", pat)
+    st2, rows2 = call("GET", "/ideas?decline_reason=like.*NSI-REASON*&select=id", vic)
+    check("Next steps: Pat and Vic cannot find the Organizers reason by filtering", st == 200 and rows == [] and st2 == 200 and rows2 == [], f"{rows} {rows2}")
+    st, rows = call("POST", "/rpc/search", olive, {"p_q": "NSI-REASON-SECRET"})
+    st2, rows2 = call("POST", "/rpc/search", pat, {"p_q": "NSI-REASON-SECRET"})
+    check("Next steps: search finds the board by its reason for Olive, not for Pat", any(r["id"] == org for r in rows or []) and rows2 == [], f"{rows} {rows2}")
+    st, rows = call("PATCH", f"/ideas?id=eq.{o1}", scoped, {"decline_reason": "scoped"})
+    check("Next steps: the #festival-scoped token cannot change an Organizers reason", rows == [] and col(o1, "decline_reason") == "NSI-REASON-SECRET budget", f"{st} {rows}")
+
+    # The board's text, and the task's state following it.
+    body = oq(f"select body_text from weft.items where id = '{fest}'") or ""
+    check("Next steps: the board's text names the open task and the reason", "Idea: NSI water refill point (planned, 0 votes, suggested by Olive Organizer, task open)" in body
+          and "Declined because: The fire service said no" in body, body)
+    st, _ = call("PATCH", f"/tasks?id=eq.{t1}", olive, {"done": True})
+    body = oq(f"select body_text from weft.items where id = '{fest}'") or ""
+    check("Next steps: ticking off the task updates the board's text (task done)", st == 200 and "suggested by Olive Organizer, task done)" in body, body)
+    st, rows = call("PATCH", f"/ideas?id=eq.{f2}", alex, {"status": "new"})
+    body = oq(f"select body_text from weft.items where id = '{fest}'") or ""
+    check("Next steps: an idea taken out of Declined loses its reason", st == 200 and rows and rows[0]["decline_reason"] == "" and "fire service" not in body, f"{st} {rows}")
+
+    # Deletes and moves follow the space.
+    st, _ = call("DELETE", f"/tasks?id=eq.{t1}", olive)
+    check("Next steps: deleting the task clears the link (the idea stays)", st in (200, 204) and col(f1, "task_id") == "-" and col(f1, "status") == "planned", str(st))
+    st, row = to_task(alex, o2, ol)
+    ot = row.get("id") if st == 200 and isinstance(row, dict) else None
+    check("Next steps: Alex adds an Organizers idea as a task in an Organizers list (positive control)", ot and col(o2, "task_id") == ot, f"{st} {row}")
+    st, _ = call("PATCH", f"/items?id=eq.{org}", olive, {"space_id": SID["festival"]})
+    st2, rows = call("GET", f"/ideas?id=eq.{o2}&select=task_id", pat)
+    check("Next steps: an Organizers board moved into #festival loses its link to the Organizers task; Pat sees the idea unlinked",
+          st == 200 and rows and rows[0]["task_id"] is None and col(o2, "task_id") == "-", f"{st} {rows}")
+    st, rows = call("GET", "/audit?table_name=eq.ideas&select=row_id,space_id,old_row", pat)
+    st2, rows2 = call("GET", f"/audit?row_id=eq.{o2}&select=space_id,old_row", olive)
+    st3, rows3 = call("GET", f"/tasks?id=eq.{ot}&select=id", pat)
+    check("Next steps: Pat finds no trace of the Organizers task, not in the audit log nor by id", st == 200 and ot not in json.dumps(rows) and rows3 == [], f"{st} {st3}")
+    check("Next steps: the clean-up is in the audit log under Organizers, for Olive (positive control)",
+          any(r["space_id"] == SID["organizers"] and (r["old_row"] or {}).get("task_id") == ot for r in rows2 or []), str(rows2))
+    st, row = to_task(alex, f3, fl)
+    ft = row.get("id") if st == 200 and isinstance(row, dict) else None
+    st2, _ = call("PATCH", f"/items?id=eq.{fl}", olive, {"space_id": SID["volunteers"]})
+    check("Next steps: a task list moved to Volunteers stops being the task of #festival ideas (the task stays in the list)",
+          ft and st2 == 200 and col(f3, "task_id") == "-" and oq(f"select count(*) from weft.tasks where id = '{ft}'") == "1", f"{st} {st2}")
+    for i in (fest, org, fl, ol, vl, doc):
+        call("DELETE", f"/items?id=eq.{i}", olive)
+    check("Next steps: deleting the boards removes their ideas", oq(f"select count(*) from weft.ideas where id in ('{f1}', '{f2}', '{f3}', '{o1}', '{o2}')") == "0")
+
+
 def teeth():
     """Loosen one policy on purpose and confirm the suite would catch it, then restore it."""
     owner_sql("create policy teeth_leak on weft.items for select to weft_user using (true)")
@@ -5733,6 +5872,7 @@ if __name__ == "__main__":
     decisions()
     qa()
     ideas()
+    idea_next_steps()
     checklists()
     expenses()
     inventory()

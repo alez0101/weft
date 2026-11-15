@@ -684,6 +684,22 @@ select.idea-status:focus-visible { outline: 2px solid var(--color-focus); outlin
 .idea-sort select { font: inherit; font-size: var(--text-sm); padding: var(--space-3xs) var(--space-2xs); border: 1px solid var(--color-muted);
   border-radius: var(--radius-input); background: var(--color-paper); color: var(--color-ink); }
 .idea-sort select:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+/* Next steps for ideas (060): the task a planned idea became, a declined idea's reason, and the question an
+   owner gets right after changing the status. */
+.idea-next { margin: 0; font-size: var(--text-sm); color: var(--color-ink-2); overflow-wrap: anywhere; }
+.idea-next strong { font-weight: 600; color: var(--color-ink); }
+.idea-reason { padding-left: var(--space-xs); border-left: 3px solid var(--p-mon); }
+.idea-task-state { display: inline-block; font-size: var(--text-xs); line-height: 1; padding: var(--space-3xs) var(--space-xs); border-radius: var(--radius-pill);
+  background: var(--p-fri); color: var(--color-ink); }
+.idea-task-state.is-done { background: var(--p-thu); }
+.idea-task-title { color: var(--color-muted); }
+.idea .idea-ask { margin-top: var(--space-2xs); padding: var(--space-xs); border-radius: var(--radius-card); background: var(--color-paper-2); box-shadow: 0 0 0 1px var(--color-rule); }
+.idea-ask .docs-hint { margin: 0 0 var(--space-xs); }
+.idea-ask.link-form { grid-template-columns: 8.5rem minmax(0, 1fr); }
+@media (max-width: 720px) { .idea-ask.link-form { grid-template-columns: minmax(0, 1fr); } }
+.idea-ask-list { justify-self: start; max-width: 100%; min-height: var(--ctl-h); padding: var(--space-2xs) var(--space-xs); font: inherit; font-size: var(--text-sm);
+  border: 1px solid var(--color-muted); border-radius: var(--radius-input); background: var(--color-paper); color: var(--color-ink); }
+.idea-ask-list:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
 /* Announcements: notices pinned to a channel, in the chat header, the app and the Home widget. */
 .pinned { display: grid; gap: var(--space-2xs); margin-top: var(--space-xs); }
 .pinned-note { display: grid; gap: 2px; padding: var(--space-xs) var(--space-sm); border-radius: var(--radius-card);

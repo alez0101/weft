@@ -17,7 +17,7 @@ Press the arrow next to an idea to vote for it; press it again to take your vote
 
 ### Status
 
-The owners of the space choose the status from the menu next to each idea: **New** (not looked at yet), **Planned** (we will do it), **Done** or **Declined** (we will not do it). Editors and viewers see the status but cannot change it.
+The owners of the space choose the status from the menu next to each idea: **New** (not looked at yet), **Planned** (we will do it), **Done** or **Declined** (we will not do it). Editors and viewers see the status but cannot change it. When an owner marks an idea planned, Weft offers to add it as a task in one of the channel's task lists; when they decline one, it asks for a short reason, shown under the idea (see Next steps for ideas).
 
 ### Changing and tidying up
 
