@@ -3559,8 +3559,10 @@ def prefs_and_files():
     st, rows = call("POST", "/items", pat, {"space_id": SID["festival"], "kind": "file", "title": "fake"})
     st2, _ = call("POST", "/file_blobs", pat, {"item_id": fid, "bytes": "\\x00", "mime": "text/plain", "size": 1, "sha256": "x"}, prefer="return=minimal")
     check("Files: Pat (viewer) cannot add a file, nor bytes to someone else's", refused(st) and refused(st2), f"{st} {st2}")
-    st, _ = call("PATCH", f"/file_blobs?item_id=eq.{fid}", olive, {"mime": "text/html"})
-    check("Files: nobody can change stored bytes or their type", refused(st) and owner_sql(f"select mime from weft.file_blobs where item_id = '{fid}'") == "text/plain", str(st))
+    # Spreadsheets (068) may change their bytes, so the columns are grantable; for a file, row-level security
+    # matches no row (200 with nothing changed) or the request is refused outright. Either way: unchanged.
+    st, rows = call("PATCH", f"/file_blobs?item_id=eq.{fid}", olive, {"mime": "text/html"})
+    check("Files: nobody can change stored bytes or their type", (refused(st) or (st == 200 and not rows)) and owner_sql(f"select mime from weft.file_blobs where item_id = '{fid}'") == "text/plain", str(st))
     st, rows = call("GET", f"/file_blobs?item_id=eq.{fid}&select=size", mint("u-org", assistant=True))
     check("Files: the assistant role cannot read file bytes (only the extracted text, through items)", refused(st) or rows == [], f"{st} {rows}")
     owner_sql(f"delete from weft.items where id = '{fid}'")
