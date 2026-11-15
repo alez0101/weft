@@ -165,7 +165,13 @@ body { height: 100dvh; background: var(--color-paper-2); }
 
 /* ---------- tabs ---------- */
 .stage { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; }
-.tabs { display: flex; gap: var(--space-3xs); padding: var(--space-xs) var(--space-sm) 0; border-bottom: 1px solid var(--color-rule); background: var(--color-paper-2); overflow-x: auto; }
+.tabbar { display: flex; align-items: center; gap: var(--space-2xs); padding-right: var(--space-xs); border-bottom: 1px solid var(--color-rule); background: var(--color-paper-2); }
+.tabs { flex: 1; min-width: 0; display: flex; align-items: flex-end; align-self: stretch; gap: var(--space-3xs); padding: var(--space-xs) var(--space-sm) 0; margin-bottom: -1px; overflow-x: auto; }
+.full-btn { flex: none; }
+.full-btn:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+/* Full screen: only the tabs and the open app, edge to edge. */
+.shell[data-full] { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); max-width: none; box-shadow: none; }
+.shell[data-full] > .topbar, .shell[data-full] > .rail { display: none; }
 .tab {
   display: inline-flex; align-items: center; gap: var(--space-2xs);
   height: var(--ctl-h); padding: 0 var(--space-xs) 0 var(--space-sm);

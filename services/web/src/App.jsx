@@ -341,6 +341,23 @@ export default function App() {
     const i = u.tabs.indexOf(id); const tabs = u.tabs.filter((t) => t !== id);
     return { ...u, tabs, active: u.active === id ? (tabs[i - 1] || tabs[i] || 'home') : u.active };
   });
+  // Full screen: the open app fills the window (top bar and chat hidden) and the browser goes full screen
+  // too where it can. Leaving browser full screen (Esc) leaves it as well.
+  const [full, setFull] = useState(false);
+  useEffect(() => {
+    const left = () => { if (!document.fullscreenElement) setFull(false); };
+    document.addEventListener('fullscreenchange', left);
+    return () => document.removeEventListener('fullscreenchange', left);
+  }, []);
+  const toggleFull = () => {
+    if (!full) {
+      setFull(true);
+      document.documentElement.requestFullscreen?.().catch(() => {});   // refused or unsupported: the app still fills the window
+    } else {
+      setFull(false);
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    }
+  };
   const onTabKey = (e) => {
     const ids = ['home', ...ui.tabs]; const i = ids.indexOf(ui.active);
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
@@ -357,7 +374,7 @@ export default function App() {
 
   const me = session.user;
   return (
-    <div className="shell" data-rail={ui.rail === 'normal' ? undefined : ui.rail}>
+    <div className="shell" data-rail={ui.rail === 'normal' ? undefined : ui.rail} data-full={full ? 'true' : undefined}>
       <header className="topbar">
         <a className="wordmark" href="#active=home" onClick={(e) => { e.preventDefault(); setUi((u) => ({ ...u, active: 'home' })); }}>Weft</a>
         <SearchBox onOpenItem={openItem} onOpenEvent={openEvent} onOpenRecord={openRecord}
@@ -376,6 +393,7 @@ export default function App() {
         notice={notice} live={live} onOpenItem={openItem} onOpenEvent={openEvent} onOpenNotices={openNotices} onOpenRecord={openRecord} jump={jump} />
 
       <main className="stage">
+        <div className="tabbar">
         <div className="tabs" role="tablist" aria-label="Open apps" onKeyDown={onTabKey}>
           <button className={`tab${ui.active === 'home' ? ' is-active' : ''}`} role="tab" id="tab-home" aria-selected={ui.active === 'home'}
             tabIndex={ui.active === 'home' ? 0 : -1} onClick={() => setUi((u) => ({ ...u, active: 'home' }))}>
@@ -388,6 +406,13 @@ export default function App() {
               <span className="tab-close" role="button" aria-label={`Close ${APP[id].label}`} onClick={(e) => { e.stopPropagation(); closeTab(id); }}>×</span>
             </button>
           ))}
+        </div>
+        <button type="button" className="icon-btn full-btn" aria-pressed={full} onClick={toggleFull}
+          aria-label={full ? 'Exit full screen' : 'Full screen'} title={full ? 'Exit full screen (Esc)' : 'Full screen'}>
+          {full
+            ? <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 3.5V8H3.5M12 3.5V8h4.5M8 16.5V12H3.5M12 16.5V12h4.5" /></svg>
+            : <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 8V3.5H8M16.5 8V3.5H12M3.5 12v4.5H8M16.5 12v4.5H12" /></svg>}
+        </button>
         </div>
 
         <section className="panel" role="tabpanel" aria-labelledby={`tab-${ui.active}`}>
