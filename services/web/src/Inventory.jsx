@@ -9,8 +9,11 @@
 // Due-back dates (055): a thing that is out can carry a "back by" date, set when checking out or later by an
 // editor or by whoever has it; checking in clears it. Overdue things say so in red; "Checked out now" is
 // sorted by the date, overdue first.
+// Download as a file (066): every thing as CSV (where it is kept, who has it, since when, back by), for anyone
+// who can read the inventory, built here from the rows already loaded.
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
+import { saveCsv, localDay } from './download.js';
 import { today } from './TaskList.jsx';
 
 const THINGS = 'id,name,location,note,holder_id,held_since,due_back,holder:users!inventory_things_holder_id_fkey(display_name)';
@@ -121,6 +124,10 @@ export default function Inventory({ item, me, members, editable, notice }) {
     + (m.by?.display_name && m.by.display_name !== m.holder?.display_name ? ` by ${m.by.display_name}` : '');
   const FILTERS = [['all', 'All'], ['in', 'In'], ['out', 'Checked out'], ['mine', 'With you'], ['late', 'Overdue']];
 
+  const downloadCsv = () => saveCsv(item.title, 'inventory', ['Thing', 'Kept in', 'Note', 'Has it', 'Since', 'Back by'],
+    things.map((x) => [x.name, x.location, x.note, x.holder_id ? (x.holder?.display_name || 'someone who left') : '',
+      x.holder_id && x.held_since ? localDay(x.held_since) : '', x.holder_id ? (x.due_back || '') : '']));
+
   return (
     <div className="links inventory">
       {editable ? (adding
@@ -138,6 +145,7 @@ export default function Inventory({ item, me, members, editable, notice }) {
           </div>
           <span className="task-count" role="status">{shown.length === things.length
             ? `${things.length} thing${things.length === 1 ? '' : 's'}, ${out.length} checked out${late.length ? `, ${late.length} overdue` : ''}` : `${shown.length} of ${things.length}`}</span>
+          <button className="btn btn--sm" type="button" onClick={downloadCsv}>Download CSV</button>
         </div>
       )}
       <div className="cl-grid">
