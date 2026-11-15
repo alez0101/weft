@@ -4682,6 +4682,115 @@ def more_on_the_calendar():
     check("Calendar: once deleted, the shift and milestone are gone from Pat's Calendar", rows == [] and all(r["id"] != m_fest for r in rows2), f"{rows} {rows2}")
 
 
+# ---------------------------------------------------------------- away warnings (052)
+def away_warnings():
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, V, O, A = uid("user", "u-pub"), uid("user", "u-vol"), uid("user", "u-org"), uid("user", "u-alex")
+    oq = lambda sql: owner_sql(sql)
+    day = lambda n: oq(f"select (current_date + {n})::text")
+    w0, w1 = day(140), day(180)   # a window of its own, clear of the other suites' time off
+    d150, d152, d155, d157, d160, d162 = day(150), day(152), day(155), day(157), day(160), day(162)
+    def away(tok, a=w0, b=w1, method="GET"):
+        if method == "GET":
+            return call("GET", f"/rpc/away_between?p_from={a}&p_to={b}", tok)
+        return call("POST", "/rpc/away_between", tok, {"p_from": a, "p_to": b})
+    def has(rows, who, a, b):
+        return isinstance(rows, list) and any(r.get("user_id") == who and r.get("starts_on") == a and r.get("ends_on") == b for r in rows)
+    def add(tok, space, a, b, user=None, note=""):
+        st, rows = call("POST", "/time_off", tok, {"space_id": SID[space], "starts_on": a, "ends_on": b, "note": note, **({"user_id": user} if user else {})})
+        return rows[0]["id"] if st == 201 else None
+    # Alex away in Organizers only (a secret to #festival), Olive in both Organizers and #festival on the same
+    # days, Pat in #festival, Vic in #festival (added by Olive).
+    alex_org = add(alex, "organizers", d160, d162, note="AWAYWARN-ORG-SECRET clinic")
+    olive_org = add(olive, "organizers", d150, d152, note="AWAYWARN-ORG-SECRET")
+    olive_fest = add(olive, "festival", d150, d152)
+    pat_fest = add(pat, "festival", d155, d157, note="Holiday")
+    vic_fest = add(olive, "festival", d155, d155, user=V)
+    check("Away warnings: the time off to warn about was added (setup)", all((alex_org, olive_org, olive_fest, pat_fest, vic_fest)))
+
+    st, rows = away(olive)
+    check("Away warnings: Olive (in both channels) is warned about Alex, Pat, Vic and herself (positive control)",
+          st == 200 and has(rows, A, d160, d162) and has(rows, P, d155, d157) and has(rows, V, d155, d155) and has(rows, O, d150, d152), f"{st} {rows}")
+    check("Away warnings: Olive's same days in two channels come back once",
+          isinstance(rows, list) and sum(1 for r in rows if r.get("user_id") == O and r.get("starts_on") == d150) == 1, str(rows))
+    check("Away warnings: only who and which days: no note, channel, id or author",
+          isinstance(rows, list) and rows and all(set(r) == {"user_id", "starts_on", "ends_on"} for r in rows), str(rows[:2] if isinstance(rows, list) else rows))
+    st2, rows2 = away(olive, method="POST")
+    check("Away warnings: asking by POST gives the same answer (it only reads)", st2 == 200 and rows2 == rows, f"{st2} {rows2}")
+
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = away(tok)
+        check(f"Away warnings: {who} (#festival viewer, not in Organizers) is not warned about Alex's Organizers-only time off",
+              st == 200 and not any(r.get("user_id") == A for r in rows), f"{st} {rows}")
+        check(f"Away warnings: {who} is warned about #festival time off: Pat, Vic and Olive's #festival entry (positive control)",
+              st == 200 and has(rows, P, d155, d157) and has(rows, V, d155, d155) and has(rows, O, d150, d152), f"{st} {rows}")
+    st, rows = away(pat, day(159), day(163))
+    check("Away warnings: Pat asking about exactly Alex's days gets nothing", st == 200 and rows == [], f"{st} {rows}")
+    st, rows = away(alex, day(159), day(163))
+    check("Away warnings: Alex asking about the same days sees his own (positive control)", st == 200 and has(rows, A, d160, d162) and len(rows) == 1, f"{st} {rows}")
+
+    # The window: overlap counts, a day outside does not; nonsense windows return nothing.
+    st, rows = away(olive, d157, d157)
+    check("Away warnings: a one-day window inside Pat's time off finds her (last day included)", st == 200 and has(rows, P, d155, d157), f"{st} {rows}")
+    st, rows = away(olive, day(158), day(159))
+    check("Away warnings: the days between time off find nobody", st == 200 and not any(r.get("user_id") in (P, V, A, O) for r in rows), f"{st} {rows}")
+    st, rows = away(olive, w1, w0)
+    st2, rows2 = away(olive, day(0), day(401))
+    st3, rows3 = call("GET", f"/rpc/away_between?p_from={w0}", olive)
+    check("Away warnings: a backwards window or one over 400 days returns nothing; a missing end is refused or empty",
+          st == 200 and rows == [] and st2 == 200 and rows2 == [] and (st3 >= 400 or rows3 == []), f"{st} {st2} {rows2[:1] if isinstance(rows2, list) else rows2} {st3}")
+    st, rows = away(olive, day(0), day(400))
+    check("Away warnings: exactly 400 days is fine (positive control)", st == 200 and has(rows, A, d160, d162), f"{st}")
+
+    # Channel scope and the assistant.
+    st, rows = away(mint("u-org", scope="festival"))
+    check("Away warnings: a #festival-scoped token for Olive is warned only from #festival time off (no Alex)",
+          st == 200 and has(rows, P, d155, d157) and not any(r.get("user_id") == A for r in rows), f"{st} {rows}")
+    st, rows = away(mint("u-alex", scope="organizers"))
+    check("Away warnings: an Organizers-scoped token for Alex sees Alex's Organizers time off but not Pat's #festival one",
+          st == 200 and has(rows, A, d160, d162) and not any(r.get("user_id") == P for r in rows), f"{st} {rows}")
+    helper = mint("u-org", assistant=True)
+    st, rows = away(helper)
+    check("Away warnings: the assistant role may not call the helper", refused(st) or (st >= 400 and not isinstance(rows, list)), f"{st} {rows}")
+    st, _ = call("DELETE", f"/time_off?id=eq.{alex_org}", helper)
+    check("Away warnings: the assistant still cannot delete time off", refused(st) and oq(f"select count(*) from weft.time_off where id = '{alex_org}'") == "1", str(st))
+    st, rows = call("GET", f"/rpc/away_between?p_from={w0}&p_to={w1}")
+    check("Away warnings: without a token, nothing", st >= 400 or rows == [], f"{st} {rows}")
+    check("Away warnings: the helper runs as the caller (not security definer), only reads, and only weft_user may run it",
+          oq("select prosecdef::text || provolatile::text from pg_proc where oid = 'weft.away_between(date, date)'::regprocedure") == "falses"
+          and oq("select has_function_privilege('weft_user', 'weft.away_between(date, date)', 'execute')::text"
+                 " || has_function_privilege('weft_assistant', 'weft.away_between(date, date)', 'execute')::text"
+                 " || has_function_privilege('weft_anon', 'weft.away_between(date, date)', 'execute')::text") == "truefalsefalse")
+
+    # Nothing to write: warnings follow the time off. Pat cannot add or change anyone else's to cause one,
+    # nor forge who added it; when time off changes or goes, so does the warning.
+    st, _ = call("POST", "/time_off", pat, {"space_id": SID["festival"], "user_id": O, "starts_on": d160, "ends_on": d160})
+    st2, _ = call("POST", "/time_off", pat, {"space_id": SID["organizers"], "starts_on": d160, "ends_on": d160})
+    st3, _ = call("POST", "/time_off", pat, {"space_id": SID["festival"], "starts_on": d160, "ends_on": d160, "created_by": O})
+    st4, rows4 = call("PATCH", f"/time_off?id=eq.{olive_fest}", pat, {"ends_on": d162})
+    check("Away warnings: Pat cannot make Olive look away in #festival, add time off in Organizers, forge who added it, or stretch Olive's",
+          all(refused(x) for x in (st, st2, st3)) and rows4 == [] and oq(f"select ends_on::text from weft.time_off where id = '{olive_fest}'") == d152, f"{st} {st2} {st3} {st4}")
+    st, rows = call("PATCH", f"/time_off?id=eq.{pat_fest}", olive, {"ends_on": d160})
+    st2, rows2 = away(vic)
+    check("Away warnings: Olive (editor) lengthens Pat's time off; Vic's warning follows (positive control)",
+          st == 200 and has(rows2, P, d155, d160) and not has(rows2, P, d155, d157), f"{st} {rows2}")
+    oq(f"delete from weft.members where space_id = '{SID['festival']}' and user_id = '{V}'")
+    st, rows = away(pat)
+    check("Away warnings: Vic removed from #festival: his time off there goes, so Pat is no longer warned about him",
+          st == 200 and not any(r.get("user_id") == V for r in rows) and oq(f"select count(*) from weft.time_off where id = '{vic_fest}'") == "0", f"{st} {rows}")
+    oq(f"insert into weft.members (space_id, user_id, role) values ('{SID['festival']}', '{V}', 'viewer')")
+    check("Away warnings: Vic is back in #festival as a viewer (tidy)",
+          oq(f"select role from weft.members where space_id = '{SID['festival']}' and user_id = '{V}'") == "viewer")
+    call("DELETE", f"/time_off?id=eq.{olive_fest}", olive)
+    st, rows = away(pat)
+    st2, rows2 = away(alex)
+    check("Away warnings: Olive removes her #festival entry: Pat is no longer warned about her, Alex still is (her Organizers entry)",
+          st == 200 and not any(r.get("user_id") == O for r in rows) and has(rows2, O, d150, d152), f"{rows} {rows2}")
+    for tid, tok in ((alex_org, alex), (olive_org, olive), (pat_fest, pat)):
+        call("DELETE", f"/time_off?id=eq.{tid}", tok)
+    check("Away warnings: tidied up", oq(f"select count(*) from weft.time_off where starts_on between '{w0}' and '{w1}'") == "0")
+
+
 def teeth():
     """Loosen one policy on purpose and confirm the suite would catch it, then restore it."""
     owner_sql("create policy teeth_leak on weft.items for select to weft_user using (true)")
@@ -4727,6 +4836,7 @@ if __name__ == "__main__":
     bookings()
     shifts()
     time_off()
+    away_warnings()
     retros()
     profiles()
     people()

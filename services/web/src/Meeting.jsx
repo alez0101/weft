@@ -5,9 +5,13 @@
 // different sections do not overwrite each other. Row-level security decides; when it says no, the reason
 // is shown and the meeting is reloaded. Live: changes to this meeting, its action items or tasks in its
 // space refetch it, without touching a section someone is still typing in.
+// Away warnings (052): an open action item whose owner has time off on its due date (or, without one, on
+// the day the meeting is held) says "Pat is away then".
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
 import { dueLabel, today } from './TaskList.jsx';
+import { AwayLive, AwayNote, useAway } from './Away.jsx';
+import { dayKey } from './TimeOff.jsx';
 
 const SECTIONS = [
   ['agenda', 'Agenda', 'What you will talk about, one point per line'],
@@ -28,6 +32,7 @@ export default function Meeting({ item, me, members, editable, notice, onOpenEve
   const [error, setError] = useState('');
   const [saved, setSaved] = useState('');
   const [form, setForm] = useState(EMPTY);
+  const awayOn = useAway(notice);
 
   const people = members.filter((x) => x.space_id === item.space_id && x.user)
     .map((x) => x.user).sort((a, b) => a.display_name.localeCompare(b.display_name));
@@ -91,6 +96,7 @@ export default function Meeting({ item, me, members, editable, notice, onOpenEve
   if (m === null) return error ? <p className="send-error" role="alert">{error}</p> : <div className="skeleton" aria-label="Loading the meeting"><span /><span /><span /></div>;
   if (m === false) return <p className="send-error" role="alert">This meeting could not be found.</p>;
   const t0 = today();
+  const actionDay = (due) => due || (m.held_at ? dayKey(m.held_at) : null);
   const linkedMissing = m.event_id && !events.some((e) => e.id === m.event_id);
 
   return (
@@ -157,6 +163,7 @@ export default function Meeting({ item, me, members, editable, notice, onOpenEve
             <label className="visually-hidden" htmlFor="action-new-due">Due date</label>
             <input id="action-new-due" type="date" value={form.due_on} onChange={(e) => setForm({ ...form, due_on: e.target.value })} />
             <button className="btn btn--primary btn--sm" type="submit" disabled={!form.title.trim()}>Add action item</button>
+            <AwayLive away={awayOn(form.assignee_id, actionDay(form.due_on))} name={nameOf(form.assignee_id)} isMe={form.assignee_id === me.id} />
           </form>
         )}
         {!actions.length ? <p className="convo-empty">No action items yet.</p> : (
@@ -169,6 +176,7 @@ export default function Meeting({ item, me, members, editable, notice, onOpenEve
                 <span className="task-meta">{nameOf(t.assignee_id) || 'No one'}</span>
                 <span className={`task-meta${!t.done && t.due_on && t.due_on < t0 ? ' is-late' : ''}`}>{t.due_on ? dueLabel(t.due_on) : 'No due date'}</span>
                 {editable && <button className="btn btn--sm" type="button" onClick={() => unlink(t)}>Remove<span className="visually-hidden"> {t.title}</span></button>}
+                {!t.done && <AwayNote away={awayOn(t.assignee_id, actionDay(t.due_on))} name={nameOf(t.assignee_id)} isMe={t.assignee_id === me.id} />}
               </li>
             ))}
           </ul>

@@ -993,3 +993,11 @@ select.idea-status:focus-visible { outline: 2px solid var(--color-focus); outlin
 @media (max-width: 720px) {
   .task-add.task-add--repeat, .task.task--repeat, .task.task--repeat:has(.task-title--read) { grid-template-columns: auto minmax(0, 1fr); }
 }
+/* Away warnings (052): a gentle note, in the Time off colour, when the person picked has time off that day. */
+.away-note { display: inline-block; justify-self: start; padding: 0 var(--space-xs); border-radius: var(--radius-pill); background: var(--p-fri);
+  color: var(--color-ink); font-size: var(--text-xs); font-weight: 600; line-height: 1.6; max-width: 100%; }
+.task > .away-note { grid-column: 2 / -1; }
+.away-note--inline { margin-left: var(--space-2xs); white-space: nowrap; }
+.link-foot > .away-note { align-self: center; }
+.away-live { grid-column: 1 / -1; margin: 0; }
+.away-live:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; }
