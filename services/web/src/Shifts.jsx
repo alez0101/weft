@@ -6,6 +6,9 @@
 // refetches.
 // Away warnings (052): someone on a shift whose time off covers its day gets "Pat is away then" by their
 // name, and before you take a place on such a day, "You are away then".
+// Copy shifts (057): editors copy every shift of a day or a week in a channel to a later date, empty of
+// sign-ups (weft.copy_shifts, as the person). A preview lists what will be copied; the answer says how many
+// were copied and how many were already there or would already have ended.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from './api.js';
 import { AwayNote, useAway } from './Away.jsx';
@@ -20,6 +23,10 @@ const dayLabel = (d) => new Date(d).toLocaleDateString([], { weekday: 'long', mo
 const t = (d) => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 export const shiftSpan = (a, b) => (dayKey(a) === dayKey(b) ? `${t(a)} to ${t(b)}`
   : `${t(a)} to ${new Date(b).toLocaleDateString([], { weekday: 'short' })} ${t(b)}`);
+const tz = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+const shortDay = (d) => new Date(d).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+const monday = (day) => { const x = new Date(`${day}T12:00`); return addDays(day, -((x.getDay() + 6) % 7)); };
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 const MAX_DOTS = 24;   // places drawn one by one up to this; more are only counted
 
 // New or changed shift. An end time at or before the start means the shift ends the next day.
@@ -61,6 +68,91 @@ function ShiftForm({ initial, channels, onSave, onCancel, idp, label, submit }) 
         {onCancel && <button className="btn btn--sm" type="button" onClick={onCancel}>Cancel</button>}
       </div>
     </form>
+  );
+}
+
+// Copy a day's or a week's shifts in one channel to a later date. The preview is read from the database for
+// the chosen days (ended shifts included, so last week's rota can be copied); the copy itself is one call.
+const PREVIEW_MAX = 12;
+function CopyForm({ initial, channels, onDone, onCancel }) {
+  const [f, setF] = useState(initial);
+  const [preview, setPreview] = useState(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const days = f.span === 'week' ? 7 : 1;
+  const gap = Math.round((at(f.to, '12:00') - at(f.from, '12:00')) / 86400000);
+  useEffect(() => {
+    let live = true; setPreview(null);
+    if (!f.space || !f.from) return undefined;
+    api(`/shifts?space_id=eq.${f.space}&starts_at=gte.${encodeURIComponent(at(f.from, '00:00').toISOString())}&starts_at=lt.${encodeURIComponent(at(addDays(f.from, days), '00:00').toISOString())}&select=id,title,starts_at,ends_at,places&order=starts_at,title&limit=301`)
+      .then((r) => { if (live) setPreview(r); }).catch((e) => { if (live) setError(`Could not read those shifts: ${e.message}`); });
+    return () => { live = false; };
+  }, [f.space, f.from, days]);
+  const bad = !f.space || !f.from || !f.to || gap < 1 || !preview?.length;
+  const submit = async (e) => {
+    e.preventDefault(); if (bad || busy) return;
+    setBusy(true);
+    try {
+      const r = await api('/rpc/copy_shifts', { method: 'POST', body: { p_space: f.space, p_from: f.from, p_days: days, p_to: f.to, p_tz: tz() } });
+      setError(''); onDone({ ...r, to: f.to, span: f.span, space: f.space });
+    } catch (err) { setError(`Not copied: ${err.message}`); }
+    setBusy(false);
+  };
+  const setFrom = (from) => setF({ ...f, from, to: addDays(from, 7) });
+  return (
+    <form className="link-form shift-form shift-copy" aria-label="Copy shifts" onSubmit={submit}>
+      <label htmlFor="sh-copy-space">Channel</label>
+      <select id="sh-copy-space" autoFocus value={f.space} onChange={(e) => setF({ ...f, space: e.target.value })}>
+        {channels.map((c) => <option key={c.id} value={c.id}>#{c.name}</option>)}
+      </select>
+      <span className="shift-copy-label">Copy</span>
+      <span className="pair" role="radiogroup" aria-label="Copy a day or a week">
+        <label className="shift-copy-choice"><input type="radio" name="sh-copy-span" checked={f.span === 'day'} onChange={() => setF({ ...f, span: 'day' })} /> a day</label>
+        <label className="shift-copy-choice"><input type="radio" name="sh-copy-span" checked={f.span === 'week'} onChange={() => setF({ ...f, span: 'week' })} /> a week</label>
+      </span>
+      <label htmlFor="sh-copy-from">{f.span === 'week' ? 'Starting' : 'Day'}</label>
+      <span className="pair">
+        <input id="sh-copy-from" type="date" value={f.from} required onChange={(e) => e.target.value && setFrom(e.target.value)} />
+        {f.span === 'week' && <span className="shift-hint">to {shortDay(at(addDays(f.from, 6), '12:00'))}</span>}
+      </span>
+      <label htmlFor="sh-copy-to">To</label>
+      <span className="pair">
+        <input id="sh-copy-to" type="date" value={f.to} min={addDays(f.from, 1)} required onChange={(e) => e.target.value && setF({ ...f, to: e.target.value })} />
+        <span className="shift-hint">{gap >= 1 ? (gap % 7 === 0 ? `${plural(gap / 7, 'week', 'weeks')} later` : `${plural(gap, 'day', 'days')} later`) : 'Pick a later date'}</span>
+      </span>
+      <div className="shift-copy-preview" aria-live="polite">
+        {!preview ? <span className="shift-hint">Looking for shifts…</span>
+          : !preview.length ? <span className="shift-hint">No shifts on {f.span === 'week' ? 'those days' : 'that day'} in this channel.</span>
+          : <>
+            <p className="shift-copy-head">{plural(preview.length, 'shift', 'shifts')} to copy, with no one signed up:</p>
+            <ul className="shift-copy-list">
+              {preview.slice(0, PREVIEW_MAX).map((s) => <li key={s.id}><strong>{shortDay(s.starts_at)}</strong> {shiftSpan(s.starts_at, s.ends_at)}, {s.title}, {plural(s.places, 'place', 'places')}
+                {gap >= 1 && <span className="shift-hint"> → {shortDay(at(addDays(dayKey(s.starts_at), gap), '12:00'))}</span>}</li>)}
+              {preview.length > PREVIEW_MAX && <li className="shift-hint">and {preview.length - PREVIEW_MAX} more</li>}
+            </ul>
+          </>}
+      </div>
+      {error && <p className="send-error shift-copy-error" role="alert">{error}</p>}
+      <div className="link-form-actions">
+        <button className="btn btn--primary btn--sm" type="submit" disabled={bad || busy}>{preview?.length ? `Copy ${plural(preview.length, 'shift', 'shifts')}` : 'Copy'}</button>
+        <button className="btn btn--sm" type="button" onClick={onCancel}>Cancel</button>
+      </div>
+    </form>
+  );
+}
+
+// What a copy did.
+function CopyResult({ r, chName, onClose }) {
+  const where = `${r.span === 'week' ? 'the week from' : ''} ${dayLabel(at(r.to, '12:00'))}`.trim();
+  return (
+    <div className={`booking-result${r.copied ? '' : ' has-clashes'}`} role="status">
+      <p className="booking-result-head">
+        {r.copied ? `Copied ${plural(r.copied, 'shift', 'shifts')} to ${where} in #${chName(r.space)}.` : 'Nothing was copied.'}
+        <button className="btn btn--sm" type="button" onClick={onClose}>Close</button>
+      </p>
+      {r.already > 0 && <p className="booking-result-sub">{plural(r.already, 'shift was', 'shifts were')} already there, so not copied again.</p>}
+      {r.past > 0 && <p className="booking-result-sub">{plural(r.past, 'copy', 'copies')} would already have ended, so {r.past === 1 ? 'it was' : 'they were'} not made.</p>}
+    </div>
   );
 }
 
@@ -152,6 +244,8 @@ export default function Shifts({ me, spaces, members, notice }) {
   const [filter, setFilter] = useState('all');
   const [channel, setChannel] = useState('');
   const [adding, setAdding] = useState(false);
+  const [copying, setCopying] = useState(null);
+  const [copied, setCopied] = useState(null);
   const [editing, setEditing] = useState(null);
   const [errors, setErrors] = useState({});
   const [error, setError] = useState('');
@@ -180,6 +274,13 @@ export default function Shifts({ me, spaces, members, notice }) {
     const d = new Date(); d.setDate(d.getDate() + 1);
     const space = (channel && canEdit(channel) ? channel : editableChannels[0]?.id) || '';
     return { space, title: '', day: dayKey(d), from: '10:00', to: '14:00', places: '2', note: '' };
+  };
+
+  const startCopy = (init) => { setAdding(false); setCopied(null); setCopying(init); };
+  const copyDefault = () => {
+    const space = (channel && canEdit(channel) ? channel : editableChannels[0]?.id) || '';
+    const from = monday(dayKey(new Date()));
+    return { space, span: 'week', from, to: addDays(from, 7) };
   };
 
   const now = Date.now();
@@ -235,15 +336,30 @@ export default function Shifts({ me, spaces, members, notice }) {
           <div className="links">
             {editableChannels.length > 0 && (adding
               ? <ShiftForm idp="sh-new" label="New shift" submit="Add shift" channels={editableChannels} initial={newDefault()} onSave={add} onCancel={() => setAdding(false)} />
-              : <div className="links-bar"><button className="btn btn--primary btn--sm" type="button" onClick={() => setAdding(true)}>New shift</button>
-                  <p className="docs-hint">Set how many people each shift needs; members sign themselves up.</p></div>)}
+              : copying
+              ? <CopyForm key={JSON.stringify(copying)} initial={copying} channels={editableChannels} onCancel={() => setCopying(null)}
+                  onDone={(r) => { setCopying(null); setCopied(r); load().catch(() => {}); }} />
+              : <div className="links-bar"><button className="btn btn--primary btn--sm" type="button" onClick={() => { setCopied(null); setAdding(true); }}>New shift</button>
+                  <button className="btn btn--sm" type="button" onClick={() => startCopy(copyDefault())}>Copy shifts</button>
+                  <p className="docs-hint">Set how many people each shift needs; members sign themselves up. Copy a day or a week to repeat a rota.</p></div>)}
+            {copied && <CopyResult r={copied} chName={chName} onClose={() => setCopied(null)} />}
             {error && <p className="send-error" role="alert">{error}</p>}
             {!shifts ? <div className="skeleton" aria-label="Loading shifts"><span /><span /></div>
               : !shown.length ? <p className="convo-empty">{!upcoming.length ? (editableChannels.length ? 'No shifts coming up. Add the first one above.' : 'No shifts coming up in your channels.')
                 : filter === 'open' ? 'Every upcoming shift is full.' : filter === 'mine' ? 'You are not on any upcoming shift. Pick one under Still open.' : 'No shifts here.'}</p>
               : days.map((d) => (
                 <section key={d.day} className="rsvp-day" aria-label={dayLabel(at(d.day, '12:00'))}>
-                  <h3 className="notice-group">{dayLabel(at(d.day, '12:00'))}</h3>
+                  {(() => {
+                    const own = d.shifts.find((s) => s.space_id === channel) || d.shifts.find((s) => canEdit(s.space_id));
+                    const sp = own && canEdit(own.space_id) ? own.space_id : null;
+                    return (
+                      <div className="shift-day-head">
+                        <h3 className="notice-group">{dayLabel(at(d.day, '12:00'))}</h3>
+                        {sp && <button className="btn btn--sm" type="button" onClick={() => startCopy({ space: sp, span: 'day', from: d.day, to: addDays(d.day, 7) })}>
+                          Copy this day<span className="visually-hidden">, {dayLabel(at(d.day, '12:00'))}</span></button>}
+                      </div>
+                    );
+                  })()}
                   <ul className="link-list">
                     {d.shifts.map((s) => <Shift key={s.id} s={s} me={me} ended={new Date(s.ends_at).getTime() <= now} canEdit={canEdit(s.space_id)}
                       error={errors[s.id]} act={act} editing={editing} setEditing={setEditing} awayOn={awayOn} />)}

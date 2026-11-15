@@ -4053,6 +4053,132 @@ def repeating_bookings():
     check("Repeating bookings: deleting the room deletes its series", oq(f"select count(*) from weft.booking_series where id = '{sid}'") == "0")
 
 
+def copy_shifts():
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    O, A = uid("user", "u-org"), uid("user", "u-alex")
+    oq = lambda sql: owner_sql(sql)
+    rpc = lambda tok, body: call("POST", "/rpc/copy_shifts", tok, body)
+    org, fest = SID["organizers"], SID["festival"]
+    utc = lambda where: oq(f"select coalesce(string_agg(to_char(starts_at at time zone 'UTC', 'MM-DD HH24:MI') || '-' || to_char(ends_at at time zone 'UTC', 'HH24:MI'), ',' order by starts_at), '') from weft.shifts where {where}")
+    made = []
+
+    def add(tok, body):
+        st, rows = call("POST", "/shifts", tok, body)
+        if st == 201:
+            made.append(rows[0]["id"])
+            return rows[0]["id"]
+        return None
+    # The Organizers rota, the week of Monday 22 March 2027, in Berlin time (the clocks change on Sunday 28 March).
+    desk = add(olive, {"space_id": org, "title": "CS-ORG-SECRET desk", "starts_at": "2027-03-22T08:00:00Z", "ends_at": "2027-03-22T11:00:00Z", "places": 2, "note": "Back office"})
+    bar = add(alex, {"space_id": org, "title": "CS-ORG-SECRET bar", "starts_at": "2027-03-27T17:00:00Z", "ends_at": "2027-03-27T22:00:00Z", "places": 3})
+    outside = add(olive, {"space_id": org, "title": "CS-ORG-SECRET outside", "starts_at": "2027-03-29T08:00:00Z", "ends_at": "2027-03-29T09:00:00Z", "places": 1})
+    st, _ = call("POST", "/shift_signups", alex, {"shift_id": desk})
+    check("Copy shifts: setup, an Organizers week of two shifts (one by Alex, one with Alex signed up) and one shift the week after",
+          desk and bar and outside and st == 201)
+    week = {"p_space": org, "p_from": "2027-03-22", "p_days": 7, "p_to": "2027-03-29", "p_tz": "Europe/Berlin"}
+    n0 = oq(f"select count(*) from weft.shifts where space_id = '{org}'")
+    # Outsiders and viewers cannot copy, and learn nothing from trying.
+    st, b = rpc(vic, week)
+    st2, b2 = rpc(vic, {**week, "p_space": uid("space", "nothing")})
+    st3, b3 = rpc(pat, week)
+    st4, b4 = rpc(pat, {**week, "p_from": "2030-01-01", "p_to": "2030-01-08"})
+    check("Copy shifts: Vic and Pat cannot copy Organizers shifts; the same answer whether there are shifts, none, or no such channel",
+          all(refused(x) for x in (st, st2, st3, st4)) and len({json.dumps(x.get("message") if isinstance(x, dict) else x) for x in (b, b2, b3, b4)}) == 1
+          and oq(f"select count(*) from weft.shifts where space_id = '{org}'") == n0, f"{st} {st2} {st3} {st4} {b} {b2}")
+    # Olive (editor) copies the week (positive control).
+    st, res = rpc(olive, week)
+    check("Copy shifts: Olive (editor) copies the Organizers week a week on: 2 copied (positive control)",
+          st == 200 and isinstance(res, dict) and res.get("copied") == 2 and res.get("already") == 0 and res.get("past") == 0 and res.get("first"), f"{st} {res}")
+    copies = "space_id = '{}' and starts_at >= '2027-03-29' and starts_at < '2027-04-05' and title <> 'CS-ORG-SECRET outside'".format(org)
+    made += oq(f"select id from weft.shifts where {copies}").split()
+    check("Copy shifts: the copies keep the clock time across the clock change (09:00 and 18:00 in Berlin: 08:00 and 17:00 UTC in winter, 07:00 and 16:00 UTC in summer)",
+          utc(copies) == "03-29 07:00-10:00,04-03 16:00-21:00", utc(copies))
+    check("Copy shifts: the copies keep title, places and note, are by Olive (set by the database), and have nobody signed up",
+          oq(f"select string_agg(title || '|' || places || '|' || note || '|' || (created_by = '{O}')::text, ';' order by starts_at) from weft.shifts where {copies}")
+          == "CS-ORG-SECRET desk|2|Back office|true;CS-ORG-SECRET bar|3||true"
+          and oq(f"select count(*) from weft.shift_signups x join weft.shifts s on s.id = x.shift_id where {copies.replace('space_id', 's.space_id').replace('starts_at', 's.starts_at').replace('title', 's.title')}") == "0"
+          and oq(f"select count(*) from weft.shift_signups where shift_id = '{desk}'") == "1")
+    st, res = rpc(olive, week)
+    check("Copy shifts: copying the same week again makes nothing new (2 already there)",
+          st == 200 and res.get("copied") == 0 and res.get("already") == 2 and res.get("first") is None
+          and oq(f"select count(*) from weft.shifts where {copies}") == "2", f"{st} {res}")
+    # Reading the copies follows membership.
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = call("GET", f"/shifts?space_id=eq.{org}&select=id", tok)
+        check(f"Copy shifts: {who} sees none of the Organizers copies", st == 200 and rows == [], str(rows))
+    st, rows = call("GET", f"/shifts?id=in.({','.join(made)})&select=id", olive)
+    check("Copy shifts: Olive reads them all (positive control)", st == 200 and len(rows) == len(made), f"{len(rows or [])} {len(made)}")
+    # A single day, and Alex (owner) may copy too.
+    st, res = rpc(alex, {**week, "p_days": 1, "p_to": "2027-04-05"})
+    made += oq(f"select id from weft.shifts where space_id = '{org}' and starts_at >= '2027-04-05' and starts_at < '2027-04-06'").split()
+    check("Copy shifts: Alex (owner) copies just the Monday two weeks on: only the desk shift, by Alex",
+          st == 200 and res.get("copied") == 1 and utc(f"space_id = '{org}' and starts_at >= '2027-04-05' and starts_at < '2027-04-12'") == "04-05 07:00-10:00"
+          and oq(f"select created_by from weft.shifts where id = '{res.get('first')}'") == A, f"{st} {res}")
+    # #festival: viewers read the copies, editors copy.
+    fs = add(olive, {"space_id": fest, "title": "CS festival gate", "starts_at": "2027-05-04T08:00:00Z", "ends_at": "2027-05-04T12:00:00Z", "places": 4})
+    fday = {"p_space": fest, "p_from": "2027-05-04", "p_days": 1, "p_to": "2027-05-11", "p_tz": "UTC"}
+    st, _ = rpc(pat, fday)
+    st2, _ = rpc(vic, fday)
+    check("Copy shifts: Pat and Vic (viewers in #festival) cannot copy there", refused(st) and refused(st2)
+          and oq(f"select count(*) from weft.shifts where space_id = '{fest}' and title = 'CS festival gate'") == "1", f"{st} {st2}")
+    st, res = rpc(olive, fday)
+    if st == 200 and res.get("first"):
+        made.append(res["first"])
+    st2, rows = call("GET", f"/shifts?id=eq.{res.get('first') if isinstance(res, dict) else ''}&select=title,places", pat)
+    check("Copy shifts: Olive copies the #festival day (positive control) and Pat (viewer) reads the copy",
+          fs and st == 200 and res.get("copied") == 1 and rows == [{"title": "CS festival gate", "places": 4}], f"{st} {res} {rows}")
+    # Vic edits Volunteers: he can copy there (positive control), and only there.
+    vs = add(vic, {"space_id": SID["volunteers"], "title": "CS vol tea", "starts_at": "2027-05-05T08:00:00Z", "ends_at": "2027-05-05T09:00:00Z", "places": 1})
+    st, res = rpc(vic, {**fday, "p_space": SID["volunteers"], "p_from": "2027-05-05", "p_to": "2027-05-06"})
+    if st == 200 and res.get("first"):
+        made.append(res["first"])
+    check("Copy shifts: Vic (editor in Volunteers) copies a Volunteers day (positive control)", vs and st == 200 and res.get("copied") == 1, f"{st} {res}")
+    # Sensible input.
+    bad = [{**week, "p_days": 0}, {**week, "p_days": 8}, {**week, "p_to": "2027-03-22"}, {**week, "p_to": "2027-03-01"},
+           {**week, "p_tz": "Mars/Olympus"}, {**week, "p_to": "2028-03-22"}]
+    n1 = oq("select count(*) from weft.shifts")
+    sts = [rpc(olive, x)[0] for x in bad]
+    check("Copy shifts: 0 or 8 days, the same or an earlier date, an unknown time zone or more than 52 weeks on are refused, making nothing",
+          all(x == 400 for x in sts) and oq("select count(*) from weft.shifts") == n1, str(sts))
+    # Ended shifts can be copied forward; a copy that would itself have ended is skipped.
+    old = oq(f"insert into weft.shifts (space_id, title, starts_at, ends_at, places, created_by) values ('{fest}', 'CS ended', date_trunc('day', now() - interval '9 days') + interval '10 hours', date_trunc('day', now() - interval '9 days') + interval '12 hours', 2, '{O}') returning id").splitlines()[0]
+    made.append(old)
+    oday = oq("select to_char(now() - interval '9 days', 'YYYY-MM-DD')")
+    st, res = rpc(olive, {**fday, "p_from": oday, "p_to": oq("select to_char(now() - interval '8 days', 'YYYY-MM-DD')")})
+    check("Copy shifts: a copy that would already have ended is not made (counted as past)", st == 200 and res.get("copied") == 0 and res.get("past") == 1, f"{st} {res}")
+    st, res = rpc(olive, {**fday, "p_from": oday, "p_to": oq("select to_char(now() + interval '5 days', 'YYYY-MM-DD')")})
+    if st == 200 and res.get("first"):
+        made.append(res["first"])
+    check("Copy shifts: last week's ended shift is copied into the future (positive control)", st == 200 and res.get("copied") == 1, f"{st} {res}")
+    # No author can be forged: the function takes none, and created_by is never granted.
+    st, _ = call("POST", "/rpc/copy_shifts", olive, {**fday, "p_created_by": A})
+    st2, _ = call("POST", "/shifts", olive, {"space_id": fest, "title": "CS forged", "starts_at": "2027-06-01T08:00:00Z", "ends_at": "2027-06-01T09:00:00Z", "places": 1, "created_by": A})
+    check("Copy shifts: no author can be sent to the copy, nor to a shift", st in (400, 404) and refused(st2)
+          and oq(f"select count(*) from weft.shifts where title = 'CS forged'") == "0", f"{st} {st2}")
+    # Channel scope and the assistant.
+    scoped = mint("u-org", scope="festival")
+    st, _ = rpc(scoped, {**week, "p_to": "2027-04-12"})
+    st2, res = rpc(scoped, {**fday, "p_to": "2027-05-18"})
+    if st2 == 200 and res.get("first"):
+        made.append(res["first"])
+    check("Copy shifts: a #festival-scoped token cannot copy Organizers shifts, but can copy #festival ones (positive control)",
+          refused(st) and st2 == 200 and res.get("copied") == 1
+          and oq(f"select count(*) from weft.shifts where space_id = '{org}' and starts_at >= '2027-04-12'") == "0", f"{st} {st2} {res}")
+    helper = mint("u-org", assistant=True)
+    st, _ = rpc(helper, {**fday, "p_to": "2027-05-25"})
+    st2, _ = call("DELETE", f"/shifts?id=eq.{fs}", helper)
+    st3, rows = call("GET", f"/shifts?id=eq.{fs}&select=id", helper)
+    check("Copy shifts: the assistant (for Olive) cannot copy or delete shifts, but reads them (positive control)",
+          refused(st) and refused(st2) and st3 == 200 and len(rows) == 1
+          and oq(f"select count(*) from weft.shifts where space_id = '{fest}' and starts_at >= '2027-05-25' and starts_at < '2027-05-26'") == "0", f"{st} {st2} {st3}")
+    # Copies are ordinary shifts: Pat cannot delete them, Olive can; they go with the channel's rules.
+    st, rows = call("DELETE", f"/shifts?space_id=eq.{org}&starts_at=gte.2027-03-29", pat)
+    check("Copy shifts: Pat cannot delete the Organizers copies", rows == [] and oq(f"select count(*) from weft.shifts where {copies}") == "2", f"{st} {rows}")
+    st, rows = call("DELETE", f"/shifts?space_id=eq.{org}&starts_at=gte.2027-03-29&title=like.CS-ORG-SECRET*&id=neq.{outside}", olive)
+    check("Copy shifts: Olive deletes the Organizers copies (positive control)", st == 200 and len(rows or []) == 3, f"{st} {rows}")
+    oq("delete from weft.shifts where id in ({})".format(",".join(f"'{x}'" for x in made)))
+
+
 def shifts():
     pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
     P, V, O, A = uid("user", "u-pub"), uid("user", "u-vol"), uid("user", "u-org"), uid("user", "u-alex")
@@ -5364,6 +5490,7 @@ if __name__ == "__main__":
     bookings()
     repeating_bookings()
     shifts()
+    copy_shifts()
     time_off()
     away_warnings()
     retros()

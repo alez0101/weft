@@ -870,6 +870,15 @@ select.idea-status:focus-visible { outline: 2px solid var(--color-focus); outlin
 .shift-yours { color: var(--color-accent-deep); font-weight: 600; }
 .shift-admin { display: inline-flex; gap: var(--space-xs); margin-left: auto; }
 @media (prefers-reduced-motion: reduce) { .shift-off { transition: none; } }
+.shift-day-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-xs); flex-wrap: wrap; }
+.shift-day-head .notice-group { margin: 0; }
+.shift-copy-label { font-size: var(--text-sm); color: var(--color-ink-2); }
+.shift-copy-choice { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-sm); color: var(--color-ink); cursor: pointer; }
+.shift-copy-choice input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.shift-copy-preview, .shift-copy-error { grid-column: 2; }
+.shift-copy-head { margin: 0 0 var(--space-2xs); font-size: var(--text-sm); font-weight: 600; color: var(--color-ink); }
+.shift-copy-list { margin: 0; padding-left: var(--space-md); font-size: var(--text-sm); color: var(--color-ink); font-variant-numeric: tabular-nums; }
+@media (max-width: 720px) { .shift-copy-preview, .shift-copy-error { grid-column: 1; } }
 /* Profiles: a short profile per person (uses the Links and Contacts layout). */
 .profiles { min-height: 100%; }
 .profiles .docs-head { padding-inline: 0; }
