@@ -13,10 +13,9 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import pg from 'pg';
-import { jwtVerify } from 'jose';
+import { jwtVerify, SignJWT } from 'jose';
 import mammoth from 'mammoth';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { SignJWT } from 'jose';
 import { unzipSync, strFromU8 } from 'fflate';
 import { readFileSync } from 'node:fs';
 
@@ -117,27 +116,45 @@ async function extract(name, mime, bytes) {
   }
 }
 // Every cell's shown value, one row per line (cells separated by tabs), each sheet under its name.
-const unxml = (t) => t.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n)).replace(/&amp;/g, '&');
+const unxml = (t) => t.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+  .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16))).replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n)).replace(/&amp;/g, '&');
+const attr = (tag, name) => new RegExp(`(?:^|\\s)(?:[\\w-]+:)?${name}="([^"]*)"`).exec(tag)?.[1];
+const XLSX_PART_MAX = 40 * 1024 * 1024;   // decompressed bytes per part, and in total (a zip bomb stops here)
 function xlsxText(bytes) {
-  const z = unzipSync(new Uint8Array(bytes), { filter: (f) => /^xl\/(sharedStrings|workbook|worksheets\/sheet\d+|_rels\/workbook\.xml)\.?(xml|rels)?$/.test(f.name) });
+  let total = 0;
+  const z = unzipSync(new Uint8Array(bytes), {
+    filter: (f) => {
+      if (!/^xl\/(sharedStrings\.xml|workbook\.xml|_rels\/workbook\.xml\.rels|worksheets\/[^/]+\.xml)$/.test(f.name)) return false;
+      total += f.originalSize;
+      if (f.originalSize > XLSX_PART_MAX || total > XLSX_PART_MAX * 2) throw new Error('workbook too large to read');
+      return true;
+    },
+  });
   const get = (n) => (z[n] ? strFromU8(z[n]) : '');
-  const shared = [...get('xl/sharedStrings.xml').matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) => unxml([...m[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map((t) => t[1]).join('')));
-  const rels = Object.fromEntries([...get('xl/_rels/workbook.xml.rels').matchAll(/<Relationship [^>]*Id="([^"]+)"[^>]*Target="([^"]+)"/g)].map((m) => [m[1], m[2].replace(/^\/?(xl\/)?/, 'xl/')]));
+  // Namespace prefixes (x:si, x:t, ...) are allowed everywhere.
+  const P = '(?:[\\w-]+:)?';
+  const shared = [...get('xl/sharedStrings.xml').matchAll(new RegExp(`<${P}si\\b[^>]*>([\\s\\S]*?)</${P}si>`, 'g'))]
+    .map((m) => unxml([...m[1].matchAll(new RegExp(`<${P}t\\b[^>]*>([\\s\\S]*?)</${P}t>`, 'g'))].map((t) => t[1]).join('')));
+  const rels = {};
+  for (const m of get('xl/_rels/workbook.xml.rels').matchAll(/<(?:[\w-]+:)?Relationship\b([^>]*)>/g)) {
+    const id = attr(m[1], 'Id'), target = attr(m[1], 'Target');
+    if (id && target) rels[id] = target.startsWith('/') ? target.slice(1) : `xl/${target}`;
+  }
   const out = [];
-  for (const m of get('xl/workbook.xml').matchAll(/<sheet [^>]*name="([^"]*)"[^>]*r:id="([^"]+)"/g)) {
-    const xml = get(rels[m[2]] || '');
+  for (const m of get('xl/workbook.xml').matchAll(new RegExp(`<${P}sheet\\b([^>]*)/?>`, 'g'))) {
+    const xml = get(rels[attr(m[1], 'id')] || '');
     const lines = [];
-    for (const row of xml.matchAll(/<row[^>]*>([\s\S]*?)<\/row>/g)) {
+    for (const row of xml.matchAll(new RegExp(`<${P}row\\b[^>]*>([\\s\\S]*?)</${P}row>`, 'g'))) {
       const cells = [];
-      for (const c of row[1].matchAll(/<c ([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
-        const t = /t="([^"]+)"/.exec(c[1])?.[1]; const body = c[2] || '';
-        const v = /<v>([\s\S]*?)<\/v>/.exec(body)?.[1];
-        const val = t === 's' ? shared[+v] : t === 'inlineStr' ? unxml(/<is>([\s\S]*?)<\/is>/.exec(body)?.[1] || '') : v !== undefined ? unxml(v) : '';
+      for (const c of row[1].matchAll(new RegExp(`<${P}c\\b([^>]*?)(?:/>|>([\\s\\S]*?)</${P}c>)`, 'g'))) {
+        const t = attr(c[1], 't'); const body = c[2] || '';
+        const v = new RegExp(`<${P}v>([\\s\\S]*?)</${P}v>`).exec(body)?.[1];
+        const val = t === 's' ? shared[+v] : t === 'inlineStr' ? unxml(new RegExp(`<${P}is>([\\s\\S]*?)</${P}is>`).exec(body)?.[1] || '') : v !== undefined ? unxml(v) : '';
         if (val !== undefined && val !== '') cells.push(val);
       }
       if (cells.length) lines.push(cells.join('\t'));
     }
-    if (lines.length) out.push(`${unxml(m[1])}\n${lines.join('\n')}`);
+    if (lines.length) out.push(`${unxml(attr(m[1], 'name') || 'Sheet')}\n${lines.join('\n')}`);
   }
   return out.join('\n\n');
 }
@@ -190,7 +207,8 @@ async function editorConfig(res, user, id, url) {
       coEditing: { mode: 'fast', change: false },
     },
   };
-  config.token = await new SignJWT(config).setProtectedHeader({ alg: 'HS256' }).sign(OFFICE_SECRET);
+  // Good for opening the editor for a few minutes only: someone who loses access cannot reopen it with an old one.
+  config.token = await new SignJWT(config).setProtectedHeader({ alg: 'HS256' }).setIssuedAt().setExpirationTime('10m').sign(OFFICE_SECRET);
   return send(res, 200, { config, edit });
 }
 
@@ -220,25 +238,35 @@ async function office(req, res, id, what, url) {
     if (body.status !== 2 && body.status !== 6) return send(res, 200, { error: 0 });   // 1 editing, 4 closed unchanged
     // Saved as whoever edited last (the engine reports the editors, newest first); row-level security
     // still decides. Fall back to the person whose session made this callback address.
-    const editor = (Array.isArray(body.users) && UUID.test(body.users[0])) ? body.users[0] : user;
+    const candidates = [...new Set([...(Array.isArray(body.users) ? body.users : []), user].filter((u) => typeof u === 'string' && UUID.test(u)))];
     let path;
     try { path = new URL(body.url).pathname; } catch { return send(res, 200, { error: 1 }); }
     // Only ever fetch from the engine itself, whatever host the address names.
     path = path.replace(/^\/office(?=\/)/, '');
     if (!/^\/cache\/files\//.test(path)) { log('office save: unexpected url', path.slice(0, 60)); return send(res, 200, { error: 1 }); }
-    const r = await fetch(`${OFFICE_INTERNAL}${path}${new URL(body.url).search}`);
-    if (!r.ok) { log('office save: fetch failed', r.status); return send(res, 200, { error: 1 }); }
-    const bytes = Buffer.from(await r.arrayBuffer());
-    if (bytes.length > MAX_BYTES * 4) return send(res, 200, { error: 1 });
-    const [text] = await extract('sheet.xlsx', XLSX, bytes);
+    let bytes;
     try {
-      const n = await asUser(editor, async (c) => {
-        const u = await c.query('update weft.file_blobs set bytes = $2, size = $3, sha256 = $4, updated_at = now() where item_id = $1',
-          [id, bytes, bytes.length, crypto.createHash('sha256').update(bytes).digest('hex')]);
-        if (u.rowCount) await c.query('update weft.items set body_text = $2 where id = $1', [id, text || '']);
-        return u.rowCount;
-      });
-      if (!n) { log('office save refused (cannot edit)', id); return send(res, 200, { error: 1 }); }
+      const r = await fetch(`${OFFICE_INTERNAL}${path}${new URL(body.url).search}`, { signal: AbortSignal.timeout(60000) });
+      if (!r.ok) throw new Error(`engine said ${r.status}`);
+      if (Number(r.headers.get('content-length') || 0) > MAX_BYTES) throw new Error('too large');
+      const parts = []; let n = 0;
+      for await (const chunk of r.body) { n += chunk.length; if (n > MAX_BYTES) throw new Error('too large'); parts.push(chunk); }
+      bytes = Buffer.concat(parts);
+    } catch (e) { log('office save: fetch failed', e.message); return send(res, 200, { error: 1 }); }
+    const [text, note] = await extract('sheet.xlsx', XLSX, bytes);
+    try {
+      // Saved as the most recent editor who can still edit (row-level security decides each try).
+      let n = 0;
+      for (const editor of candidates) {
+        n = await asUser(editor, async (c) => {
+          const u = await c.query('update weft.file_blobs set bytes = $2, size = $3, sha256 = $4, text_note = $5, updated_at = now() where item_id = $1',
+            [id, bytes, bytes.length, crypto.createHash('sha256').update(bytes).digest('hex'), note]);
+          if (u.rowCount) await c.query('update weft.items set body_text = $2 where id = $1', [id, text || '']);
+          return u.rowCount;
+        });
+        if (n) break;
+      }
+      if (!n) { log('office save refused (nobody in the session can still edit)', id); return send(res, 200, { error: 1 }); }
       log('office save', id, bytes.length, 'bytes', text ? `${text.length} chars of text` : 'no text');
       return send(res, 200, { error: 0 });
     } catch (e) { log('office save failed', e.message); return send(res, 200, { error: 1 }); }
@@ -250,14 +278,14 @@ http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   try {
     if (req.method === 'GET' && url.pathname === '/files/healthz') return send(res, 200, { ok: true });
-    const om = /^\/files\/([0-9a-f-]{36})\/office-(file|save)$/.exec(url.pathname);
-    if (om && OFFICE_SECRET) return office(req, res, om[1], om[2], url);
+    const om = /^\/files\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/office-(file|save)$/.exec(url.pathname);
+    if (om && OFFICE_SECRET) return await office(req, res, om[1], om[2], url);
     const user = await who(req);
     if (!user) return send(res, 401, { error: 'not signed in' });
 
     if (req.method === 'POST' && url.pathname === '/files/spreadsheets' && OFFICE_SECRET) {
       const space = url.searchParams.get('space') || '';
-      const name = cleanName(url.searchParams.get('name')) || 'Untitled spreadsheet';
+      const name = cleanName(url.searchParams.get('name')).replace(/\.xlsx$/i, '').trim() || 'Untitled spreadsheet';
       if (!UUID.test(space)) return send(res, 400, { error: 'say which space' });
       try {
         const row = await asUser(user, async (c) => {
@@ -274,8 +302,8 @@ http.createServer(async (req, res) => {
       }
     }
 
-    const em = /^\/files\/([0-9a-f-]{36})\/editor$/.exec(url.pathname);
-    if (req.method === 'GET' && em && OFFICE_SECRET) return editorConfig(res, user, em[1], url);
+    const em = /^\/files\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/editor$/.exec(url.pathname);
+    if (req.method === 'GET' && em && OFFICE_SECRET) return await editorConfig(res, user, em[1], url);
 
     if (req.method === 'POST' && url.pathname === '/files') {
       const space = url.searchParams.get('space') || '';
@@ -307,7 +335,8 @@ http.createServer(async (req, res) => {
     const m = /^\/files\/([0-9a-f-]{36})$/.exec(url.pathname);
     if (req.method === 'GET' && m) {
       const row = await asUser(user, async (c) => (await c.query(
-        'select i.title, b.bytes, b.mime, b.size from weft.items i join weft.file_blobs b on b.item_id = i.id where i.id = $1', [m[1]])).rows[0]);
+        'select i.title, i.kind, b.bytes, b.mime, b.size from weft.items i join weft.file_blobs b on b.item_id = i.id where i.id = $1', [m[1]])).rows[0]);
+      if (row && row.kind === 'spreadsheet' && !/\.xlsx$/i.test(row.title)) row.title += '.xlsx';
       if (!row) return send(res, 404, { error: 'No such file, or you cannot see it.' });   // RLS: not a member
       const inline = INLINE.has(row.mime) && url.searchParams.get('download') !== '1';
       res.writeHead(200, {

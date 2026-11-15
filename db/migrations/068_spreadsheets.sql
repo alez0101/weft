@@ -20,4 +20,4 @@ create policy file_blobs_update on weft.file_blobs for update to weft_user
   using (weft_private.can_edit(weft_private.file_space(item_id))
          and exists (select 1 from weft.items i where i.id = file_blobs.item_id and i.kind = 'spreadsheet'))
   with check (weft_private.can_edit(weft_private.file_space(item_id)));
-grant update (bytes, size, sha256, updated_at) on weft.file_blobs to weft_user;
+grant update (bytes, size, sha256, text_note, updated_at) on weft.file_blobs to weft_user;

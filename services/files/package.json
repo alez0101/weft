@@ -3,12 +3,8 @@
   "private": true,
   "type": "module",
   "description": "Weft files: upload, text extraction and download, all through row-level security as the person",
-  "scripts": {
-    "start": "node src/index.mjs"
-  },
-  "engines": {
-    "node": ">=22"
-  },
+  "scripts": { "start": "node src/index.mjs" },
+  "engines": { "node": ">=22" },
   "dependencies": {
     "fflate": "^0.8.3",
     "jose": "^6.2.17",
