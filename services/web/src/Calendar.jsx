@@ -9,6 +9,8 @@
 // Which of these kinds show is remembered per person (weft.user_prefs.calendar, {"off": [...]}).
 // Repeating events: a new event can repeat every day, week or month until a date. Each occurrence is its own
 // event (with its own RSVPs and notes); changing, moving or deleting one asks "just this one" or "all of them".
+// Download as a file (066): one space's events, past and coming, as an .ics file any calendar app imports. The
+// events are read as the person (only spaces they are in), and the file is made here.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import FullCalendar from '@fullcalendar/react';
 import classicThemePlugin from '@fullcalendar/react/themes/classic';
@@ -20,6 +22,7 @@ import '@fullcalendar/react/skeleton.css';
 import '@fullcalendar/react/themes/classic/theme.css';
 import { api } from './api.js';
 import { EventRsvps } from './Rsvps.jsx';
+import { saveFile, fileName, toIcs } from './download.js';
 
 const label = (s) => (s?.kind === 'personal' ? 'Personal' : s?.kind === 'channel' ? `#${s.name}` : s?.name ?? '');
 const when = (a, b) => {
@@ -137,6 +140,20 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
   }, [range, me.id]);
   useEffect(() => { loadShifts(); }, [loadShifts]);
   useEffect(() => { if (notice?.t === 'shifts' || notice?.t === 'shift_signups') loadShifts(); }, [notice, loadShifts]);
+
+  const [dlSpace, setDlSpace] = useState('');
+  const [dlBusy, setDlBusy] = useState(false);
+  async function downloadIcs() {
+    const s = spaces.find((x) => x.id === (dlSpace || spaces[0]?.id));
+    if (!s) return;
+    setDlBusy(true);
+    try {
+      const rows = await api(`/events?space_id=eq.${s.id}&select=id,title,starts_at,ends_at,location&order=starts_at&limit=5000`);
+      saveFile(fileName(`${label(s)} calendar`, 'calendar', 'ics'), toIcs(`${label(s)} (Weft)`, rows), 'text/calendar;charset=utf-8');
+      setNote(`Downloaded ${rows.length} event${rows.length === 1 ? '' : 's'} from ${label(s)}.`);
+    } catch (e) { setError(`Could not download the calendar: ${e.message}`); }
+    setDlBusy(false);
+  }
 
   async function toggleKind(key) {
     const next = new Set(off); if (next.has(key)) next.delete(key); else next.add(key);
@@ -285,6 +302,18 @@ export default function Calendar({ me, members, notice, focusId, setFocusId, onO
             <label key={k.key} className={`toggle cal-${k.key === 'away' ? 'aways' : k.key}`}><input type="checkbox" checked={show(k.key)} onChange={() => toggleKind(k.key)} /> {k.label}</label>
           ))}
         </fieldset>
+        {spaces.length > 0 && (
+          <div className="cal-download">
+            <label className="tree-group" htmlFor="cal-dl-space">Download as a file</label>
+            <span className="pair">
+              <select id="cal-dl-space" value={dlSpace || spaces[0].id} onChange={(e) => setDlSpace(e.target.value)}>
+                {spaces.map((x) => <option key={x.id} value={x.id}>{label(x)}</option>)}
+              </select>
+              <button className="btn btn--sm" type="button" onClick={downloadIcs} disabled={dlBusy} aria-busy={dlBusy}>Download .ics</button>
+            </span>
+            <p className="cal-hint">Every event in that space, past and coming, for another calendar app. A copy: later changes are not in it.</p>
+          </div>
+        )}
         <p className="cal-hint">{editableSpaces.length ? 'Drag across the calendar to add an event.' : 'You can view events here. Ask an owner to make you an editor to add them.'}</p>
         {error && <p className="send-error" role="alert">{error}</p>}
         {note && <p className="slot-status" role="status">{note}</p>}

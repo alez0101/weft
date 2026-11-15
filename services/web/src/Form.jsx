@@ -7,16 +7,12 @@
 // (058) closes it by itself; the screen reloads when that time comes.
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
+import { saveCsv } from './download.js';
 import { DeadlineEditor, deadlineWords, isPast, isShut, useAtTime } from './Deadline.jsx';
 
 const when = (iso) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 const answersLabel = (n) => `${n} ${n === 1 ? 'answer' : 'answers'}`;
 const KINDS = [['short', 'Short answer'], ['long', 'Long answer'], ['choice', 'One choice']];
-const csvCell = (v) => {
-  let s = String(v ?? '');
-  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;   // a spreadsheet must not run an answer as a formula
-  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-};
 
 function QuestionEditor({ q, locked, onSave, onRemove }) {
   const [label, setLabel] = useState(q.label);
@@ -123,12 +119,8 @@ export default function Form({ item, me, members, editable, notice }) {
 
   const header = ['Person', 'Answered', ...questions.map((q) => q.label)];
   const rowsOf = () => responses.map((r) => [nameOf(r.respondent_id), when(r.updated_at), ...questions.map((q) => r.answers[q.id] ?? '')]);
-  function downloadCsv() {
-    const csv = [header, ...rowsOf()].map((row) => row.map(csvCell).join(',')).join('\r\n');
-    const url = URL.createObjectURL(new Blob([`﻿${csv}\r\n`], { type: 'text/csv;charset=utf-8' }));
-    const a = document.createElement('a'); a.href = url; a.download = `${item.title.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'form'} answers.csv`;
-    document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
+  // Download as a file (066): the table above, built here from the rows this editor already read.
+  const downloadCsv = () => saveCsv(`${item.title} answers`, 'form answers', header, rowsOf());
   // A copy, as the person: a new table in the same space, so the same people can open it.
   async function copyToTable() {
     const title = `${item.title} (answers)`.slice(0, 200);

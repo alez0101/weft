@@ -13,7 +13,7 @@ allowed to see, with links to where each answer came from.
 - **Ask and decide together:** polls and forms (that can close by themselves at a set time), Q and A, ideas boards (planned ideas become tasks, declined ones say why), announcements (with a Got it button and a count of who has seen them), kudos
 - **Keep track:** files, link lists, shared expenses with who owes whom (pay-backs recorded in one press), an inventory with check out and
   check in (with back-by dates, overdue in red), a private journal
-- **Around it all:** chat, search across everything, Home widgets, and a connector for AI apps (MCP)
+- **Around it all:** chat, search across everything, Home widgets, plain downloads (CSV, .ics, vCard) made in the browser, and a connector for AI apps (MCP)
 
 One rule decides who sees what (you see something only if you are a member of its space), and
 Postgres enforces it with row-level security on every path: the API, live updates, co-editing,

@@ -6343,6 +6343,111 @@ def seen_by():
         call("DELETE", f"/announcements?id=eq.{a}", olive)
 
 
+def downloads():
+    """Download as a file (066): every file is built in the browser from the screen's own API reads, so these
+    checks run exactly those reads (the same select strings as Contacts, Expenses, Inventory, Form answers and
+    the Calendar's .ics) as each person, and confirm a file can only ever hold what the policies allow."""
+    pat, vic, olive = mint("u-pub"), mint("u-vol"), mint("u-org")
+    P, V, O, A = uid("user", "u-pub"), uid("user", "u-vol"), uid("user", "u-org"), uid("user", "u-alex")
+    oq = lambda sql: owner_sql(sql)
+    CONTACTS = "id,name,organisation,phone,email,notes,created_at,author:users!contacts_created_by_fkey(display_name)"
+    EXPENSES = ("id,title,amount_cents,paid_by,spent_on,split,created_at,payer:users!expenses_paid_by_fkey(display_name),"
+                "author:users!expenses_created_by_fkey(display_name),shares:expense_shares(user_id,share_cents,who:users(display_name))")
+    THINGS = "id,name,location,note,holder_id,held_since,due_back,holder:users!inventory_things_holder_id_fkey(display_name)"
+    ICS = "id,title,starts_at,ends_at,location"
+    contacts = lambda tok, b: call("GET", f"/contacts?book_id=eq.{b}&select={CONTACTS}&order=name,created_at", tok)
+    expenses = lambda tok, l: call("GET", f"/expenses?list_id=eq.{l}&select={EXPENSES}&order=spent_on.desc,created_at.desc", tok)
+    things = lambda tok, i: call("GET", f"/inventory_things?inventory_id=eq.{i}&select={THINGS}&order=name", tok)
+    events = lambda tok, s: call("GET", f"/events?space_id=eq.{s}&select={ICS}&order=starts_at&limit=5000", tok)
+    answers = lambda tok, f: call("GET", f"/form_responses?form_id=eq.{f}&select=id,respondent_id,answers,created_at,updated_at&order=created_at", tok)
+    made = {}
+    for key, space in (("org", "organizers"), ("fest", "festival")):
+        for kind in ("addressbook", "expenselist", "inventory", "form"):
+            st, rows = call("POST", "/items", olive, {"space_id": SID[space], "kind": kind, "title": f"DL {kind} {key}"})
+            made[(key, kind)] = rows[0]["id"] if st == 201 else None
+    ob, fb = made[("org", "addressbook")], made[("fest", "addressbook")]
+    ol, fl = made[("org", "expenselist")], made[("fest", "expenselist")]
+    oi, fi = made[("org", "inventory")], made[("fest", "inventory")]
+    of_, ff = made[("org", "form")], made[("fest", "form")]
+    st1, _ = call("POST", "/contacts", olive, {"book_id": ob, "name": "DL-ORG-SECRET contact", "phone": "+1 555"})
+    st2, _ = call("POST", "/contacts", olive, {"book_id": fb, "name": "Festival contact", "email": "fc@example.org"})
+    st3, _ = call("POST", "/rpc/save_expense", olive, {"p_list": ol, "p_title": "DL-ORG-SECRET expense", "p_amount_cents": 1000, "p_paid_by": O, "p_people": [O, A]})
+    st4, _ = call("POST", "/rpc/save_expense", olive, {"p_list": fl, "p_title": "Festival expense", "p_amount_cents": 900, "p_paid_by": O, "p_people": [O, V, P]})
+    st5, _ = call("POST", "/inventory_things", olive, {"inventory_id": oi, "name": "DL-ORG-SECRET thing"})
+    st6, _ = call("POST", "/inventory_things", olive, {"inventory_id": fi, "name": "Festival thing"})
+    st7, rows = call("POST", "/events", olive, {"space_id": SID["organizers"], "title": "DL-ORG-SECRET event", "starts_at": "2027-05-01T10:00:00Z", "ends_at": "2027-05-01T11:00:00Z"})
+    oe = rows[0]["id"] if st7 == 201 else None
+    st8, rows = call("POST", "/events", olive, {"space_id": SID["festival"], "title": "DL festival event", "starts_at": "2027-05-02T10:00:00Z", "ends_at": "2027-05-02T11:00:00Z"})
+    fe = rows[0]["id"] if st8 == 201 else None
+    st9, rows = call("POST", "/form_questions", olive, {"form_id": ff, "label": "Shirt size", "kind": "short", "position": 0})
+    fq = rows[0]["id"] if st9 == 201 else None
+    st10, rows = call("POST", "/form_questions", olive, {"form_id": of_, "label": "Quote", "kind": "short", "position": 0})
+    oqid = rows[0]["id"] if st10 == 201 else None
+    a = [call("POST", "/form_responses", t, {"form_id": ff, "answers": {fq: s}})[0] for t, s in ((pat, "PAT-SIZE"), (vic, "VIC-SIZE"), (olive, "OLIVE-SIZE"))]
+    a.append(call("POST", "/form_responses", olive, {"form_id": of_, "answers": {oqid: "DL-ORG-SECRET answer"}})[0])
+    check("Downloads: Olive sets up a book, list, inventory, form and event in Organizers and in #festival",
+          all(made.values()) and [st1, st2, st5, st6, st7, st8, st9, st10] == [201] * 8 and st3 == st4 == 200 and a == [201] * 4,
+          f"{made} {[st1, st2, st3, st4, st5, st6, st7, st8, st9, st10]} {a}")
+
+    # What Pat (viewer in #festival only) can put in a file.
+    reads = {"contacts": (contacts, fb, ob), "expenses": (expenses, fl, ol), "inventory": (things, fi, oi), "calendar": (events, SID["festival"], SID["organizers"])}
+    for name, (fn, fest_id, org_id) in reads.items():
+        st, rows = fn(pat, fest_id)
+        st2, rows2 = fn(pat, org_id)
+        check(f"Downloads: Pat's {name} file for #festival has the #festival rows (positive control), and for Organizers is empty",
+              st == 200 and len(rows) >= 1 and st2 == 200 and rows2 == [] and "DL-ORG-SECRET" not in json.dumps(rows), f"{st} {len(rows or [])} {st2} {rows2}")
+    st, rows = events(pat, SID["festival"])
+    check("Downloads: Pat's .ics read carries the #festival event with its times", fe in {r["id"] for r in rows or []} and oe not in {r["id"] for r in rows or []}, str(rows))
+    for who, tok in (("Vic", vic),):
+        st, rows = events(tok, SID["organizers"])
+        st2, rows2 = contacts(tok, ob)
+        check(f"Downloads: {who} (not in Organizers) gets an empty Organizers calendar and address book", rows == [] and rows2 == [], f"{rows} {rows2}")
+    # Form answers: a viewer's file could only ever hold their own answer; editors get everyone's.
+    st, rows = answers(pat, ff)
+    check("Downloads: Pat (viewer) reads only her own #festival answer, so an answers file could hold nothing else",
+          st == 200 and [r["respondent_id"] for r in rows] == [P] and "VIC-SIZE" not in json.dumps(rows), str(rows))
+    st, rows = answers(olive, ff)
+    check("Downloads: Olive (editor) reads all three answers for the CSV (positive control)", st == 200 and len(rows) == 3, str(rows))
+    st, rows = answers(pat, of_)
+    check("Downloads: Pat reads no Organizers answers", st == 200 and rows == [], str(rows))
+    # A channel-scoped token: only its channel.
+    scoped = mint("u-org", scope="festival")
+    st, rows = events(scoped, SID["organizers"])
+    st2, rows2 = contacts(scoped, ob)
+    st3, rows3 = answers(scoped, of_)
+    st4, rows4 = events(scoped, SID["festival"])
+    check("Downloads: a #festival-scoped token for Olive reads nothing from Organizers for any file, but its own channel (positive control)",
+          rows == [] and rows2 == [] and rows3 == [] and fe in {r["id"] for r in rows4 or []}, f"{rows} {rows2} {rows3} {st4}")
+    # Writing is unchanged: the download adds no write path.
+    st, _ = call("POST", "/contacts", pat, {"book_id": fb, "name": "pwned"})
+    check("Downloads: Pat (viewer) still cannot add a contact in #festival", refused(st), str(st))
+    st, rows = call("POST", "/contacts", olive, {"book_id": fb, "name": "Added later"})
+    st2, rows2 = contacts(pat, fb)
+    check("Downloads: Olive (editor) adds one (positive control) and Pat's next file has it",
+          st == 201 and "Added later" in {r["name"] for r in rows2 or []}, f"{st} {rows2}")
+    st, _ = call("POST", "/contacts", olive, {"book_id": fb, "name": "Forged", "created_by": A})
+    check("Downloads: who added a contact (the file's source) cannot be forged", refused(st), str(st))
+    helper = mint("u-org", assistant=True)
+    st, rows = contacts(helper, fb)
+    st2, _ = call("DELETE", f"/contacts?book_id=eq.{fb}", helper)
+    st3, _ = call("DELETE", f"/events?id=eq.{fe}", helper)
+    check("Downloads: the assistant role reads the book but cannot delete contacts or events",
+          st == 200 and len(rows) >= 2 and oq(f"select count(*) from weft.contacts where book_id = '{fb}'") == "2"
+          and oq(f"select count(*) from weft.events where id = '{fe}'") == "1", f"{st} {st2} {st3}")
+    # Moves follow the space: a book moved to Organizers drops out of Pat's file.
+    st, _ = call("PATCH", f"/items?id=eq.{fb}", olive, {"space_id": SID["organizers"]})
+    st2, rows2 = contacts(pat, fb)
+    st3, rows3 = contacts(olive, fb)
+    check("Downloads: a book moved to Organizers gives Pat an empty file, Olive still the full one (positive control)",
+          st in (200, 204) and rows2 == [] and len(rows3 or []) == 2, f"{st} {rows2} {rows3}")
+    st, _ = call("DELETE", f"/events?id=eq.{fe}", olive)
+    st2, rows2 = events(pat, SID["festival"])
+    check("Downloads: a deleted event is gone from the next .ics", fe not in {r["id"] for r in rows2 or []}, str(rows2))
+    call("DELETE", f"/events?id=eq.{oe}", olive)
+    for i in made.values():
+        call("DELETE", f"/items?id=eq.{i}", olive)
+
+
 def teeth():
     """Loosen one policy on purpose and confirm the suite would catch it, then restore it."""
     owner_sql("create policy teeth_leak on weft.items for select to weft_user using (true)")
@@ -6404,6 +6509,7 @@ if __name__ == "__main__":
     who_knows_what()
     kudos_on_profiles()
     last_retro_actions()
+    downloads()
     people()
     trees()
     prefs_and_files()

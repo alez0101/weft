@@ -2,8 +2,11 @@
 // email and notes), sorted by name, with a filter that matches any field. Editors add, change and delete;
 // viewers read. Row-level security decides; when it says no, the reason is shown and the book is reloaded.
 // Live: any change to this book's contacts refetches it.
+// Download as a file (066): the whole book as CSV or as vCards (.vcf), for anyone who can read it, built here
+// from the rows already loaded.
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
+import { saveCsv, saveFile, fileName, toVcard } from './download.js';
 
 const EMPTY = { name: '', organisation: '', phone: '', email: '', notes: '' };
 // The database keeps only these characters in a phone number and a plain address in email, so both are
@@ -73,6 +76,9 @@ export default function ContactList({ item, editable, notice }) {
   if (!contacts) return error ? <p className="send-error" role="alert">{error}</p> : <div className="skeleton" aria-label="Loading the address book"><span /><span /><span /></div>;
   const sorted = [...contacts].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const downloadCsv = () => saveCsv(item.title, 'contacts', ['Name', 'Organisation', 'Phone', 'Email', 'Notes'],
+    sorted.map((c) => [c.name, c.organisation, c.phone, c.email, c.notes]));
+  const downloadVcard = () => saveFile(fileName(item.title, 'contacts', 'vcf'), toVcard(sorted), 'text/vcard;charset=utf-8');
   const shown = sorted.filter((c) => words.every((w) => `${c.name} ${c.organisation} ${c.phone} ${c.email} ${c.notes}`.toLowerCase().includes(w)
     || (w.replace(/[^0-9]/g, '').length >= 3 && c.phone.replace(/[^0-9]/g, '').includes(w.replace(/[^0-9]/g, '')))));
 
@@ -89,6 +95,10 @@ export default function ContactList({ item, editable, notice }) {
           <label className="visually-hidden" htmlFor="contacts-find">Find a contact</label>
           <input id="contacts-find" type="search" placeholder="Find by name, phone, email…" value={query} onChange={(e) => setQuery(e.target.value)} />
           <span className="task-count" role="status">{shown.length === contacts.length ? `${contacts.length} contact${contacts.length === 1 ? '' : 's'}` : `${shown.length} of ${contacts.length}`}</span>
+          <span className="pair dl-pair" role="group" aria-label="Download every contact">
+            <button className="btn btn--sm" type="button" onClick={downloadCsv}>Download CSV</button>
+            <button className="btn btn--sm" type="button" onClick={downloadVcard}>Download vCard</button>
+          </span>
         </div>
       )}
       {!contacts.length ? <p className="convo-empty">{editable ? 'No contacts yet. Add the first one above.' : 'No contacts yet.'}</p>

@@ -7,8 +7,11 @@
 // and an even split is worked out there); when it says no, its reason is shown and the list is reloaded.
 // Live: any change to this list's expenses refetches it. Weft (search and the assistant) reads the list's
 // text summary, kept by the database.
+// Download as a file (066): every expense as CSV, one column per person's share, for anyone who can read the
+// list, built here from the rows already loaded.
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
+import { saveCsv, plainMoney } from './download.js';
 
 const fmt = new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export const money = (cents) => fmt.format(cents / 100);
@@ -169,6 +172,17 @@ export default function ExpenseList({ item, me, members, editable, notice }) {
     return x.split === 'even' ? `split evenly between ${sh.map((s) => s.name).join(', ')}` : `split by amounts: ${sh.map((s) => `${s.name} ${money(s.share_cents)}`).join(', ')}`;
   };
 
+  // Oldest first, as a ledger; amounts as plain numbers so a spreadsheet can add them up.
+  const downloadCsv = () => {
+    const cols = [...new Set(expenses.flatMap((x) => [x.paid_by, ...x.shares.map((s) => s.user_id)]))].map((id) => ({ id, name: nameOf(id) })).sort(byName);
+    const rows = [...expenses].reverse().map((x) => {
+      const share = Object.fromEntries(x.shares.map((s) => [s.user_id, s.share_cents]));
+      return [x.spent_on, x.title, plainMoney(x.amount_cents), nameOf(x.paid_by), x.split === 'even' ? 'evenly' : 'by amounts',
+        ...cols.map((c) => (share[c.id] == null ? '' : plainMoney(share[c.id])))];
+    });
+    saveCsv(item.title, 'expenses', ['Date', 'What for', 'Amount', 'Paid by', 'Split', ...cols.map((c) => `Share of ${c.name}`)], rows);
+  };
+
   return (
     <div className="links expenses">
       {editable ? (adding
@@ -179,7 +193,10 @@ export default function ExpenseList({ item, me, members, editable, notice }) {
       {error && <p className="send-error" role="alert">{error}</p>}
       <div className="cl-grid">
         <section className="cl-runs" aria-labelledby="exp-list-title">
-          <h3 id="exp-list-title" className="cl-section">Expenses <span className="task-count">{expenses.length ? `${expenses.length}, total ${money(total)}` : ''}</span></h3>
+          <div className="dl-head">
+            <h3 id="exp-list-title" className="cl-section">Expenses <span className="task-count">{expenses.length ? `${expenses.length}, total ${money(total)}` : ''}</span></h3>
+            {expenses.length > 0 && <button className="btn btn--sm" type="button" onClick={downloadCsv}>Download CSV</button>}
+          </div>
           {!expenses.length ? <p className="convo-empty">{editable ? 'No expenses yet. Add the first one above.' : 'No expenses yet.'}</p> : (
             <ul className="link-list" aria-label="Expenses">
               {expenses.map((x) => (

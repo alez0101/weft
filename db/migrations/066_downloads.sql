@@ -1,0 +1,11 @@
+-- 066 download as a file: a plain export, built in the browser from what the person can already see.
+--   * Expenses, Inventory and Contacts download as CSV, Contacts also as vCards (.vcf), Form answers as CSV
+--     (as before, now through the shared helper), and one space's events from the Calendar as an .ics file.
+--   * Nothing new in the database: no table, column, view, function, policy, grant or role. Every file is made
+--     in the browser (services/web/src/download.js) from rows the screen read through the API as the person,
+--     so row-level security has already decided what is in it: the channel-scope claim, disabled accounts, and
+--     form answers only for editors and owners (a viewer's read returns only their own answer).
+--   * No server endpoint and no outside call: the file never leaves the browser until the person saves it.
+--   * This file exists to keep the migration numbering one app per number and to record the above; it runs on
+--     any database without changing it.
+set client_min_messages = warning;
