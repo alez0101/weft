@@ -2,7 +2,7 @@
 // shows only what they can open. Which widgets, and their order, are saved per person (weft.user_prefs).
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, assistant } from './api.js';
-import { dueLabel, today } from './TaskList.jsx';
+import { dueLabel, today, REPEATS } from './TaskList.jsx';
 import { until, useNow } from './Announcements.jsx';
 import { heldLabel } from './Meeting.jsx';
 import { span } from './Bookings.jsx';
@@ -109,7 +109,7 @@ function TasksDue({ data, me, onOpenItem }) {
   return <ul className="widget-list">{data.map((t) => (
     <li key={t.id}><button type="button" className="widget-row" onClick={() => onOpenItem(t.list_id)}>
       <span className="widget-main">{t.title}</span>
-      <span className={`widget-sub${t.due_on < today() ? ' is-late' : ''}`}>{dueLabel(t.due_on)}, {t.assignee_id === me.id ? 'you' : t.assignee?.display_name || 'no one'}, {t.list?.title} in {where(t.list?.space)}</span>
+      <span className={`widget-sub${t.due_on < today() ? ' is-late' : ''}`}>{dueLabel(t.due_on)}{t.repeats ? `, ${REPEATS[t.repeats].toLowerCase()}` : ''}, {t.assignee_id === me.id ? 'you' : t.assignee?.display_name || 'no one'}, {t.list?.title} in {where(t.list?.space)}</span>
     </button></li>))}</ul>;
 }
 // Open polls the person has not voted in yet, newest first. A row opens the poll.
@@ -362,7 +362,7 @@ export default function Widgets({ me, spaces, unread, notice, onOpenItem, onOpen
         api(`/events?ends_at=gte.${now.toISOString()}&starts_at=lte.${soon.toISOString()}&select=id,title,starts_at,location,space:spaces(name,kind)&order=starts_at&limit=5`),
         api('/items?select=id,title,kind,updated_at,space:spaces(name,kind)&order=updated_at.desc&limit=6'),
         api('/items?kind=eq.file&select=id,title,kind,updated_at,space:spaces(name,kind)&order=updated_at.desc&limit=5'),
-        api(`/tasks?done=is.false&due_on=lte.${week.toISOString().slice(0, 10)}&select=id,title,due_on,assignee_id,list_id,assignee:users!tasks_assignee_id_fkey(display_name),list:items(title,space:spaces(name,kind))&order=due_on,position&limit=40`),
+        api(`/tasks?done=is.false&due_on=lte.${week.toISOString().slice(0, 10)}&select=id,title,due_on,repeats,assignee_id,list_id,assignee:users!tasks_assignee_id_fkey(display_name),list:items(title,space:spaces(name,kind))&order=due_on,position&limit=40`),
         api(`/items?kind=eq.poll&select=id,title,updated_at,space:spaces(name,kind),state:polls(closed),mine:poll_votes(voter_id)&mine.voter_id=eq.${me.id}&order=updated_at.desc&limit=40`),
         api(`/items?kind=eq.form&select=id,title,updated_at,space:spaces(name,kind),state:forms(closed),mine:form_responses(respondent_id)&mine.respondent_id=eq.${me.id}&order=updated_at.desc&limit=40`),
         api('/links?select=id,title,list_id,created_at,list:items(title,space:spaces(name,kind))&order=created_at.desc&limit=5'),

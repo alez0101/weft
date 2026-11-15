@@ -981,3 +981,13 @@ select.idea-status:focus-visible { outline: 2px solid var(--color-focus); outlin
 .cal-detail .pair, .cal-form .pair { flex-wrap: wrap; }
 .cal-repeats { font-size: var(--text-sm); color: var(--color-ink-2); }
 .cal-main .cal-repeat { box-shadow: inset 3px 0 0 var(--color-ink-2); }
+/* Repeating tasks (050): Tasks rows and the add form have a Repeats column; readers see "Every week". */
+.task-add.task-add--repeat { grid-template-columns: minmax(0, 1fr) minmax(7rem, 9.5rem) 9.5rem 9.75rem auto; }
+.task.task--repeat { grid-template-columns: auto minmax(0, 1fr) minmax(7rem, 9.5rem) 9.5rem 9.75rem auto; }
+.task.task--repeat:has(.task-title--read) { grid-template-columns: auto minmax(0, 1fr) minmax(8rem, 12rem) 10rem 7rem; }
+.task select.task-repeat:disabled { opacity: 0.6; }
+.task-info { margin: 0; }
+.task-info:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; }
+@media (max-width: 720px) {
+  .task-add.task-add--repeat, .task.task--repeat, .task.task--repeat:has(.task-title--read) { grid-template-columns: auto minmax(0, 1fr); }
+}

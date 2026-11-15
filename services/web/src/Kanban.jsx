@@ -5,7 +5,7 @@
 // shown and the board is reloaded. Live: any change to this list's tasks or columns refetches it.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
-import { dueLabel, today } from './TaskList.jsx';
+import { dueLabel, today, REPEATS } from './TaskList.jsx';
 
 const DONE = 'done';
 // Where a card sits: Done if it is done, else its column if that still exists, else the first column.
@@ -29,7 +29,7 @@ export default function Kanban({ item, me, members, editable, notice }) {
 
   const load = useCallback(() => Promise.all([
     api(`/board_columns?list_id=eq.${item.id}&select=id,name,position&order=position,created_at`),
-    api(`/tasks?list_id=eq.${item.id}&select=id,title,assignee_id,due_on,done,position,column_id&order=position,created_at`),
+    api(`/tasks?list_id=eq.${item.id}&select=id,title,assignee_id,due_on,repeats,done,position,column_id&order=position,created_at`),
   ]).then(([c, t]) => { setColumns(c); setTasks(t); }), [item.id]);
   useEffect(() => { load().catch((e) => setError(`The board could not load: ${e.message}`)); }, [load]);
   useEffect(() => { if ((notice?.t === 'tasks' || notice?.t === 'board_columns') && notice.list === item.id) load().catch(() => {}); }, [notice, item.id, load]);
@@ -131,10 +131,11 @@ export default function Kanban({ item, me, members, editable, notice }) {
         onDragEnd={editable ? () => { setDrag(null); setOver(null); } : undefined}
         onKeyDown={editable ? (e) => onKey(e, t) : undefined}>
         <span className="kanban-title">{t.title}</span>
-        {(t.assignee_id || t.due_on) && (
+        {(t.assignee_id || t.due_on || t.repeats) && (
           <span className="kanban-meta">
             {t.assignee_id && <span>{nameOf(t.assignee_id)}</span>}
             {t.due_on && <span className={late ? 'is-late' : ''}>{dueLabel(t.due_on)}</span>}
+            {t.repeats && <span>{REPEATS[t.repeats]}</span>}
           </span>
         )}
         {!editable && mine && <button className="btn btn--sm kanban-tick" type="button" onClick={() => setDone(t, !t.done)}>{t.done ? 'Reopen' : 'Mark done'}<span className="visually-hidden"> {t.title}</span></button>}
