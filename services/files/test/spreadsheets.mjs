@@ -134,6 +134,7 @@ check('A TSV file opens as a spreadsheet', r.status === 201 && /Vic\t6/.test((aw
 const dated = xlsx('<row r="1"><c r="A1" t="inlineStr"><is><t>Pickup</t></is></c><c r="B1" s="1"><v>46341</v></c><c r="C1"><v>46341</v></c></row>',
   '<?xml version="1.0"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cellXfs count="2"><xf numFmtId="0"/><xf numFmtId="14" applyNumberFormat="1"/></cellXfs></styleSheet>');
 r = await make(olive.token, spaces.festival, 'dates.xlsx', dated);
+const dates = r.data?.id;
 check('An .xlsx opens as is; a date cell is indexed as a date, a plain number as a number', r.status === 201 && (await blob(olive.token, r.data.id)).body_text === 'Costs\nPickup\t2026-11-15\t46341', (await blob(olive.token, r.data.id))?.body_text);
 check('Other kinds of file are refused', (await make(olive.token, spaces.festival, 'notes.pdf', '%PDF-1.4')).status === 400);
 const before = (await api(olive.token, '/items?kind=eq.spreadsheet&select=id')).rows.length;
@@ -154,9 +155,11 @@ r = await files(olive.token, `/files?space=${spaces.festival}&name=bomb.xlsx`, {
 check('A zip bomb is stored, not read, and the service stays up', r.status === 201 && !r.data.has_text && (await files(null, '/files/healthz')).status === 200, `${bomb.length} bytes`);
 const plain = await files(olive.token, `/files?space=${spaces.festival}&name=a.txt`, { method: 'POST', body: 'unchanging' });
 r = await api(olive.token, `/file_blobs?item_id=eq.${plain.data.id}`, { method: 'PATCH', body: { size: 1 } });
-check('A stored file (not a spreadsheet) still never changes in place', (r.rows || []).length === 0, String(r.status));
+check('A stored file (not a spreadsheet) still never changes in place', r.status === 401 || r.status === 403 || (Array.isArray(r.rows) && r.rows.length === 0), String(r.status));
 r = await api(pat.token, `/file_blobs?item_id=eq.${sheet.id}`, { method: 'PATCH', body: { size: 1 } });
-check('A viewer cannot change a spreadsheet\'s bytes', (r.rows || []).length === 0, String(r.status));
+r = await api(olive.token, `/file_blobs?item_id=eq.${dates}`, { method: 'PATCH', body: { mime: 'text/html' } });
+check('Even an editor cannot change a spreadsheet\'s type', r.status === 401 || r.status === 403);
+check('A viewer cannot change a spreadsheet\'s bytes', r.status === 401 || r.status === 403 || (Array.isArray(r.rows) && r.rows.length === 0), String(r.status));
 await api(olive.token, `/items?id=eq.${sheet.id}`, { method: 'DELETE' });
 check('Deleting the spreadsheet deletes its bytes', (await files(olive.token, `/files/${sheet.id}/editor`)).status === 404 && (await api(olive.token, `/file_info?item_id=eq.${sheet.id}`)).rows.length === 0);
 

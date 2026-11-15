@@ -374,7 +374,8 @@ async function newSpreadsheet(req, res, user, url) {
   const first = bytes.length ? bytes : BLANK_XLSX;
   let item;
   try {
-    item = await storeNew(user, { space, kind: 'spreadsheet', title: name, text: '', bytes: first, mime: direct ? XLSX : mimeOf(raw, first) });
+    // Stored as .xlsx from the start (the engine is told the source type when converting), so the type never changes.
+    item = await storeNew(user, { space, kind: 'spreadsheet', title: name, text: '', bytes: first, mime: XLSX });
   } catch (e) {
     if (e.code === '42501') return send(res, 403, { error: 'You can only add spreadsheets where you can edit.' });
     throw e;
@@ -390,8 +391,8 @@ async function newSpreadsheet(req, res, user, url) {
   const [text, note] = bytes.length ? await extract('sheet.xlsx', XLSX, xlsx) : ['', null];
   if (bytes.length) {
     await asUser(user, async (c) => {
-      await c.query('update weft.file_blobs set bytes = $2, size = $3, sha256 = $4, mime = $5, text_note = $6, updated_at = now() where item_id = $1',
-        [item.id, xlsx, xlsx.length, sha256(xlsx), XLSX, note]);
+      await c.query('update weft.file_blobs set bytes = $2, size = $3, sha256 = $4, text_note = $5, updated_at = now() where item_id = $1',
+        [item.id, xlsx, xlsx.length, sha256(xlsx), note]);
       await c.query('update weft.items set body_text = $2 where id = $1', [item.id, text || '']);
     });
   }
