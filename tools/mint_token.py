@@ -35,11 +35,13 @@ def b64(data):
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
 
-def mint(user_key, assistant=False, scope=None, ttl=3600, key=None):
+def mint(user_key, assistant=False, scope=None, ttl=3600, key=None, agent=False):
     claims = {"role": "weft_assistant" if assistant else "weft_user",
               "sub": uid("user", user_key), "exp": int(time.time()) + ttl}
     if scope:
         claims["scope_space"] = uid("space", scope)
+    if agent:
+        claims["agent"] = True   # a token for a connected AI app (070)
     head = b64(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
     body = b64(json.dumps(claims).encode())
     sig = hmac.new((key or secret()).encode(), f"{head}.{body}".encode(), hashlib.sha256).digest()

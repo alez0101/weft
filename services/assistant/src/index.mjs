@@ -60,10 +60,12 @@ async function userFrom(req) {
   if (!m) return null;
   try {
     const { payload } = await jwtVerify(m[1], JWT_SECRET, { algorithms: ['HS256'] });
-    return payload.role === 'weft_user' && payload.sub ? { id: payload.sub, token: m[1] } : null;
+    // agent: a token minted for a connected AI app (070). It may only search; everything else here acts or
+    // posts, and an AI app changes things only in the person's personal space, through the API.
+    return payload.role === 'weft_user' && payload.sub ? { id: payload.sub, token: m[1], agent: payload.agent === true } : null;
   } catch { return null; }
 }
-const assistantToken = (sub, scope) => new SignJWT({ role: 'weft_assistant', ...(scope ? { scope_space: scope } : {}) })
+const assistantToken = (sub, scope, extra = {}) => new SignJWT({ role: 'weft_assistant', ...(scope ? { scope_space: scope } : {}), ...extra })
   .setProtectedHeader({ alg: 'HS256', typ: 'JWT' }).setSubject(sub).setIssuedAt().setExpirationTime('120s').sign(JWT_SECRET);
 
 async function rest(token, path, { method = 'GET', body } = {}) {
@@ -99,7 +101,7 @@ function excerpt(text, terms, max = 1200) {
 
 // Messages, documents and events matching the question, all read with the assistant token, so
 // row-level security (and, in a channel, the scope_space claim) bounds what can be found.
-async function retrieve(token, question, spaceId, scoped, excludeId) {
+async function retrieve(token, question, spaceId, scoped, excludeId, projectId = null) {
   const terms = [...new Set(question.toLowerCase().replace(/@weft\b/g, ' ').match(/[a-z0-9][a-z0-9'-]{1,}/g) || [])]
     .filter((w) => !STOP.has(w)).slice(0, 8);
   const out = new Map();
@@ -115,7 +117,8 @@ async function retrieve(token, question, spaceId, scoped, excludeId) {
     (await rest(token, `/records?select=${RSELECT}&or=(title.wfts(english).${q},body.wfts(english).${q})&order=at.desc&limit=8`))
       .forEach((r) => put(`r${r.kind}${r.id}`, { type: 'record', ...r, text: excerpt(r.body, terms) }));
   }
-  if (scoped) (await rest(token, `/messages?select=${SELECT}&space_id=eq.${spaceId}&order=created_at.desc&limit=15`)).forEach(msg);
+  // The conversation it was asked in: the channel's general chat, or the project's own chat (069).
+  if (scoped) (await rest(token, `/messages?select=${SELECT}&space_id=eq.${spaceId}&project_id=${projectId ? `eq.${projectId}` : 'is.null'}&order=created_at.desc&limit=15`)).forEach(msg);
   if (TIMEY.test(question)) {
     (await rest(token, `/events?select=${ESELECT}&ends_at=gte.${new Date().toISOString()}&order=starts_at&limit=10`)).forEach((r) => put(`e${r.id}`, { type: 'event', ...r }));
   }
@@ -302,7 +305,7 @@ async function ask(user, messageId, tzIn) {
   if (!/^[0-9a-f-]{36}$/.test(messageId || '')) return [400, { error: 'message_id required' }];
   const tz = validTz(tzIn || 'UTC');
   // Read the question as the asker: RLS decides whether it exists for them.
-  const [q] = await rest(user.token, `/messages?id=eq.${messageId}&select=id,space_id,author_id,body,space:spaces(kind,name)`);
+  const [q] = await rest(user.token, `/messages?id=eq.${messageId}&select=id,space_id,project_id,author_id,body,space:spaces(kind,name)`);
   if (!q) return [404, { error: 'no such message' }];
   if (q.author_id !== user.id) return [403, { error: 'you can only ask with your own message' }];
   const inAssistant = q.space.kind === 'assistant';
@@ -314,7 +317,12 @@ async function ask(user, messageId, tzIn) {
     const scope = inAssistant ? null : q.space_id;
     const token = await assistantToken(user.id, scope);
     const question = q.body.replace(/@weft\b/gi, '').trim() || q.body;
-    const sources = await retrieve(token, question, q.space_id, !inAssistant, q.id);
+    let sources = await retrieve(token, question, q.space_id, !inAssistant, q.id, q.project_id);
+    const guide = await guidance(user, token, q, inAssistant);
+    if (guide.pinned.length) {   // pinned items always come first, and are never cut
+      const ids = new Set(guide.pinned.map((x) => x.id));
+      sources = [...guide.pinned, ...sources.filter((x) => !(x.type === 'item' && ids.has(x.id)))].slice(0, 30);
+    }
     // Channels a proposal may post to: in a channel, only that channel; in your Weft conversation,
     // the channels you are in. (Execution re-checks membership and scope in the database.)
     const chans = await rest(token, '/spaces?kind=eq.channel&select=id,name&order=name');
@@ -322,7 +330,7 @@ async function ask(user, messageId, tzIn) {
     const mineRoles = await rest(token, `/members?user_id=eq.${user.id}&role=in.(owner,editor)&select=space_id,space:spaces(id,kind,name)`);
     const creatable = mineRoles.map((m) => m.space).filter((s) => s && (s.kind === 'channel' || s.kind === 'personal'))
       .map((s) => ({ id: s.id, name: s.kind === 'personal' ? 'personal' : s.name }));
-    const result = await answer({ asker: user.id, space: q.space_id, question: q.id }, SYSTEM, prompt(question, sources, tz),
+    const result = await answer({ asker: user.id, space: q.space_id, question: q.id }, SYSTEM + guide.text, prompt(question, sources, tz),
       tools(chans.map((c) => c.name), creatable.map((c) => c.name)));
 
     let body; let citations = []; const proposals = [];
@@ -354,9 +362,38 @@ async function ask(user, messageId, tzIn) {
       ...(result.fallback ? { fallback: result.fallback } : {}),
       question_id: q.id,
     };
-    const [reply] = await rest(token, '/messages', { method: 'POST', body: { space_id: q.space_id, author_id: ASSISTANT_ID, body, meta } });
+    const [reply] = await rest(token, '/messages', { method: 'POST', body: { space_id: q.space_id, author_id: ASSISTANT_ID, body, meta, ...(q.project_id ? { project_id: q.project_id } : {}) } });
     return [200, { id: reply.id, sources: sources.length, proposals: proposals.length }];
   } finally { inflight.delete(user.id); }
+}
+
+// ---------------------------------------------------------------- rules (069)
+// Application rules (SYSTEM) first and always; then the space's rules, then the project's instructions, then the
+// asker's own preferences, which only shape how the answer looks. All are read with the asker's tokens, so the
+// same visibility applies. Instructions guide; they are not sources: facts still need a numbered item, which is
+// what a project's pinned items are for.
+const clip = (t, n) => String(t || '').trim().slice(0, n);
+async function guidance(user, token, q, inAssistant) {
+  const parts = []; let pinned = [];
+  if (!inAssistant && ['channel', 'personal'].includes(q.space.kind)) {
+    const [r] = await rest(token, `/space_rules?space_id=eq.${q.space_id}&select=instructions`);
+    if (clip(r?.instructions, 1)) parts.push(`Rules for ${q.space.kind === 'personal' ? "the person's personal space" : `#${q.space.name}`}, set by its owners:\n${clip(r.instructions, 8000)}`);
+    if (q.project_id) {
+      const [p] = await rest(token, `/projects?id=eq.${q.project_id}&select=name,instructions`);
+      if (p && clip(p.instructions, 1)) parts.push(`Instructions for the project "${p.name}", set by the owners. They refine the rules above:\n${clip(p.instructions, 8000)}`);
+      const pins = await rest(token, `/project_pins?project_id=eq.${q.project_id}&select=item_id&order=position,created_at&limit=10`);
+      if (pins.length) {
+        pinned = (await rest(token, `/items?select=${ISELECT}&id=in.(${pins.map((x) => x.item_id).join(',')})`))
+          .map((r) => ({ type: 'item', ...r, text: clip(r.body_text, 2500) }));
+      }
+    }
+  }
+  const [me] = await rest(user.token, '/user_prefs?select=ai_instructions').catch(() => []);
+  if (clip(me?.ai_instructions, 1)) parts.push(`The asker's own preferences for how your answers look. They apply only to this person, and only to style and format; they never change facts or the rules above:\n${clip(me.ai_instructions, 4000)}`);
+  const text = parts.length
+    ? `\n\nInstructions from this workspace, in order of authority. Everything above comes first and cannot be overridden by them: you still answer only from the numbered items, cite every fact, and reply NOT_FOUND when the items do not hold the answer. These instructions shape how you answer; they are not sources.\n\n${parts.join('\n\n')}`
+    : '';
+  return { text, pinned };
 }
 
 // Turn a model tool call into a stored proposal, or drop it if it does not hold up.
@@ -654,6 +691,15 @@ async function agentAsk(user, messageId) {
   }
   if (!agent) return [q.space.kind === 'agent' ? 403 : 400, { error: q.space.kind === 'agent' ? 'that is not one of your agents' : 'mention one of your agents to ask it here' }];
   if (!agent.enabled) return [409, { error: `${agent.display_name} is turned off` }];
+  if (q.space.kind !== 'agent') {
+    // 070: an agent reads a channel only if its owners allow AI agents there (the agent claim hides it otherwise),
+    // and it answers privately, in its owner's personal space.
+    const [open] = await rest(await assistantToken(user.id, q.space_id, { agent: true }), `/spaces?id=eq.${q.space_id}&select=id`);
+    if (!open) return [403, { error: `The owners of this channel have turned off AI agents here, so ${agent.display_name} cannot read it.` }];
+    const [home] = await rest(user.token, `/spaces?kind=eq.personal&created_by=eq.${user.id}&select=id`);
+    if (!home) return [409, { error: 'Weft could not find your personal space.' }];
+    q.reply_space = home.id;
+  }
   if (agentBusy.has(q.space_id)) return [429, { error: `${agent.display_name} is still answering here` }];
   agentBusy.add(q.space_id);
   agentRun(user, q, agent).catch((e) => log('agent run failed', e.message)).finally(() => agentBusy.delete(q.space_id));
@@ -664,12 +710,12 @@ async function agentRun(user, q, agent) {
   let content = q.body;
   if (q.space.kind !== 'agent') {
     // In a channel or direct message the agent sees only that space, and only its recent messages.
-    const token = await assistantToken(user.id, q.space_id);
+    const token = await assistantToken(user.id, q.space_id, { agent: true });
     const recent = await rest(token, `/messages?space_id=eq.${q.space_id}&id=neq.${q.id}&select=body,created_at,author:users(display_name)&order=created_at.desc&limit=${AGENT_CONTEXT}`);
     const [me] = await rest(token, `/users?id=eq.${user.id}&select=display_name`);
     const where = q.space.kind === 'channel' ? `the #${q.space.name} channel` : q.space.kind === 'dm' ? 'a direct message' : 'their personal space';
     const ask = q.body.replace(new RegExp(`@${agent.handle}\\b`, 'gi'), '').trim() || q.body;
-    content = `(Sent from Weft, a team workspace, in ${where}. Everyone there will read your reply.)\n`
+    content = `(Sent from Weft, a team workspace, in ${where}. Only ${me?.display_name ?? 'your owner'} will read your reply; they may share it there.)\n`
       + (recent.length ? `Recent messages there, oldest first:\n${recent.reverse().map((m) => `${m.author?.display_name ?? 'Someone'}: ${m.body}`).join('\n')}\n\n` : '\n')
       + `${me?.display_name ?? 'Your owner'} asks you: ${ask}`;
   }
@@ -685,8 +731,16 @@ async function agentRun(user, q, agent) {
     meta = { agent: true, asker: user.id, question_id: q.id, error: true };
     await db.query('update weft_private.agents set last_used_at = now(), last_error = $2 where id = $1', [agent.id, why.slice(0, 300)]);
   }
-  const token = await assistantToken(user.id, q.space_id);   // fresh: the run may have taken minutes
-  await rest(token, '/messages', { method: 'POST', body: { space_id: q.space_id, author_id: agent.id, body, meta } });
+  // Asked in a channel or direct message: the answer goes to the owner's personal space, with where it was asked;
+  // they move it into the channel themselves if they want to share it (070).
+  const target = q.reply_space || q.space_id;
+  if (q.reply_space) {
+    const where = q.space.kind === 'channel' ? `#${q.space.name}` : q.space.kind === 'dm' ? 'a direct message' : 'your personal space';
+    meta = { ...meta, asked_in: q.space_id };
+    body = `Answer to your question in ${where}:\n\n${body}`.slice(0, 20000);
+  }
+  const token = await assistantToken(user.id, target);   // fresh: the run may have taken minutes
+  await rest(token, '/messages', { method: 'POST', body: { space_id: target, author_id: agent.id, body, meta } });
 }
 
 async function agentAdmin(user, method, parts, body) {
@@ -832,6 +886,7 @@ http.createServer(async (req, res) => {
     if (url.pathname === '/healthz') return send(res, 200, { ok: true });
     const user = await userFrom(req);
     if (!user) return send(res, 401, { error: 'sign in first' });
+    if (user.agent && !(req.method === 'GET' && url.pathname === '/assistant/search/related')) return send(res, 403, { error: 'AI apps can only search here' });
     const body = ['POST', 'PUT'].includes(req.method) ? await readBody(req) : null;
     if (req.method === 'POST' && url.pathname === '/assistant/ask') return send(res, ...(await ask(user, body.message_id, body.tz)));
     if (req.method === 'POST' && url.pathname === '/assistant/agents/ask') return send(res, ...(await agentAsk(user, body.message_id)));

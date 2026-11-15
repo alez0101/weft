@@ -149,6 +149,10 @@ async function edit({ token, id, mode, markdown }) {
   if (!['document', 'wiki'].includes(row.kind)) return [400, { error: 'Only documents and wiki pages can be edited this way.' }];
   if (row.managed) return [403, { error: 'This page is managed and cannot be changed in Weft.' }];
   if (!row.can_edit) return [403, { error: 'Weft refused: you can only change pages in channels where you are an editor or owner.' }];
+  // 070: edits from an AI app (agent token) only in the person's personal space, the token's scope.
+  if (claims.agent === true && (!claims.scope_space || claims.scope_space !== row.space_id)) {
+    return [403, { error: 'Weft refused: AI apps can change pages only in the person\'s Personal space.' }];
+  }
   const added = await editor.tryParseMarkdownToBlocks(markdown);
   const conn = await server.hocuspocus.openDirectConnection(id, { user: claims.sub, space: row.space_id, kind: row.kind, doc: id, exp: claims.exp });
   try {

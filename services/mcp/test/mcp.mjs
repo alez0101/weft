@@ -173,12 +173,16 @@ let pageId;
   const pc = await mcpClient(patWrite.tokens.access_token);
   const names = (await pc.listTools()).tools.map((t) => t.name);
   check('Read-write connection lists the writing tools, and none that delete', ['post_message', 'create_page', 'edit_page', 'create_event', 'add_task', 'set_task_done'].every((n) => names.includes(n)) && !names.some((n) => /delete|remove/.test(n)), names);
+  // 070: a connected app reads what the person can see but changes things only in their personal space.
   const posted = await call(pc, 'post_message', { channel: 'Festival', text: 'connector test: hello from Pat' });
-  check('A viewer can chat through the connector (as in Weft)', !posted.error && posted.data.posted, posted.text);
-  const [row] = (await api(alex.token, `/messages?id=eq.${posted.data.id}&select=author_id,body`)).data;
+  check('The connector cannot post in a channel, even where the person may chat; it says to use Personal',
+    posted.error && /Personal space/.test(posted.text) && (await api(alex.token, `/messages?body=eq.${encodeURIComponent('connector test: hello from Pat')}`)).data.length === 0, posted.text);
+  const home = await call(pc, 'post_message', { channel: 'personal', text: 'connector test: a note to myself' });
+  check('Positive control: the connector posts in Pat\'s personal space', !home.error && home.data.posted, home.text);
+  const [row] = (await api(pat.token, `/messages?id=eq.${home.data?.id}&select=author_id,body`)).data;
   check('The message is Pat\'s own, under her name', row?.author_id === pat.user.id, row);
   const page = await call(pc, 'create_page', { channel: 'Festival', kind: 'document', title: 'Should fail', markdown: 'x' });
-  check('A viewer cannot create a document through the connector', page.error && /refused|permission/i.test(page.text), page.text);
+  check('The connector cannot create a document in a channel', page.error && /Personal space/.test(page.text), page.text);
   const orgPost = await call(pc, 'post_message', { channel: (await api(alex.token, '/spaces?name=eq.organizers&select=id')).data[0].id, text: 'x' });
   check('Pat cannot post in Organizers even by its id', orgPost.error, orgPost.text);
   await pc.close();
@@ -199,20 +203,26 @@ let pageId;
   const pk = await call(pcRec, 'search', { query: 'MCPKUDOS' });
   await pcRec.close();
   check('Records: Pat (in #festival) finds that kudos too; it is for her (positive control)', !pk.error && pk.data.some((h) => h.kind === 'kudos'), pk.text.slice(0, 200));
-  const created = await call(oc, 'create_page', { channel: 'Festival', kind: 'document', title: 'Connector notes', markdown: '# Plan\n\n- first point\n- second point' });
-  pageId = created.data.id;
-  check('An editor creates a document from Markdown, with a link', !created.error && pageId && created.data.link.includes(`doc=${pageId}`), created.text);
+  const created = await call(oc, 'create_page', { channel: 'personal', kind: 'document', title: 'Connector notes', markdown: '# Plan\n\n- first point\n- second point' });
+  pageId = created.data?.id;
+  check('Olive\'s connector creates a document from Markdown in her personal space, with a link', !created.error && pageId && created.data.link.includes(`doc=${pageId}`), created.text);
   const read1 = await call(oc, 'read_item', { id: pageId });
   check('The new document reads back', read1.text.includes('first point'), read1.text.slice(-120));
   const appended = await call(oc, 'edit_page', { id: pageId, mode: 'append', markdown: 'Added by the connector.' });
   check('edit_page appends through live co-editing', !appended.error, appended.text);
   const read2 = await call(oc, 'read_item', { id: pageId });
   check('The appended text is saved, and the old text kept', read2.text.includes('Added by the connector.') && read2.text.includes('second point'), read2.text.slice(-200));
-  const [it] = (await api(alex.token, `/items?id=eq.${pageId}&select=ydoc`)).data;
+  const [it] = (await api(olive.token, `/items?id=eq.${pageId}&select=ydoc`)).data;
   check('The edit is saved as live co-editing state (Yjs)', it?.ydoc && it.ydoc.length > 10);
   const replaced = await call(oc, 'edit_page', { id: pageId, mode: 'replace', markdown: 'Only this now.', title: 'Connector notes v2' });
   const read3 = await call(oc, 'read_item', { id: pageId });
   check('edit_page replaces content and renames', !replaced.error && read3.text.includes('Only this now.') && !read3.text.includes('first point') && read3.text.includes('Connector notes v2'), read3.text.slice(-200));
+  const fdoc = (await api(olive.token, '/items', { method: 'POST', body: { space_id: fid, kind: 'document', title: 'Festival plan by Olive', body_text: 'untouched' } })).data[0];
+  const fedit = await call(oc, 'edit_page', { id: fdoc.id, mode: 'append', markdown: 'CONNECTOR-EDIT-IN-FESTIVAL' });
+  const fren = await call(oc, 'edit_page', { id: fdoc.id, title: 'Renamed by the connector' });
+  const [fdoc2] = (await api(olive.token, `/items?id=eq.${fdoc.id}&select=title,body_text`)).data;
+  check('The connector cannot edit or rename a #festival document, though Olive edits there herself',
+    fedit.error && fren.error && fdoc2.title === 'Festival plan by Olive' && !String(fdoc2.body_text).includes('CONNECTOR-EDIT'), `${fedit.text} | ${fren.text}`);
   const helpSpace = (await api(alex.token, '/spaces?name=eq.help&select=id')).data[0];
   const help = helpSpace && (await api(alex.token, `/items?managed=is.true&space_id=eq.${helpSpace.id}&select=id&limit=1`)).data[0]; // the help wiki: everyone reads it
   check('A managed help page exists to try', !!help);
@@ -220,23 +230,73 @@ let pageId;
     const managed = await call(oc, 'edit_page', { id: help.id, markdown: 'x' });
     check('Managed help pages cannot be edited through the connector', managed.error && /managed/.test(managed.text), managed.text);
   }
-  const ev = await call(oc, 'create_event', { channel: 'Festival', title: 'Connector meetup', starts_at: '2031-05-01T18:00:00-07:00' });
-  check('An editor adds an event (default one hour)', !ev.error && ev.data.starts === '2031-05-02T01:00Z' && ev.data.ends === '2031-05-02T02:00Z', ev.text);
+  const ev = await call(oc, 'create_event', { channel: 'personal', title: 'Connector meetup', starts_at: '2031-05-01T18:00:00-07:00' });
+  check('The connector adds an event in Personal (default one hour)', !ev.error && ev.data.starts === '2031-05-02T01:00Z' && ev.data.ends === '2031-05-02T02:00Z', ev.text);
   const moved = await call(oc, 'update_event', { id: ev.data.id, location: 'Porch 3' });
-  check('An editor changes an event', !moved.error && moved.data.location === 'Porch 3', moved.text);
-  const list = await call(oc, 'create_page', { channel: 'Festival', kind: 'tasklist', title: 'Connector tasks' });
-  const task = await call(oc, 'add_task', { list: list.data.id, title: 'Print flyers', due_on: '2031-04-20', assignee: 'Pat Public' });
-  check('An editor adds an assigned task to a new task list', !task.error && task.data.assignee === 'Pat Public', task.text);
+  check('The connector changes its event in Personal', !moved.error && moved.data.location === 'Porch 3', moved.text);
+  const fev = await call(oc, 'create_event', { channel: 'Festival', title: 'CONNECTOR-EVENT', starts_at: '2031-05-01T18:00:00-07:00' });
+  check('The connector cannot add an event to a channel calendar', fev.error && /Personal space/.test(fev.text), fev.text);
+  const list = await call(oc, 'create_page', { channel: 'personal', kind: 'tasklist', title: 'Connector tasks' });
+  const task = await call(oc, 'add_task', { list: list.data.id, title: 'Print flyers', due_on: '2031-04-20' });
+  check('The connector adds a task to a new list in Personal', !task.error && task.data.title === 'Print flyers', task.text);
+  // A #festival task assigned to Pat, made in Weft itself.
+  const flist = (await api(olive.token, '/items', { method: 'POST', body: { space_id: fid, kind: 'tasklist', title: 'Festival jobs' } })).data[0];
+  const ftask = (await api(olive.token, '/tasks', { method: 'POST', body: { list_id: flist.id, title: 'Hang banners', assignee_id: pat.user.id, position: 1 } })).data[0];
+  const fadd = await call(oc, 'add_task', { list: flist.id, title: 'CONNECTOR-TASK' });
+  check('The connector cannot add a task to a #festival list', fadd.error, fadd.text);
+  // A channel closed to AI apps disappears from the connector.
+  await api(alex.token, '/space_rules', { method: 'POST', body: { space_id: fid } });   // may already exist
+  await api(alex.token, `/space_rules?space_id=eq.${fid}`, { method: 'PATCH', body: { agents_may_read: false } });
+  const chans = await call(oc, 'list_channels', {});
+  const hidden = await call(oc, 'read_messages', { channel: fid });
+  check('When #festival is closed to AI apps, the connector no longer lists or reads it', !chans.text.includes(fid) && hidden.error, `${chans.text.slice(0, 200)} | ${hidden.text}`);
+  await api(alex.token, `/space_rules?space_id=eq.${fid}`, { method: 'PATCH', body: { agents_may_read: true } });
+  const chans2 = await call(oc, 'list_channels', {});
+  check('Opened again: the connector lists #festival (positive control)', chans2.text.includes(fid), chans2.text.slice(0, 200));
   await oc.close();
 
   const pc2 = await mcpClient(patWrite.tokens.access_token);
   const mine = await call(pc2, 'list_tasks', { mine: true });
-  check('Pat sees the task assigned to her', mine.data.some((t) => t.title === 'Print flyers'), mine.text.slice(0, 200));
-  const done = await call(pc2, 'set_task_done', { id: task.data.id });
-  check('The assignee ticks it off, even as a viewer (as in Weft)', !done.error && done.data.done === true, done.text);
+  check('Pat\'s connector sees the #festival task assigned to her (reading is allowed)', mine.data.some((t) => t.title === 'Hang banners'), mine.text.slice(0, 200));
+  const done = await call(pc2, 'set_task_done', { id: ftask.id });
+  const [still] = (await api(pat.token, `/tasks?id=eq.${ftask.id}&select=done`)).data;
+  check('...but cannot tick it off: that is a change in a channel', done.error && still?.done === false, done.text);
   const pevt = await call(pc2, 'update_event', { id: ev.data.id, title: 'Hijacked' });
-  check('A viewer cannot change an event', pevt.error, pevt.text);
+  check('Pat cannot change Olive\'s event', pevt.error, pevt.text);
   await pc2.close();
+}
+
+// ---------- projects (069) through the connector
+{
+  const fid = (await api(alex.token, '/spaces?name=eq.festival&select=id')).data[0].id;
+  const [fp] = (await api(alex.token, '/projects', { method: 'POST', body: { space_id: fid, name: 'Connector drive', instructions: 'MCP-PROJECT-RULE: pickup questions go to Olive.' } })).data;
+  const fdoc = (await api(olive.token, '/items', { method: 'POST', body: { space_id: fid, project_id: fp.id, kind: 'document', title: 'Drive routes', body_text: 'routes' } })).data[0];
+  await api(alex.token, '/project_pins', { method: 'POST', body: { project_id: fp.id, item_id: fdoc.id } });
+  await api(pat.token, '/messages', { method: 'POST', body: { space_id: fid, project_id: fp.id, body: 'MCP-PROJECT-CHAT: who has boxes?' } });
+  const ohome = (await api(olive.token, `/spaces?kind=eq.personal&created_by=eq.${olive.user.id}&select=id`)).data[0].id;
+  const [pp] = (await api(olive.token, '/projects', { method: 'POST', body: { space_id: ohome, name: 'Drafts' } })).data;
+  const oc = await mcpClient(oliveWrite.tokens.access_token);
+  const lc = await call(oc, 'list_channels', {});
+  check('Projects: list_channels shows the projects inside each channel', lc.data.some((c) => c.id === fid && c.projects?.some((p) => p.name === 'Connector drive')), lc.text.slice(0, 300));
+  const rp = await call(oc, 'read_project', { channel: 'festival', project: 'connector drive' });
+  check('Projects: read_project returns the instructions, the pinned document and the project chat',
+    !rp.error && rp.data.project_instructions.includes('MCP-PROJECT-RULE') && rp.data.pinned.some((i) => i.id === fdoc.id) && rp.data.recent_chat.some((m) => m.text.includes('MCP-PROJECT-CHAT')), rp.text.slice(0, 400));
+  const rm = await call(oc, 'read_messages', { channel: 'festival', project: fp.id });
+  const rg = await call(oc, 'read_messages', { channel: 'festival' });
+  check('Projects: read_messages reads one project\'s chat, and the general chat leaves it out',
+    rm.data.messages.some((m) => m.text.includes('MCP-PROJECT-CHAT')) && !rg.data.messages.some((m) => m.text.includes('MCP-PROJECT-CHAT')));
+  const li = await call(oc, 'list_items', { channel: 'festival', project: 'Connector drive' });
+  check('Projects: list_items filters by project', !li.error && li.data.length === 1 && li.data[0].id === fdoc.id && li.data[0].project === 'Connector drive', li.text.slice(0, 300));
+  const bad = await call(oc, 'read_project', { channel: 'festival', project: 'No such thing' });
+  check('Projects: an unknown project is a clear refusal', bad.error && /No project called/.test(bad.text), bad.text);
+  const made = await call(oc, 'create_page', { channel: 'personal', project: 'Drafts', kind: 'document', title: 'Draft in a project', markdown: 'hello' });
+  const [mrow] = (await api(olive.token, `/items?id=eq.${made.data?.id}&select=project_id,space_id`)).data;
+  check('Projects: the connector creates a page in one of Olive\'s personal projects (positive control)', !made.error && mrow?.project_id === pp.id && mrow.space_id === ohome, made.text);
+  const fmade = await call(oc, 'create_page', { channel: 'festival', project: 'Connector drive', kind: 'document', title: 'MCP-IN-FESTIVAL-PROJECT', markdown: 'x' });
+  check('Projects: ...but not in a channel\'s project (the fence holds)', fmade.error && /Personal space/.test(fmade.text), fmade.text);
+  const fpost = await call(oc, 'post_message', { channel: 'personal', project: 'Drafts', text: 'note in a project' });
+  check('Projects: the connector posts in a personal project\'s chat', !fpost.error && fpost.data.project === 'Drafts', fpost.text);
+  await oc.close();
 }
 
 // ---------- refresh rotation, theft, disconnect, disabled account

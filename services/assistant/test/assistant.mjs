@@ -482,6 +482,50 @@ const fb0 = mock.prompts.length;
 a6 = await askA(olive, spaces.festival, '@Weft MOVE-IT: change where The Backyard Radio plays');
 check('Fallback: answers without tools, so it cannot propose actions', mock.prompts.slice(fb0).every((x) => !x.tools) && !a6.reply?.meta?.proposals, JSON.stringify(a6.reply?.meta));
 
+// ---------------- projects and rules (069)
+await assist(alex.token, '/assistant/admin/providers/primary', { method: 'PUT', body: anthropicSlot });
+const [proj] = (await api(alex.token, '/projects', { method: 'POST', body: { space_id: spaces.festival, name: 'Food drive', instructions: 'PROJECT-RULE: answer as the food drive lead.' } })).rows;
+await api(alex.token, '/space_rules', { method: 'POST', body: { space_id: spaces.festival } });
+await api(alex.token, `/space_rules?space_id=eq.${spaces.festival}`, { method: 'PATCH', body: { instructions: 'CHANNEL-RULE: keep it friendly.' } });
+await api(alex.token, '/space_rules', { method: 'POST', body: { space_id: spaces.organizers, instructions: 'ORG-RULE-SECRET' } });
+await api(vic.token, '/user_prefs?on_conflict=user_id', { method: 'POST', body: { ai_instructions: 'VIC-STYLE: use bullet points.' } });
+await api(olive.token, '/user_prefs?on_conflict=user_id', { method: 'POST', body: { ai_instructions: 'OLIVE-STYLE-SECRET' } });
+const [pdoc] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, project_id: proj.id, kind: 'document', title: 'Route plan', body_text: 'PINNED-FACT: pickup is Sunday at nine.' } })).rows;
+await api(alex.token, '/project_pins', { method: 'POST', body: { project_id: proj.id, item_id: pdoc.id } });
+await api(olive.token, '/messages', { method: 'POST', body: { space_id: spaces.festival, project_id: proj.id, body: 'PROJECT-CHAT: bring boxes' } });
+await api(olive.token, '/messages', { method: 'POST', body: { space_id: spaces.festival, body: 'GENERAL-CHAT: parking is on Elm' } });
+const askP = async (who, spaceId, projectId, text) => {
+  const [m] = (await api(who.token, '/messages', { method: 'POST', body: { space_id: spaceId, body: text, ...(projectId ? { project_id: projectId } : {}) } })).rows;
+  const before = mock.anthropic.length;
+  const r = await assist(who.token, '/assistant/ask', { method: 'POST', body: { message_id: m.id } });
+  const reply = r.status === 200 ? (await api(who.token, `/messages?id=eq.${r.data.id}&select=body,meta,space_id,project_id`)).rows[0] : null;
+  return { status: r.status, reply, calls: mock.anthropic.slice(before), error: r.data?.error };
+};
+let pa = await askP(vic, spaces.festival, proj.id, '@Weft when is pickup?');
+const sys = pa.calls[0]?.system || '';
+const sysText = Array.isArray(sys) ? sys.map((x) => x.text || '').join('\n') : String(sys);
+const usr = pa.calls[0]?.user || '';
+check('Projects: asked in a project chat, Weft follows the channel rules, the project instructions and the asker\'s style, in that order',
+  sysText.indexOf('CHANNEL-RULE') > 0 && sysText.indexOf('PROJECT-RULE') > sysText.indexOf('CHANNEL-RULE') && sysText.indexOf('VIC-STYLE') > sysText.indexOf('PROJECT-RULE'), sysText.slice(-600));
+check('Projects: the application rules come first and say the instructions cannot override them',
+  sysText.indexOf('You are Weft') === 0 && /cannot be overridden/.test(sysText));
+check('Projects: the pinned document is the first item Weft reads', /^\[1\] [^\n]*Route plan[^\n]*PINNED-FACT/m.test(usr), usr.slice(0, 300));
+check('Projects: the project\'s chat is the context, not the channel\'s general chat', usr.includes('PROJECT-CHAT') && !usr.includes('GENERAL-CHAT'), usr.slice(0, 600));
+check('Projects: no other channel\'s rules and no other person\'s style reach the model', !sysText.includes('ORG-RULE-SECRET') && !sysText.includes('OLIVE-STYLE-SECRET'));
+check('Projects: the answer is posted in the project chat', pa.status === 200 && pa.reply?.project_id === proj.id, `${pa.status} ${pa.error || ''} ${JSON.stringify(pa.reply)}`);
+pa = await askP(vic, spaces.festival, null, '@Weft where is parking?');
+const sys2 = pa.calls[0]?.system; const sys2Text = Array.isArray(sys2) ? sys2.map((x) => x.text || '').join('\n') : String(sys2 || '');
+check('Projects: asked in the general chat, the channel rules apply but not the project\'s', sys2Text.includes('CHANNEL-RULE') && !sys2Text.includes('PROJECT-RULE'), sys2Text.slice(-300));
+check('Projects: ...and the general answer stays in the general chat', pa.status === 200 && pa.reply?.project_id === null, JSON.stringify(pa.reply));
+pa = await askP(olive, await mine(olive), null, 'what is the gate code?');
+const sys3 = pa.calls[0]?.system; const sys3Text = Array.isArray(sys3) ? sys3.map((x) => x.text || '').join('\n') : String(sys3 || '');
+check('Projects: in her own Weft conversation, only Olive\'s style applies (no channel rules)', sys3Text.includes('OLIVE-STYLE-SECRET') && !sys3Text.includes('CHANNEL-RULE') && !sys3Text.includes('VIC-STYLE'), sys3Text.slice(-300));
+// An AI app's token (070) may only search here.
+const agentTok = await new SignJWT({ role: 'weft_user', agent: true }).setProtectedHeader({ alg: 'HS256', typ: 'JWT' }).setSubject(pat.user.id).setIssuedAt().setExpirationTime('120s').sign(new TextEncoder().encode(process.env.JWT_SECRET));
+const [am] = (await api(pat.token, '/messages', { method: 'POST', body: { space_id: spaces.festival, body: '@Weft hello' } })).rows;
+check('Agent fence: an AI app token cannot make Weft answer in a channel', (await assist(agentTok, '/assistant/ask', { method: 'POST', body: { message_id: am.id } })).status === 403);
+check('Agent fence: ...but may search by meaning (positive control)', (await assist(agentTok, '/assistant/search/related?q=parking')).status === 200);
+
 const w = Math.max(...results.map((x) => x.name.length));
 for (const x of results) console.log(`${x.ok ? 'PASS' : 'FAIL'}  ${x.name.padEnd(w)}  ${x.ok ? '' : x.detail}`);
 const failed = results.filter((x) => !x.ok).length;

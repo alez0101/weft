@@ -18,6 +18,16 @@ Two kinds of channel are kept by Weft itself: the help channel (`everyone`: ever
 
 `weft_private.member_role(space)` returns your role in a space, or nothing. Every policy builds on it (`is_member`, `can_edit`, `is_owner`). It reads the token's user, applies the optional `scope_space` claim (so a channel-scoped token sees only that channel), and returns nothing for a disabled account.
 
+### Projects, rules and the agent fence (069, 070)
+
+- **Projects** (`weft.projects`): a project lives in one channel or personal space (never a direct message or a Weft conversation) and has a name (unique per space, any case), instructions for the assistant (up to 8,000 characters) and `archived_at`. Members read; **only owners** create, rename, archive, delete and change instructions; the assistant role reads. `space_id` never changes. There are no project members: the space stays the only permission unit.
+- An item or event has at most one home project (`project_id`), which must be in its own space. Moving it to another space clears the project (unless the same write names a project in the new space) and removes its pins. A refusal names the project only to someone who may edit the space.
+- **Project chat**: `messages.project_id`. Null is the channel's general chat. A reply always follows its root's project; an archived project takes no new messages; deleting a project deletes its chat and keeps its items and events with no project.
+- **Pins** (`weft.project_pins`): up to 10 items from the project's own space, always given to the assistant in that project. `space_id` is copied from the project by a trigger. Owners pin and unpin; members read.
+- **Space rules** (`weft.space_rules`, one row per channel or personal space): the space's instructions for the assistant and `agents_may_read`. Owners change them; members read; never deleted (emptied instead). Projects and space rules are audited, so every earlier version of the instructions stays readable by the space's members.
+- **A person's own rules**: `user_prefs.ai_instructions` (up to 4,000 characters), readable only by them.
+- **The agent fence (070)**: a token with the claim `agent: true` is a connected AI app (or the assistant service reading for someone's personal agent). `member_role()` returns nothing for it in a space whose rules say `agents_may_read = false`, so a closed channel is invisible to agents on every path. PostgREST runs `weft_private.pre_request()` before every request: an agent token may only read (GET, HEAD, and the two search functions), unless it is also scoped (`scope_space`) to the person's own personal space; the scope then narrows every policy to that space. A personal agent's reply (`messages_post_agent`) is allowed only in its owner's personal space or a conversation with the agent.
+
 ### Database roles
 
 - `authenticator`: PostgREST's login; can only switch roles.
