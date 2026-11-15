@@ -627,8 +627,10 @@ async function agentCall(a, sessionId, content) {
   const t0 = Date.now();
   const r = await fetch(`${agentBase(a)}/chat/completions`, {
     method: 'POST', signal: AbortSignal.timeout(AGENT_TIMEOUT_MS),
-    headers: agentHeaders(a, { 'X-Hermes-Session-Id': sessionId }),
-    body: JSON.stringify({ model: a.model, stream: false, messages: [{ role: 'user', content }] }),
+    // The same thread id three ways, so each conversation is its own session on the agent: Hermes Agent
+    // reads X-Hermes-Session-Id, OpenClaw reads x-openclaw-session-key (or the OpenAI `user` field).
+    headers: agentHeaders(a, { 'X-Hermes-Session-Id': sessionId, 'x-openclaw-session-key': sessionId }),
+    body: JSON.stringify({ model: a.model, stream: false, user: sessionId, messages: [{ role: 'user', content }] }),
   });
   const text = await r.text();
   if (!r.ok) throw new Error(`HTTP ${r.status}${text ? `: ${text.slice(0, 160)}` : ''}`);

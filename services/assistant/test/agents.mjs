@@ -28,7 +28,7 @@ http.createServer((req, res) => {
       return res.end(JSON.stringify({ object: 'list', data: [{ id: 'hermes-agent', object: 'model' }] }));
     }
     const body = JSON.parse(data || '{}');
-    agent.calls.push({ session: req.headers['x-hermes-session-id'], model: body.model, messages: body.messages, url: req.url });
+    agent.calls.push({ session: req.headers['x-hermes-session-id'], oc: req.headers['x-openclaw-session-key'], user: body.user, model: body.model, messages: body.messages, url: req.url });
     if (agent.mode === 'fail') { res.writeHead(500, { 'Content-Type': 'application/json' }); return res.end('{"error":{"message":"agent down"}}'); }
     const last = body.messages?.at(-1)?.content || '';
     const reply = () => {
@@ -133,7 +133,7 @@ check('The reply arrives in the conversation, written by the agent', a.reply?.au
 check('The reply is marked as an agent reply for Olive', a.reply?.meta?.agent === true && a.reply.meta.asker === olive.user.id);
 check('The agent got exactly her message, nothing else', a.calls.length === 1 && a.calls[0].messages.length === 1 && a.calls[0].messages[0].content === 'What should I pack for Saturday?', JSON.stringify(a.calls[0]?.messages));
 check('With the model set by the admin', a.calls[0]?.model === 'hermes-agent');
-check('The conversation is its own session on the agent', a.calls[0]?.session === `weft-${C1}`);
+check('The conversation is its own session on the agent (Hermes header, OpenClaw header and user field)', a.calls[0]?.session === `weft-${C1}` && a.calls[0]?.oc === `weft-${C1}` && a.calls[0]?.user === `weft-${C1}`, JSON.stringify(a.calls[0]));
 const a2 = await askAgent(olive, C2, 'Start the packing list', OLIVE_AGENT);
 check('A second conversation is a different session', a2.calls[0]?.session === `weft-${C2}` && a2.reply?.body);
 check('Nothing from Organizers reached the agent in a conversation', agent.calls.every((c) => !JSON.stringify(c.messages).includes(SECRET)));
