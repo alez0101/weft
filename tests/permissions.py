@@ -4925,6 +4925,144 @@ def away_warnings():
     check("Away warnings: tidied up", oq(f"select count(*) from weft.time_off where starts_on between '{w0}' and '{w1}'") == "0")
 
 
+# ---------------------------------------------------------------- meeting decisions to the log
+def meeting_decisions():
+    """Send a meeting's decision lines to a decision log in the same space (054)."""
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    O, A = uid("user", "u-org"), uid("user", "u-alex")
+    oq = lambda sql: owner_sql(sql)
+    mk = lambda tok, space, kind, title: (lambda r: r[1][0]["id"] if r[0] == 201 else None)(call("POST", "/items", tok, {"space_id": SID[space], "kind": kind, "title": title}))
+    send = lambda tok, meeting, log, line, on=None: call("POST", "/rpc/send_meeting_decision", tok, {"p_meeting": meeting, "p_log": log, "p_line": line, "p_on": on})
+    links = lambda meeting: oq(f"select count(*) from weft.meeting_decisions where meeting_id = '{meeting}'")
+    in_log = lambda log: oq(f"select count(*) from weft.decisions where log_id = '{log}'")
+    om, ol = mk(olive, "organizers", "meeting", "MD board meeting"), mk(olive, "organizers", "decisionlog", "MD org decisions")
+    fm, fl = mk(olive, "festival", "meeting", "MD festival stand-up"), mk(olive, "festival", "decisionlog", "MD festival decisions")
+    check("Meeting decisions: Olive makes a meeting and a decision log in Organizers and in #festival", all((om, ol, fm, fl)))
+    call("PATCH", f"/meetings?id=eq.{om}", olive, {"decisions": "MD-ORG-SECRET fee is 40\nKeep the hall"})
+
+    st, d = send(olive, om, ol, "  MD-ORG-SECRET fee is 40  ", "2026-11-12")
+    od = d.get("id") if st == 200 and isinstance(d, dict) else None
+    check("Meeting decisions: Olive sends a line to the Organizers log (positive control): a decision there, dated and decided by the meeting",
+          od and d["log_id"] == ol and d["title"] == "MD-ORG-SECRET fee is 40" and d["decided_by"] == "MD board meeting"
+          and d["decided_on"] == "2026-11-12" and d["created_by"] == O, f"{st} {d}")
+    check("Meeting decisions: and the link back to the meeting, made by her, with the trimmed line",
+          oq(f"select meeting_id || '|' || created_by || '|' || line from weft.meeting_decisions where decision_id = '{od}'") == f"{om}|{O}|MD-ORG-SECRET fee is 40")
+    st, body = send(olive, om, ol, "MD-ORG-SECRET fee is 40")
+    check("Meeting decisions: the same line is not sent twice", st == 409 and in_log(ol) == "1" and links(om) == "1", f"{st} {body}")
+    st, body = send(olive, om, fl, "Keep the hall")
+    st2, body2 = send(olive, om, uid("item", "no-such-log"), "Keep the hall")
+    st3, _ = send(olive, om, HOST_CONTACTS, "Keep the hall")
+    check("Meeting decisions: a log in another space, one that does not exist, or an item that is not a log is refused, with one answer",
+          st == 400 and st2 == 400 and st3 == 400 and body.get("message") == body2.get("message") and in_log(fl) == "0" and links(om) == "1", f"{st} {st2} {st3} {body}")
+    st, _ = send(olive, om, ol, "   ")
+    st2, _ = send(olive, om, ol, "x" * 1001)
+    check("Meeting decisions: an empty line or one over 1,000 characters is refused", st == 400 and st2 == 400 and in_log(ol) == "1", f"{st} {st2}")
+
+    fd = call("POST", "/decisions", olive, {"log_id": fl, "title": "A festival decision"})[1][0]["id"]
+    st, body = call("POST", "/meeting_decisions", olive, {"decision_id": fd, "meeting_id": om, "line": "x"})
+    check("Meeting decisions: a decision in another space cannot be linked to the Organizers meeting", st == 400 and links(om) == "1", f"{st} {body}")
+    st, _ = call("POST", "/meeting_decisions", olive, {"decision_id": fd, "meeting_id": fm, "line": "A festival decision", "created_by": A})
+    check("Meeting decisions: authorship of a link cannot be forged", refused(st) and links(fm) == "0", str(st))
+    st, rows = call("POST", "/meeting_decisions", olive, {"decision_id": fd, "meeting_id": fm, "line": "A festival decision"})
+    check("Meeting decisions: a decision in the same space can be linked directly (positive control)", st == 201 and rows and rows[0]["created_by"] == O, f"{st} {rows}")
+
+    st, _ = send(pat, fm, fl, "pwned")
+    st2, _ = send(pat, om, ol, "pwned")
+    st3, _ = send(vic, om, ol, "pwned")
+    check("Meeting decisions: Pat (viewer) sends nothing in #festival, nor Pat or Vic in Organizers", all(refused(x) for x in (st, st2, st3))
+          and in_log(fl) == "1" and in_log(ol) == "1", f"{st} {st2} {st3}")
+    pd = call("POST", "/decisions", olive, {"log_id": fl, "title": "Another festival decision"})[1][0]["id"]
+    st, _ = call("POST", "/meeting_decisions", pat, {"decision_id": pd, "meeting_id": fm, "line": "x"})
+    check("Meeting decisions: Pat cannot link a decision to the #festival meeting", refused(st) and links(fm) == "1", str(st))
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = call("GET", f"/meeting_decisions?meeting_id=eq.{om}", tok)
+        st2, rows2 = call("GET", "/meeting_decisions?line=like.*MD-ORG*&select=decision_id", tok)
+        check(f"Meeting decisions: {who} sees no Organizers link, not even by filtering all of them", st == 200 and rows == [] and rows2 == [], f"{rows} {rows2}")
+    st, rows = call("GET", f"/meeting_decisions?meeting_id=eq.{fm}&select=line,decision:decisions(title,log_id)", pat)
+    check("Meeting decisions: Pat sees the #festival link and its decision (positive control)",
+          st == 200 and rows == [{"line": "A festival decision", "decision": {"title": "A festival decision", "log_id": fl}}], str(rows))
+    st, rows = call("GET", f"/decisions?id=eq.{fd}&select=id,meeting_decisions(meeting_id,meeting:items(title))", pat)
+    check("Meeting decisions: from the log, Pat reaches the meeting a decision came from (what the log shows)",
+          st == 200 and rows and rows[0]["meeting_decisions"] and rows[0]["meeting_decisions"]["meeting"]["title"] == "MD festival stand-up", str(rows))
+    st, _ = call("PATCH", f"/meeting_decisions?decision_id=eq.{fd}", olive, {"meeting_id": om})
+    check("Meeting decisions: a link is never changed (not to another meeting either)", refused(st) and oq(f"select meeting_id from weft.meeting_decisions where decision_id = '{fd}'") == fm, str(st))
+    st, rows = call("DELETE", f"/meeting_decisions?decision_id=eq.{fd}", pat)
+    check("Meeting decisions: Pat cannot remove a link", rows == [] and links(fm) == "1", f"{st} {rows}")
+
+    scoped = mint("u-org", scope="festival")
+    st, rows = call("GET", f"/meeting_decisions?meeting_id=in.({om},{fm})&select=meeting_id", scoped)
+    st2, _ = send(scoped, om, ol, "Keep the hall")
+    check("Meeting decisions: a #festival-scoped token sees only #festival links and sends nothing in Organizers",
+          st == 200 and [r["meeting_id"] for r in rows] == [fm] and refused(st2) and links(om) == "1", f"{rows} {st2}")
+    helper = mint("u-org", assistant=True)
+    st, rows = call("GET", f"/meeting_decisions?meeting_id=eq.{om}&select=line", helper)
+    check("Meeting decisions: the assistant (for Olive) reads the Organizers link (positive control)", st == 200 and len(rows) == 1, str(rows))
+    st, _ = call("DELETE", f"/meeting_decisions?decision_id=eq.{od}", helper)
+    st2, _ = send(helper, om, ol, "Keep the hall")
+    st3, _ = call("POST", "/meeting_decisions", helper, {"decision_id": pd, "meeting_id": fm, "line": "y"})
+    check("Meeting decisions: the assistant cannot remove, send or link", refused(st) and refused(st2) and refused(st3) and links(om) == "1" and links(fm) == "1", f"{st} {st2} {st3}")
+
+    # Search and the assistant read the log's text, which now has the sent decision.
+    body = oq(f"select body_text from weft.items where id = '{ol}'")
+    check("Meeting decisions: the log's text has the sent line, decided by the meeting", "2026-11-12: MD-ORG-SECRET fee is 40 (decided by MD board meeting)" in body, body)
+    st, rows = call("POST", "/rpc/search", pat, {"p_q": "MD-ORG-SECRET"})
+    st2, rows2 = call("POST", "/rpc/search", olive, {"p_q": "MD-ORG-SECRET"})
+    check("Meeting decisions: search finds it for Olive, not for Pat", rows == [] and any(r["id"] == ol for r in rows2 or []), f"{rows} {rows2}")
+    long = "Long " + "y" * 300
+    st, d = send(olive, om, ol, long)
+    check("Meeting decisions: a line over 200 characters keeps a short title and the whole line as context",
+          st == 200 and len(d["title"]) == 200 and d["title"].endswith("…") and d["context"] == long, f"{st} {d}")
+
+    # Removing a link keeps the decision; deleting a decision removes its link and frees the line.
+    st, rows = call("DELETE", f"/meeting_decisions?decision_id=eq.{fd}", olive)
+    check("Meeting decisions: Olive removes a link (positive control); the decision stays in its log",
+          st == 200 and len(rows or []) == 1 and oq(f"select count(*) from weft.decisions where id = '{fd}'") == "1", f"{st} {rows}")
+    check("Meeting decisions: the removal is in the audit log under #festival",
+          oq(f"select count(*) from weft.audit where table_name = 'meeting_decisions' and row_id = '{fd}' and space_id = '{SID['festival']}'") == "1")
+    call("DELETE", f"/decisions?id=eq.{od}", olive)
+    st, d = send(olive, om, ol, "MD-ORG-SECRET fee is 40")
+    od2 = d.get("id") if st == 200 and isinstance(d, dict) else None
+    check("Meeting decisions: deleting the decision removes its link, and the line can be sent again", od2 and links(om) == "2", f"{st} {d}")
+    st, rows = call("GET", f"/audit?row_id=eq.{od}&table_name=eq.meeting_decisions&select=op", olive)
+    st2, rows2 = call("GET", f"/audit?row_id=eq.{od}&select=op", pat)
+    check("Meeting decisions: that removal is in the audit log for Organizers members only", len(rows or []) == 1 and rows2 == [], f"{rows} {rows2}")
+
+    # Moves: the Organizers meeting moves into #festival; its links to the Organizers log go, recorded under
+    # Organizers only, and Pat sees no trace of them.
+    st, _ = call("PATCH", f"/items?id=eq.{om}", olive, {"space_id": SID["festival"]})
+    check("Meeting decisions: a meeting moved from Organizers into #festival drops its links to the Organizers log; the decisions stay",
+          st == 200 and links(om) == "0" and in_log(ol) == "2", str(st))
+    check("Meeting decisions: the removed links are recorded under Organizers (the space it moved from), never #festival",
+          oq(f"select count(*) from weft.audit where table_name = 'meeting_decisions' and row_id = '{od2}' and space_id = '{SID['organizers']}'") == "1"
+          and oq(f"select count(*) from weft.audit where table_name = 'meeting_decisions' and row_id = '{od2}' and space_id <> '{SID['organizers']}'") == "0")
+    st, rows = call("GET", f"/audit?row_id=eq.{od2}&select=space_id", olive)
+    st2, rows2 = call("GET", f"/audit?table_name=eq.meeting_decisions&select=row_id,old_row", pat)
+    st3, rows3 = call("GET", f"/meeting_decisions?meeting_id=eq.{om}", pat)
+    check("Meeting decisions: Olive (in Organizers) still reads that audit row; Pat sees no trace of it",
+          [r["space_id"] for r in rows or []] == [SID["organizers"]] and "MD-ORG" not in json.dumps(rows2) and rows3 == [], f"{rows} {rows2} {rows3}")
+    st, rows = call("GET", f"/items?id=eq.{om}&select=id", pat)
+    check("Meeting decisions: Pat reads the moved meeting (positive control)", st == 200 and len(rows) == 1, str(rows))
+    st, d = send(olive, om, fl, "Keep the hall", "2026-11-12")
+    md = d.get("id") if st == 200 and isinstance(d, dict) else None
+    check("Meeting decisions: from #festival the moved meeting sends to the #festival log", md and d["log_id"] == fl, f"{st} {d}")
+    st, _ = call("PATCH", f"/items?id=eq.{fl}", olive, {"space_id": SID["volunteers"]})
+    check("Meeting decisions: a log moved out of #festival stops linking to #festival meetings; its decisions stay",
+          st == 200 and links(om) == "0" and oq(f"select count(*) from weft.decisions where id = '{md}'") == "1", str(st))
+    check("Meeting decisions: that removal is recorded under #festival, not Volunteers",
+          oq(f"select string_agg(space_id::text, ',') from weft.audit where table_name = 'meeting_decisions' and row_id = '{md}'") == SID["festival"])
+
+    st, _ = send(olive, fm, mk(olive, "festival", "decisionlog", "Second festival log"), "Gates at nine")
+    st2, _ = call("DELETE", f"/items?id=eq.{fm}", pat)
+    check("Meeting decisions: Pat cannot delete a meeting with sent decisions", st == 200 and links(fm) == "1" and oq(f"select count(*) from weft.items where id = '{fm}'") == "1", f"{st} {st2}")
+    sent = oq(f"select decision_id from weft.meeting_decisions where meeting_id = '{fm}'")
+    call("DELETE", f"/items?id=eq.{fm}", olive)
+    check("Meeting decisions: deleting a meeting removes its links, never the decisions",
+          links(fm) == "0" and oq(f"select count(*) from weft.decisions where id = '{sent}'") == "1")
+    for i in (om, ol, fl) + tuple(oq(f"select string_agg(id::text, ' ') from weft.items where title = 'Second festival log'").split()):
+        call("DELETE", f"/items?id=eq.{i}", alex)
+    check("Meeting decisions: tidied up", oq("select count(*) from weft.items where title in ('MD org decisions', 'MD festival decisions', 'Second festival log', 'MD board meeting')") == "0")
+
+
 def teeth():
     """Loosen one policy on purpose and confirm the suite would catch it, then restore it."""
     owner_sql("create policy teeth_leak on weft.items for select to weft_user using (true)")
@@ -4968,6 +5106,7 @@ if __name__ == "__main__":
     repeating_events()
     repeating_tasks()
     task_comments()
+    meeting_decisions()
     bookings()
     shifts()
     time_off()

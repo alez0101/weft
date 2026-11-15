@@ -759,6 +759,17 @@ select.idea-status:focus-visible { outline: 2px solid var(--color-focus); outlin
 .task.meeting-action { grid-template-columns: auto minmax(0, 1fr) minmax(8rem, 12rem) 10rem auto; }
 .task.meeting-action:not(:has(.btn)) { grid-template-columns: auto minmax(0, 1fr) minmax(8rem, 12rem) 10rem; }
 .cal-notes { justify-self: start; }
+/* Meeting decisions to the log (054): each decision line, sent or with its Send button. */
+.meeting-decisions { display: grid; gap: var(--space-xs); }
+.meeting-decisions .meeting-fact .task-count { margin: 0; }
+.meeting-decision-lines { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2xs); }
+.meeting-decision { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2xs) var(--space-xs); padding: var(--space-2xs) var(--space-sm);
+  border-left: 4px solid transparent; border-radius: var(--radius-card); background: var(--color-paper); box-shadow: 0 0 0 1px var(--color-rule); }
+.meeting-decision.is-sent { border-left-color: var(--p-wed); }
+.meeting-decision-text { flex: 1 1 16rem; min-width: 0; overflow-wrap: anywhere; line-height: 1.5; color: var(--color-ink); }
+.meeting-decision-state { font-size: var(--text-xs); line-height: 1; padding: var(--space-2xs) var(--space-xs); border-radius: var(--radius-pill);
+  background: var(--p-wed); color: var(--color-ink); overflow-wrap: anywhere; }
+.meeting-decision-state.is-none { background: none; color: var(--color-ink-2); }
 @media (max-width: 720px) {
   .meeting-fact label { min-width: 0; flex-basis: 100%; }
   .task.meeting-action, .task.meeting-action:not(:has(.btn)) { grid-template-columns: auto minmax(0, 1fr); }

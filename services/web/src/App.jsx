@@ -409,7 +409,7 @@ export default function App() {
             : ui.active === 'meetings' ? <Docs key="meetings" kind="meeting" me={me} members={members} notice={notice} onOpenEvent={openEvent} onOpenItem={openItem} openId={ui.meeting} setOpenId={(meeting) => setUi((u) => ({ ...u, meeting }))} />
             : ui.active === 'links' ? <Docs key="links" kind="linklist" me={me} members={members} notice={notice} openId={ui.links} setOpenId={(links) => setUi((u) => ({ ...u, links }))} />
             : ui.active === 'contacts' ? <Docs key="contacts" kind="addressbook" me={me} members={members} notice={notice} openId={ui.book} setOpenId={(book) => setUi((u) => ({ ...u, book }))} />
-            : ui.active === 'decisions' ? <Docs key="decisions" kind="decisionlog" me={me} members={members} notice={notice} openId={ui.log} setOpenId={(log) => setUi((u) => ({ ...u, log }))} />
+            : ui.active === 'decisions' ? <Docs key="decisions" kind="decisionlog" me={me} members={members} notice={notice} onOpenItem={openItem} openId={ui.log} setOpenId={(log) => setUi((u) => ({ ...u, log }))} />
             : ui.active === 'checklists' ? <Docs key="checklists" kind="checklist" me={me} members={members} notice={notice} openId={ui.checklist} setOpenId={(checklist) => setUi((u) => ({ ...u, checklist }))} />
             : ui.active === 'expenses' ? <Docs key="expenses" kind="expenselist" me={me} members={members} notice={notice} openId={ui.expenses} setOpenId={(expenses) => setUi((u) => ({ ...u, expenses }))} />
             : ui.active === 'inventory' ? <Docs key="inventory" kind="inventory" me={me} members={members} notice={notice} openId={ui.inventory} setOpenId={(inventory) => setUi((u) => ({ ...u, inventory }))} />
