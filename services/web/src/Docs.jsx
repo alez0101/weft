@@ -112,6 +112,9 @@ export default function Docs({ kind, view, me, members, openId, setOpenId, notic
     ?? (spaces.find((s) => s.id === spaceId)?.kind === 'personal' ? 'owner' : null);
   const canEditIn = (spaceId) => ['owner', 'editor'].includes(myRole(spaceId));
   const current = items?.find((i) => i.id === openId);
+  const [moreOpen, setMoreOpen] = useState(false);   // phones and full screen: share, move and delete fold away
+  useEffect(() => setMoreOpen(false), [openId]);
+  const listLabel = kind === 'wiki' ? 'Wiki pages' : kind === 'whiteboard' ? 'Whiteboards' : kind === 'table' ? 'Tables' : kind === 'tasklist' ? 'Task lists' : kind === 'poll' ? 'Polls' : kind === 'form' ? 'Forms' : kind === 'linklist' ? 'Link lists' : kind === 'addressbook' ? 'Address books' : kind === 'decisionlog' ? 'Decision logs' : kind === 'qa' ? 'Q and A boards' : kind === 'checklist' ? 'Checklists' : kind === 'expenselist' ? 'Expense lists' : kind === 'inventory' ? 'Inventories' : kind === 'goalset' ? 'Goal sets' : kind === 'retro' ? 'Retros' : kind === 'glossary' ? 'Glossaries' : kind === 'ideaboard' ? 'Ideas boards' : kind === 'meeting' ? 'Meetings' : kind === 'file' ? 'Files' : kind === 'spreadsheet' ? 'Spreadsheets' : 'Documents';
   const currentSpace = spaces.find((s) => s.id === current?.space_id);
 
   // An id we cannot see: either it does not exist or it is in a space we are not in.
@@ -190,8 +193,8 @@ export default function Docs({ kind, view, me, members, openId, setOpenId, notic
   const noun = kind === 'wiki' ? 'page' : kind === 'whiteboard' ? 'whiteboard' : kind === 'table' ? 'table' : kind === 'tasklist' ? 'task list' : kind === 'poll' ? 'poll' : kind === 'form' ? 'form' : kind === 'linklist' ? 'link list' : kind === 'addressbook' ? 'address book' : kind === 'decisionlog' ? 'decision log' : kind === 'qa' ? 'Q and A board' : kind === 'checklist' ? 'checklist' : kind === 'expenselist' ? 'expense list' : kind === 'inventory' ? 'inventory' : kind === 'goalset' ? 'goal set' : kind === 'retro' ? 'retro' : kind === 'glossary' ? 'glossary' : kind === 'ideaboard' ? 'ideas board' : kind === 'meeting' ? 'meeting' : kind === 'file' ? 'file' : kind === 'spreadsheet' ? 'spreadsheet' : 'document';
 
   return (
-    <div className="docs">
-      <nav className={`docs-list${dragging ? ' is-dropping' : ''}`} aria-label={kind === 'wiki' ? 'Wiki pages' : kind === 'whiteboard' ? 'Whiteboards' : kind === 'table' ? 'Tables' : kind === 'tasklist' ? 'Task lists' : kind === 'poll' ? 'Polls' : kind === 'form' ? 'Forms' : kind === 'linklist' ? 'Link lists' : kind === 'addressbook' ? 'Address books' : kind === 'decisionlog' ? 'Decision logs' : kind === 'qa' ? 'Q and A boards' : kind === 'checklist' ? 'Checklists' : kind === 'expenselist' ? 'Expense lists' : kind === 'inventory' ? 'Inventories' : kind === 'goalset' ? 'Goal sets' : kind === 'retro' ? 'Retros' : kind === 'glossary' ? 'Glossaries' : kind === 'ideaboard' ? 'Ideas boards' : kind === 'meeting' ? 'Meetings' : kind === 'file' ? 'Files' : kind === 'spreadsheet' ? 'Spreadsheets' : 'Documents'}
+    <div className={`docs${current ? ' has-open' : ''}`}>
+      <nav className={`docs-list${dragging ? ' is-dropping' : ''}`} aria-label={listLabel}
         onDragOver={kind === 'file' ? (e) => { e.preventDefault(); setDragging(true); } : undefined}
         onDragLeave={kind === 'file' ? () => setDragging(false) : undefined}
         onDrop={kind === 'file' ? (e) => { e.preventDefault(); setDragging(false); upload(e.dataTransfer.files); } : undefined}>
@@ -225,10 +228,14 @@ export default function Docs({ kind, view, me, members, openId, setOpenId, notic
       <section className="docs-main">
         {current ? (
           <>
-            <header className="docs-head">
+            <header className={`docs-head${moreOpen ? ' show-more' : ''}`}>
+              {/* On a phone and in full screen the list is hidden while something is open: this goes back to it. */}
+              <button type="button" className="docs-back link-btn" onClick={() => setOpenId(null)}>‹ All {listLabel.toLowerCase()}</button>
               <label className="visually-hidden" htmlFor={`title-${kind}`}>Title</label>
               <input id={`title-${kind}`} className="docs-title" value={title} readOnly={!canEditIn(current.space_id) || current.managed}
                 onChange={(e) => setTitle(e.target.value)} onBlur={saveTitle} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
+              <button type="button" className="icon-btn docs-more-btn" aria-expanded={moreOpen} aria-label="Share, move or delete" title="Share, move or delete"
+                onClick={() => setMoreOpen((v) => !v)}><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="5" cy="10" r="1.2" /><circle cx="10" cy="10" r="1.2" /><circle cx="15" cy="10" r="1.2" /></svg></button>
               <p className="docs-meta"><span>{spaceLabel(currentSpace || {})}</span>{status && <span className="docs-status">{status}</span>}</p>
               <div className="docs-share">
                 <label className="visually-hidden" htmlFor={`share-${kind}`}>Share to channel</label>

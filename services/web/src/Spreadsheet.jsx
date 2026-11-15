@@ -47,7 +47,7 @@ export default function SpreadsheetView({ item }) {
         holder.id = `sheet-${item.id}-${Date.now()}`;
         box.current.replaceChildren(holder);
         editor = new window.DocsAPI.DocEditor(holder.id, {
-          ...config, width: '100%', height: '100%', type: 'desktop',
+          ...config, width: '100%', height: '100%', type: 'desktop',   // also on phones: the engine's mobile editor is view-only in the free Community edition
           events: {
             onAppReady: () => alive && setState('open'),
             onError: (e) => { if (alive) { setError(e?.data?.errorDescription || 'The spreadsheet could not be opened.'); setState('error'); } },

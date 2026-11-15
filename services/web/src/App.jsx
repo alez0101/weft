@@ -68,7 +68,7 @@ const readHash = () => {
   const active = h.get('active');
   return {
     tabs, active: active === 'home' || tabs.includes(active) ? active : 'home',
-    convo: h.get('convo') || 'weft', rail: RAILS.includes(h.get('chat')) ? h.get('chat') : 'normal',
+    convo: h.get('convo') || 'weft', pane: h.get('pane') === 'chat' ? 'chat' : 'apps', rail: RAILS.includes(h.get('chat')) ? h.get('chat') : 'normal',
     doc: h.get('doc') || null, page: h.get('page') || null, event: h.get('event') || null, board: h.get('board') || null, sheet: h.get('sheet') || null, spreadsheet: h.get('spreadsheet') || null, list: h.get('list') || null, kanban: h.get('kanban') || null, poll: h.get('poll') || null, form: h.get('form') || null, links: h.get('links') || null, book: h.get('book') || null, log: h.get('log') || null, qa: h.get('qa') || null, checklist: h.get('checklist') || null, expenses: h.get('expenses') || null, inventory: h.get('inventory') || null, goals: h.get('goals') || null, retro: h.get('retro') || null, glossary: h.get('glossary') || null, ideas: h.get('ideas') || null, meeting: h.get('meeting') || null, notices: h.get('notices') || null, kudos: h.get('kudos') || null, timeline: h.get('timeline') || null, journal: h.get('journal') || null, booking: h.get('booking') || null, file: h.get('file') || null,
   };
 };
@@ -255,6 +255,7 @@ export default function App() {
     if (ui.tabs.length) h.set('tabs', ui.tabs.join(','));
     h.set('active', ui.active); h.set('convo', ui.convo);
     if (ui.rail !== 'normal') h.set('chat', ui.rail);
+    if (ui.pane === 'chat') h.set('pane', 'chat');
     if (ui.doc) h.set('doc', ui.doc);
     if (ui.page) h.set('page', ui.page);
     if (ui.event) h.set('event', ui.event);
@@ -314,7 +315,7 @@ export default function App() {
     if (session && isAdmin === false && ui.tabs.includes('settings')) setUi((u) => ({ ...u, tabs: u.tabs.filter((t) => t !== 'settings'), active: u.active === 'settings' ? 'home' : u.active }));
   }, [spaces, agentSpaces, session, ui.convo, ui.tabs, isAdmin]);
 
-  const openTab = (id, extra = {}) => setUi((u) => ({ ...u, ...extra, tabs: u.tabs.includes(id) ? u.tabs : [...u.tabs, id], active: id }));
+  const openTab = (id, extra = {}) => setUi((u) => ({ ...u, ...extra, pane: 'apps', tabs: u.tabs.includes(id) ? u.tabs : [...u.tabs, id], active: id }));
   // A weft://item link from chat: open it in Documents or Wiki. If we cannot see it, Documents shows "no access".
   const openEvent = (id) => openTab('calendar', { event: id });
   const openBooking = (id) => openTab('bookings', id ? { booking: id } : {});
@@ -373,13 +374,21 @@ export default function App() {
   if (CONNECTING) return <Connect me={session.user} />;
 
   const me = session.user;
+  const unreadTotal = unread.reduce((n, u) => n + (u.unread || 0), 0);
   return (
-    <div className="shell" data-rail={ui.rail === 'normal' ? undefined : ui.rail} data-full={full ? 'true' : undefined}>
+    <div className="shell" data-rail={ui.rail === 'normal' ? undefined : ui.rail} data-full={full ? 'true' : undefined} data-pane={ui.pane}>
       <header className="topbar">
         <a className="wordmark" href="#active=home" onClick={(e) => { e.preventDefault(); setUi((u) => ({ ...u, active: 'home' })); }}>Weft</a>
+        {/* Phones: chat and apps each get the whole screen; this switches between them (hidden on wider screens). */}
+        <div className="pane-switch" role="group" aria-label="Show">
+          <button type="button" aria-pressed={ui.pane === 'chat'} onClick={() => setUi((u) => ({ ...u, pane: 'chat' }))}>
+            Chat{unreadTotal > 0 && <span className="pane-count" aria-label={`${unreadTotal} unread`}>{unreadTotal > 99 ? '99+' : unreadTotal}</span>}
+          </button>
+          <button type="button" aria-pressed={ui.pane === 'apps'} onClick={() => setUi((u) => ({ ...u, pane: 'apps' }))}>Apps</button>
+        </div>
         <SearchBox onOpenItem={openItem} onOpenEvent={openEvent} onOpenRecord={openRecord}
-          onOpenChannel={(convo) => setUi((u) => ({ ...u, convo, rail: u.rail === 'collapsed' ? 'normal' : u.rail }))}
-          onOpenMessage={(convo, id) => { setUi((u) => ({ ...u, convo, rail: u.rail === 'collapsed' ? 'normal' : u.rail })); setJump({ id, n: Date.now() }); }} />
+          onOpenChannel={(convo) => setUi((u) => ({ ...u, convo, pane: 'chat', rail: u.rail === 'collapsed' ? 'normal' : u.rail }))}
+          onOpenMessage={(convo, id) => { setUi((u) => ({ ...u, convo, pane: 'chat', rail: u.rail === 'collapsed' ? 'normal' : u.rail })); setJump({ id, n: Date.now() }); }} />
         {mode.mode === 'test' && <span className="mock-note">Test sign-in</span>}
         <label className="visually-hidden" htmlFor="mode-switch">Appearance</label>
         <select id="mode-switch" className="mode-switch" value={theme} onChange={(e) => { applyMode(e.target.value); setModeState(e.target.value); }}>
@@ -389,7 +398,7 @@ export default function App() {
       </header>
 
       <Chat me={me} spaces={spaces} agents={agents} agentSpaces={agentSpaces} members={members} unread={unread} active={ui.convo} onSpacesChanged={refreshSpaces}
-        setActive={(convo) => setUi((u) => ({ ...u, convo }))} rail={ui.rail} setRail={(rail) => setUi((u) => ({ ...u, rail }))}
+        setActive={(convo) => setUi((u) => ({ ...u, convo, pane: 'chat' }))} rail={ui.rail} setRail={(rail) => setUi((u) => ({ ...u, rail }))}
         notice={notice} live={live} onOpenItem={openItem} onOpenEvent={openEvent} onOpenNotices={openNotices} onOpenRecord={openRecord} jump={jump} />
 
       <main className="stage">
@@ -428,7 +437,7 @@ export default function App() {
                 ))}
               </ul>
               <Widgets me={me} spaces={spaces} unread={unread} notice={notice} onOpenItem={openItem} onOpenEvent={openEvent} onOpenNotices={openNotices} onOpenKudos={openKudos} onOpenTimeline={openTimeline} onOpenBooking={openBooking} onOpenShifts={() => openTab('shifts')} onOpenProfiles={() => openTab('profiles')} onAskSkill={(skill) => openTab('profiles', { askSkill: { skill, at: Date.now() } })} onOpenTimeOff={() => openTab('timeoff')} onOpenJournal={(journal) => openTab('journal', { journal })}
-                onOpenConvo={(convo) => setUi((u) => ({ ...u, convo, rail: u.rail === 'collapsed' ? 'normal' : u.rail }))} />
+                onOpenConvo={(convo) => setUi((u) => ({ ...u, convo, pane: 'chat', rail: u.rail === 'collapsed' ? 'normal' : u.rail }))} />
             </div>
           ) : ui.active === 'settings' ? (isAdmin ? <AdminPanel me={me} info={mode} /> : null)
             : ui.active === 'documents' ? <Docs key="documents" kind="document" me={me} members={members} notice={notice} openId={ui.doc} setOpenId={(doc) => setUi((u) => ({ ...u, doc }))} />
