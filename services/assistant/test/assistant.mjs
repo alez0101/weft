@@ -59,7 +59,7 @@ http.createServer((req, res) => {
       } else if (/WEB-NOCITE/.test(user) && webTool) {
         content.push({ type: 'server_tool_use', id: 'srvtoolu_2', name: 'web_search', input: { query: 'calendar' } });
         content.push({ type: 'web_search_tool_result', tool_use_id: 'srvtoolu_2', content: [1, 2, 3, 4].map((k) => ({ type: 'web_search_result', url: `https://example.org/r${k}`, title: `Result ${k}`, encrypted_content: 'x', page_age: null })) });
-        content.push({ type: 'text', text: 'I can make that spreadsheet.' });
+        if (!/SILENT/.test(user)) content.push({ type: 'text', text: 'I can make that spreadsheet.' });
         content.push({ type: 'tool_use', id: 'toolu_w1', name: 'create_item', input: { space: 'personal', kind: 'table', title: 'Web table', markdown: '', columns: [{ name: 'Date', type: 'date' }], rows: [['2027-01-04']], tasks: [] } });
       } else if (/WEB-REFUSE/.test(user) && webTool) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -340,6 +340,9 @@ const prov = (await assist(alex.token, '/assistant/admin/providers')).data?.find
 check('Web: searches count towards the month\'s cost', Number(prov?.month_cost_usd) > 0, JSON.stringify(prov?.month_cost_usd));
 a6 = await askA(olive, await mine(olive), 'WEB-NOCITE make a table of the dates');
 check('Web: when nothing is quoted (a table it wrote), the first three pages it searched are linked', JSON.stringify((a6.reply?.meta?.citations || []).map((c) => c.url)) === '["https://example.org/r1","https://example.org/r2","https://example.org/r3"]' && a6.reply?.meta?.proposals?.length === 1, JSON.stringify(a6.reply?.meta));
+if (a6.reply?.meta?.proposals?.[0]) await assist(olive.token, `/assistant/proposals/${a6.reply.meta.proposals[0].id}/dismiss`, { method: 'POST', body: {} });
+a6 = await askA(olive, await mine(olive), 'WEB-NOCITE SILENT make a table of the dates');
+check('Web: a reply that is only a proposal and web links still posts, with the standard words', a6.status === 200 && /^Here is what I can do\./.test(a6.reply?.body || '') && a6.reply?.meta?.proposals?.length === 1, `${a6.status} ${a6.error || ''} ${a6.reply?.body}`);
 if (a6.reply?.meta?.proposals?.[0]) await assist(olive.token, `/assistant/proposals/${a6.reply.meta.proposals[0].id}/dismiss`, { method: 'POST', body: {} });
 a6 = await askA(olive, await mine(olive), 'WEB-REFUSE when does school start?');
 check('Web: if the API refuses the search tool, Weft answers without it instead of failing over', a6.status === 200 && a6.reply?.meta?.served_by?.slot === 'primary' && a6.calls.length === 2 && !(a6.calls[1]?.tools || []).some((x) => x.type === 'web_search_20250305'), JSON.stringify({ s: a6.status, sb: a6.reply?.meta?.served_by, n: a6.calls.length }));

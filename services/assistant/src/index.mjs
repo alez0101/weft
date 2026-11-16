@@ -614,6 +614,8 @@ async function ask(user, messageId, tzIn) {
         body = "I couldn't find anything about that in what you can see.";
       }
     }
+    // Never an empty message (the database refuses one): a reply that is only proposals and web links, say.
+    if (!String(body || '').trim()) body = proposals.length ? 'Here is what I can do. Nothing happens until you confirm.' : "I couldn't find anything about that in what you can see.";
     const meta = {
       citations, asker: user.id, ...(proposals.length ? { proposals } : {}),
       ...(result.unavailable ? {} : { served_by: { slot: result.slot, kind: result.kind, model: result.model } }),
