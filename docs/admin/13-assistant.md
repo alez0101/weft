@@ -46,6 +46,23 @@ citations is shown. Each search adds `ASSIST_WEB_SEARCH_USD` (0.01) to the run's
 it. If the API refuses the tool (web search disabled for the Anthropic organization), the question is answered
 without it rather than failing over. `pause_turn` from a long search is continued within the round limit.
 
+### Settings: answer sizes (075)
+
+Settings → Answer sizes overrides, per workspace, the limits above: starting excerpts, items whole up to,
+extra reading, rounds, memory, longest reply and web searches (stored in `assistant_settings.limits`; an empty
+box is the `.env` default; each has a range the service enforces). They apply from the next question.
+
+### Spreadsheet edits (075)
+
+`edit_spreadsheet` proposes adding rows after a sheet's last filled row and/or setting cells by address. On
+confirm the files service (`POST /files/<id>/cells`, as the asker, so RLS decides) rewrites only that sheet's
+XML (inline strings, numbers, formulas starting with =; cells keep their style; `calcChain` is dropped for the
+engine to rebuild), bumps the blob version so the next editor session starts from the new bytes, re-extracts
+the text, and returns each changed cell's earlier value, which Undo writes back. It refuses (409) while an
+engine session is open, because an open editor would save over the change. `read_item` on a spreadsheet
+returns `GET /files/<id>/grid` (each filled cell as address=value, the sheet names), read with a 60-second
+token for the asker. Shared-formula cells are not overwritten.
+
 ### Proposals
 
 Only the Anthropic primary is offered tools: post a message, create an event, change an event, and (073) create a document, wiki page, spreadsheet, table or task list with its content, add to, rewrite or rename a document or wiki page, add rows to a table, add tasks to a task list. Content tools target only spaces where the asker is an owner or editor and that are in scope (in a channel, only that channel); edits only items among the retrieved sources, never managed pages; spreadsheets are offered only while the office engine is up, and existing spreadsheets are never changed. Content proposals run on confirm with the asker's own token (files service for spreadsheets, collab's internal edit port for pages), so the audit shows the person, and undo (24 hours) removes what was made or puts a page's earlier text back. Each becomes a proposal card that only the asker can confirm or dismiss, within 30 minutes. Confirming runs with the asker's own rights, so the database can still refuse. Created and changed events can be undone for 24 hours. There is no delete tool, and the database refuses deletes from the assistant.

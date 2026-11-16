@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { api, assistant } from './api.js';
 import { AdminUsers } from './People.jsx';
 
@@ -98,6 +98,7 @@ export default function AdminPanel({ me, info }) {
         : <div className="slots">{rows.map((r) => <Slot key={`${r.slot}-${r.updated_at}`} slot={r.slot} initial={r} onSaved={load} />)}</div>}
       <PersonalKeys />
       <WebSearch />
+      <Limits />
       <Agents />
     </div>
   );
@@ -122,6 +123,50 @@ function PersonalKeys() {
           }} /> Allow</label>
       </header>
       <p className="admin-lead">When allowed, each person can add their own Anthropic or OpenAI key from the menu on their initial. It answers only their own questions, before the models above, and is billed to them. Nobody else can see or use it, admins included. {s.personal_keys} {s.personal_keys === 1 ? 'person has' : 'people have'} a key saved.</p>
+    </section>
+  );
+}
+
+// Answer sizes (075): how much the assistant reads and writes per question. Empty = the default.
+const LIMIT_LABELS = [
+  ['excerpt_chars', 'Starting excerpts (characters, shared by everything it finds)'],
+  ['item_whole_chars', 'Items up to this size start whole (characters)'],
+  ['read_chars', 'Extra reading per question (characters)'],
+  ['rounds', 'Rounds of reading or searching per question'],
+  ['history', 'Earlier messages remembered'],
+  ['max_output_tokens', 'Longest reply (tokens)'],
+  ['web_max_uses', 'Web searches per question'],
+];
+function Limits() {
+  const [d, setD] = useState(null);
+  const [f, setF] = useState({});
+  const [status, setStatus] = useState('');
+  const [error, setError] = useState('');
+  const load = useCallback(() => assistant('/admin/limits').then((r) => { setD(r); setF(Object.fromEntries(Object.entries(r.set).map(([k, v]) => [k, String(v)]))); }).catch((e) => setError(e.message)), []);
+  useEffect(() => { load(); }, [load]);
+  if (error && !d) return <p className="send-error" role="alert">{error}</p>;
+  if (!d) return null;
+  const save = async () => {
+    setStatus(''); setError('');
+    const body = Object.fromEntries(LIMIT_LABELS.map(([k]) => [k, f[k] === undefined || f[k] === '' ? null : Number(f[k])]));
+    try { const r = await assistant('/admin/limits', { method: 'PUT', body }); setD(r); setStatus('Saved. The next question uses these.'); } catch (e) { setError(e.message); }
+  };
+  return (
+    <section className="slot users" aria-labelledby="lim-title">
+      <header className="slot-head"><h3 id="lim-title">Answer sizes</h3></header>
+      <p className="admin-lead">How much Weft reads and writes for one question. Bigger numbers give better answers about long documents and cost more per question (about $4 per million tokens read; a token is roughly 4 characters). Leave a box empty for the default.</p>
+      <div className="fields">
+        {LIMIT_LABELS.map(([k, label]) => (
+          <Fragment key={k}>
+            <label htmlFor={`lim-${k}`}>{label}</label>
+            <input id={`lim-${k}`} type="number" inputMode="numeric" min={d.ranges[k].min} max={d.ranges[k].max} value={f[k] ?? ''}
+              placeholder={`${d.defaults[k]} (default)`} onChange={(e) => setF((x) => ({ ...x, [k]: e.target.value }))} />
+          </Fragment>
+        ))}
+      </div>
+      <div className="slot-actions"><button className="btn btn--primary btn--sm" onClick={save}>Save sizes</button></div>
+      {status && <p className="slot-status" role="status">{status}</p>}
+      {error && <p className="send-error" role="alert">{error}</p>}
     </section>
   );
 }
@@ -241,7 +286,50 @@ function AgentForm({ initial, people, onSaved, onCancel }) {
           </span>
         </div>
       )}
+      {!isNew && <WeftAccess agent={initial} onChanged={onSaved} />}
       {status && <p className="slot-status" role="status">{status}</p>}
     </section>
+  );
+}
+
+// Weft access for an agent (075): a connector key that lets the agent read what its owner can see and create or
+// change things in its owner's Personal space, through /mcp, like Claude does. Shown once.
+function WeftAccess({ agent, onChanged }) {
+  const [shown, setShown] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const w = agent.weft_access || {};
+  const url = `${window.location.origin}/mcp`;
+  const go = async (method) => {
+    setBusy(true); setError('');
+    try {
+      const r = await assistant(`/admin/agents/${agent.id}/connect`, { method, ...(method === 'POST' ? { body: { days: 365 } } : {}) });
+      if (method === 'POST') setShown(r.token); else { setShown(null); onChanged(); }
+    } catch (e) { setError(e.message); }
+    setBusy(false);
+  };
+  return (
+    <div className="keybox">
+      <span className="keybox-title">Weft access</span>
+      <p className="key-state">{w.connected
+        ? `Connected until ${new Date(w.expires_at).toLocaleDateString()}${w.last_used_at ? `, last used ${new Date(w.last_used_at).toLocaleString()}` : ', not used yet'}. It reads what ${agent.owner_name} can see and writes only in their Personal space. ${agent.owner_name} can also disconnect it under Connected apps.`
+        : `Not connected. With access, the agent can search and read what ${agent.owner_name} can see in Weft, and create or change documents, tasks and events in their Personal space, never deleting anything.`}</p>
+      {shown ? (
+        <div className="fields">
+          <p className="key-state"><b>Copy these now; the key is not shown again.</b> Give them to the agent as an MCP server (HTTP), with the key sent as a Bearer token.</p>
+          <label htmlFor={`aa-url-${agent.id}`}>Address</label>
+          <input id={`aa-url-${agent.id}`} readOnly value={url} onFocus={(e) => e.target.select()} />
+          <label htmlFor={`aa-key-${agent.id}`}>Key</label>
+          <input id={`aa-key-${agent.id}`} readOnly value={shown} onFocus={(e) => e.target.select()} />
+          <span><button className="btn btn--sm" type="button" onClick={() => { setShown(null); onChanged(); }}>Done</button></span>
+        </div>
+      ) : (
+        <span className="pair">
+          <button className="btn btn--sm" disabled={busy} onClick={() => go('POST')}>{w.connected ? 'Make a new key' : 'Give access'}</button>
+          {w.connected && <button className="btn btn--sm" disabled={busy} onClick={() => go('DELETE')}>Disconnect</button>}
+        </span>
+      )}
+      {error && <p className="send-error" role="alert">{error}</p>}
+    </div>
   );
 }

@@ -392,7 +392,7 @@ export default function Chat({ me, spaces, personal = null, agents = [], agentSp
 }
 
 // Actions Weft proposed. Only the person who asked can confirm; everyone else sees who decides.
-const UNDOABLE = new Set(['change', 'create', 'create_item', 'edit_page', 'add_rows', 'add_tasks']);
+const UNDOABLE = new Set(['change', 'create', 'create_item', 'edit_page', 'add_rows', 'add_tasks', 'edit_sheet']);
 function Proposals({ list, mine, members, asker, notice, onOpenItem }) {
   const [status, setStatus] = useState({});
   const [busy, setBusy] = useState('');

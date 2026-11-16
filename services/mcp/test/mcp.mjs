@@ -340,6 +340,48 @@ let pageId;
   check('Approving the same app again replaces its older connection', await mcpStatus(again.tokens.access_token) === 200 && await mcpStatus(patRead.tokens.access_token) === 401);
 }
 
+// ---------- a personal agent's own key (075): an admin gives it, it acts for the owner like Claude does
+{
+  const ASSIST = 'http://assistant:8090';
+  const adm = (path, method = 'GET', body) => http(path, { base: ASSIST, method, body, headers: { Authorization: `Bearer ${alex.token}` } });
+  const made = await adm('/assistant/admin/agents', 'POST', { display_name: 'Olive Helper', handle: 'olive-helper', owner_id: olive.user.id, base_url: 'http://agent-nowhere:1/v1', model: 'm' });
+  const agentId = made.data?.id;
+  check('Agent key: Pat (not admin) cannot give an agent Weft access', (await http(`/assistant/admin/agents/${agentId}/connect`, { base: ASSIST, method: 'POST', body: {}, headers: { Authorization: `Bearer ${pat.token}` } })).status === 403);
+  const k = await adm(`/assistant/admin/agents/${agentId}/connect`, 'POST', { days: 30 });
+  const key = k.data?.token;
+  check('Agent key: an admin gets a key once, for /mcp', /^weft_agent_[\w-]{40,}$/.test(key || '') && k.data.path === '/mcp', k.data);
+  const listed = (await adm('/assistant/admin/agents')).data?.find((x) => x.id === agentId);
+  check('Agent key: the admin list shows it connected, with an end date about 30 days out', listed?.weft_access?.connected === true && Math.abs(new Date(listed.weft_access.expires_at) - Date.now() - 30 * 86400e3) < 3600e3, listed?.weft_access);
+  const ac = await mcpClient(key);
+  const who = await call(ac, 'whoami');
+  check('Agent key: the agent acts as its owner, Olive, with read and write access', who.data.name === 'Olive Organizer' && /write/.test(who.data.access), who.data);
+  const mine = await call(ac, 'create_page', { channel: 'personal', kind: 'document', title: 'Agent note', markdown: 'Written by the agent.' });
+  check('Agent key: it can create a page in Olive\'s Personal space', !mine.error && mine.data.created === true, mine.text);
+  const fest = await call(ac, 'create_page', { channel: 'festival', kind: 'document', title: 'Agent in festival', markdown: 'x' });
+  check('Agent key: it cannot create in a channel, even where Olive is an owner (the AI-app fence)', fest.error, fest.text);
+  const found = await call(ac, 'search', { query: 'Run of show' });
+  check('Agent key: it can search what Olive can see', !found.error && /Run of show/.test(found.text), found.text.slice(0, 200));
+  const conns = await http('/oauth/connections', { headers: { Authorization: `Bearer ${olive.token}` } });
+  check('Agent key: Olive sees it under Connected apps, by the agent\'s name', Array.isArray(conns.data) && conns.data.some((x) => /Olive Helper/.test(JSON.stringify(x))), conns.data);
+  check('Agent key: Pat does not see Olive\'s agent connection', !JSON.stringify((await http('/oauth/connections', { headers: { Authorization: `Bearer ${pat.token}` } })).data).includes('Olive Helper'));
+  const olivesConn = (await http('/oauth/connections', { headers: { Authorization: `Bearer ${olive.token}` } })).data.find((x) => x.client_name === 'Olive Helper');
+  await http(`/oauth/connections/${olivesConn?.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${olive.token}` } });
+  check('Agent key: Olive can disconnect her agent herself', await mcpStatus(key) === 401 && (await adm('/assistant/admin/agents')).data?.find((x) => x.id === agentId)?.weft_access?.connected === false);
+  const k2 = await adm(`/assistant/admin/agents/${agentId}/connect`, 'POST', {});
+  const k2b = await adm(`/assistant/admin/agents/${agentId}/connect`, 'POST', {});
+  check('Agent key: a new key replaces the old one (the old one stops working)', await mcpStatus(k2b.data.token) === 200 && await mcpStatus(k2.data.token) === 401);
+  k2.data.token = k2b.data.token;
+  await adm(`/assistant/admin/agents/${agentId}/connect`, 'DELETE');
+  check('Agent key: Disconnect ends it', await mcpStatus(k2.data.token) === 401 && (await adm('/assistant/admin/agents')).data?.find((x) => x.id === agentId)?.weft_access?.connected === false);
+  const k3 = await adm(`/assistant/admin/agents/${agentId}/connect`, 'POST', {});
+  await adm(`/assistant/admin/agents/${agentId}`, 'PUT', { display_name: 'Olive Helper', handle: 'olive-helper', owner_id: pat.user.id, base_url: 'http://agent-nowhere:1/v1', model: 'm' });
+  check('Agent key: giving the agent to another owner ends its key (it acted for the old owner)', await mcpStatus(k3.data.token) === 401);
+  const k4 = await adm(`/assistant/admin/agents/${agentId}/connect`, 'POST', {});
+  check('Agent key: ...and a new key acts for the new owner', (await call(await mcpClient(k4.data.token), 'whoami')).data.name === 'Pat Public');
+  await adm(`/assistant/admin/agents/${agentId}`, 'DELETE');
+  check('Agent key: removing the agent ends its key', await mcpStatus(k4.data.token) === 401);
+}
+
 const w = Math.max(...results.map((r) => r.name.length));
 for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name.padEnd(w)}  ${r.ok ? '' : r.detail}`);
 const failed = results.filter((r) => !r.ok).length;

@@ -71,9 +71,17 @@ http.createServer((req, res) => {
         if (/REPLACE-AFTER-READ/.test(user) && big) {
           content.push({ type: 'text', text: 'I can rewrite it.' });
           content.push({ type: 'tool_use', id: 'toolu_r2', name: 'edit_page', input: { source: Number(big[1]), mode: 'replace', markdown: 'Rewritten whole.', title: null } });
-        } else content.push({ type: 'text', text: all.includes('TAIL-MARKER-91') ? `The tail says TAIL-MARKER-91 [${num ? num[1] : 1}].` : all.includes('ZEBRA-FOUND') ? `Found it [${num ? num[1] : 1}].` : 'NOT_FOUND' });
+        } else if (/SHEET-READ/.test(user)) content.push({ type: 'text', text: /A1=Item \| B1=Cost/.test(all) && /2: A2=Paper \| B2=10/.test(all) ? `Read the cells [${num ? num[1] : 1}].` : 'NOT_FOUND' });
+        else content.push({ type: 'text', text: all.includes('TAIL-MARKER-91') ? `The tail says TAIL-MARKER-91 [${num ? num[1] : 1}].` : all.includes('ZEBRA-FOUND') ? `Found it [${num ? num[1] : 1}].` : 'NOT_FOUND' });
       } else if (/(READ-IT|REPLACE-AFTER-READ)/.test(user) && big) {
         content.push({ type: 'tool_use', id: 'toolu_r1', name: 'read_item', input: { source: Number(big[1]) } });
+      } else if (/SHEET-(READ|EDIT)/.test(user) && /^\[(\d+)\] spreadsheet "Budget sheet"/m.test(user)) {
+        const n = Number(/^\[(\d+)\] spreadsheet "Budget sheet"/m.exec(user)[1]);
+        if (/SHEET-READ/.test(user)) content.push({ type: 'tool_use', id: 'toolu_sh1', name: 'read_item', input: { source: n, sheet: null } });
+        else {
+          content.push({ type: 'text', text: 'I can change the budget.' });
+          content.push({ type: 'tool_use', id: 'toolu_sh2', name: 'edit_spreadsheet', input: { source: n, sheet: null, append_rows: [['Cups', '4']], set_cells: [{ cell: 'B2', value: '12' }] } });
+        }
       } else if (/SEARCH-IT/.test(user)) {
         content.push({ type: 'tool_use', id: 'toolu_s1', name: 'search', input: { query: 'quagga' } });
       } else if (/REPLACE-BLIND/.test(user) && big) {
@@ -388,6 +396,53 @@ check('Memory: another person\'s conversation never comes along', !/PELICAN/.tes
 await api(vic.token, '/messages', { method: 'POST', body: { space_id: spaces.festival, body: 'Plain chat: PELICAN-CHANNEL is the code word' } });
 a6 = await askA(vic, spaces.festival, '@Weft HISTORY-2 what was the word?');
 check('Memory: in a channel only @Weft questions and answers come along, not plain chat', !JSON.stringify(a6.calls[0]?.history || []).includes('PELICAN-CHANNEL'), JSON.stringify(a6.calls[0]?.history));
+
+// ---------------- 075: changing an existing spreadsheet, and limits set in Settings
+{
+  const FILES = 'http://files:8095';
+  const fx = (who, path, opts = {}) => fetch(`${FILES}${path}`, { ...opts, headers: { Authorization: `Bearer ${who.token}`, ...(opts.json ? { 'Content-Type': 'application/json' } : {}) }, body: opts.json ? JSON.stringify(opts.json) : opts.body })
+    .then(async (r) => ({ status: r.status, data: await r.json().catch(() => null) }));
+  const made = await fx(olive, `/files/spreadsheets?space=${spaces.festival}&name=Budget%20sheet`, { method: 'POST', body: '' });
+  if (made.status !== 201) {
+    check('Spreadsheet edits: skipped (this stack has no spreadsheet engine configured)', made.status === 404, String(made.status));
+  } else {
+    const sid = made.data.id;
+    const seed = await fx(olive, `/files/${sid}/cells`, { method: 'POST', json: { append_rows: [['Item', 'Cost'], ['Paper', '10']] } });
+    check('Spreadsheet edits: the files service adds rows (as the person) and returns what the cells held before', seed.status === 200 && seed.data.rows_added === 2 && seed.data.previous.length === 4, JSON.stringify(seed.data));
+    const g = await fx(olive, `/files/${sid}/grid`);
+    check('Spreadsheet edits: the grid shows each cell by address', g.status === 200 && g.data.sheet === 'Sheet1' && g.data.rows[1].cells.A === 'Paper' && g.data.rows[1].cells.B === '10', JSON.stringify(g.data));
+    check('Spreadsheet edits: Pat (viewer) cannot change it directly', (await fx(pat, `/files/${sid}/cells`, { method: 'POST', json: { set: [{ cell: 'A1', value: 'x' }] } })).status === 403);
+    check('Spreadsheet edits: Pat can still read its grid', (await fx(pat, `/files/${sid}/grid`)).status === 200);
+    check('Spreadsheet edits: a bad cell address is refused with the reason', /not a cell like B4/.test((await fx(olive, `/files/${sid}/cells`, { method: 'POST', json: { set: [{ cell: 'B0', value: 'x' }] } })).data?.error || ''));
+    a6 = await askA(olive, await mine(olive), 'SHEET-READ what is in the budget sheet?');
+    check('Spreadsheet edits: read_item on a spreadsheet gives the cells with their addresses', a6.calls.length === 2 && /Read the cells \[1\]/.test(a6.reply?.body || ''), JSON.stringify({ r: (a6.calls[1]?.results || []).join('').slice(0, 300), b: a6.reply?.body }));
+    a6 = await askA(olive, await mine(olive), 'SHEET-EDIT change the budget sheet');
+    const sp = a6.reply?.meta?.proposals?.[0];
+    check('Spreadsheet edits: Weft proposes the change', sp?.kind === 'edit_sheet' && /Change the spreadsheet "Budget sheet": add 1 row, set 1 cell \(B2\)/.test(sp.summary), JSON.stringify(a6.reply?.meta));
+    check('Spreadsheet edits: nothing changes before confirmation', (await fx(olive, `/files/${sid}/grid`)).data.rows.length === 2);
+    check('Spreadsheet edits: Olive confirms', (await assist(olive.token, `/assistant/proposals/${sp?.id}/confirm`, { method: 'POST', body: {} })).data?.status === 'done');
+    const g2 = (await fx(olive, `/files/${sid}/grid`)).data;
+    check('Spreadsheet edits: B2 is set and the row is added at the end', g2.rows[1].cells.B === '12' && g2.rows[2].r === 3 && g2.rows[2].cells.A === 'Cups', JSON.stringify(g2.rows));
+    const [it] = (await api(olive.token, `/items?id=eq.${sid}&select=body_text`)).rows;
+    check('Spreadsheet edits: its text (for search and Weft) is updated too', /Cups/.test(it?.body_text || ''), it?.body_text);
+    check('Spreadsheet edits: Undo puts B2 back and empties the added row', (await assist(olive.token, `/assistant/proposals/${sp?.id}/undo`, { method: 'POST', body: {} })).data?.status === 'undone');
+    const g3 = (await fx(olive, `/files/${sid}/grid`)).data;
+    check('Spreadsheet edits: ...as it was', g3.rows.length === 2 && g3.rows[1].cells.B === '10', JSON.stringify(g3.rows));
+    a6 = await askA(pat, await mine(pat), 'SHEET-EDIT change the budget sheet');
+    check('Spreadsheet edits: Pat gets no proposal for a spreadsheet she only views', !(a6.reply?.meta?.proposals || []).length, JSON.stringify(a6.reply?.meta));
+    // Limits: one round only, so read_item is never answered in a second round.
+    check('Limits: Pat (not admin) cannot read or change them', (await assist(pat.token, '/assistant/admin/limits')).status === 403);
+    const l0 = (await assist(alex.token, '/assistant/admin/limits')).data;
+    check('Limits: the defaults come back with their ranges', l0?.values?.rounds === 5 && l0.defaults.history === 12 && l0.ranges.rounds.max === 8, JSON.stringify(l0));
+    check('Limits: a value out of range is refused', (await assist(alex.token, '/assistant/admin/limits', { method: 'PUT', body: { rounds: 99 } })).status === 400);
+    const l1 = await assist(alex.token, '/assistant/admin/limits', { method: 'PUT', body: { rounds: 1, history: 0 } });
+    check('Limits: an admin sets one round and no memory', l1.data?.values?.rounds === 1 && l1.data.values.history === 0 && l1.data.values.excerpt_chars === l0.values.excerpt_chars, JSON.stringify(l1.data));
+    a6 = await askA(olive, await mine(olive), 'SHEET-READ what is in the budget sheet?');
+    check('Limits: with one round, the model is not called again after read_item', a6.calls.length === 1 && (a6.calls[0]?.history || []).length === 0, `${a6.calls.length} ${(a6.calls[0]?.history || []).length}`);
+    const l2 = await assist(alex.token, '/assistant/admin/limits', { method: 'PUT', body: { rounds: null, history: null } });
+    check('Limits: empty puts them back to the defaults', l2.data?.values?.rounds === 5 && l2.data.values.history === 12 && Object.keys(l2.data.set).length === 0, JSON.stringify(l2.data));
+  }
+}
 
 // ---------------- 073: creating and editing content, confirm first, as the asker
 const statusOf = async (who, id) => ((await assist(who.token, `/assistant/proposals?ids=${id}`)).data || [])[0];

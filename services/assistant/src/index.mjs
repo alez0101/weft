@@ -30,13 +30,28 @@ const CALL_TIMEOUT_MS = Number(env('CALL_TIMEOUT_MS', '120000'));
 // with up to EXCERPT_BUDGET between them, a short document whole; read_item and search may add up to READ_BUDGET
 // more. Other models (the local fallback) keep short excerpts. The whole question must finish inside DEADLINE_MS,
 // under the web server's 150 s wait.
-const EXCERPT_BUDGET = Number(env('ASSIST_EXCERPT_BUDGET_CHARS', '32000'));
-const ITEM_WHOLE_MAX = Number(env('ASSIST_ITEM_WHOLE_CHARS', '8000'));   // longer items start as excerpts
-const READ_BUDGET = Number(env('ASSIST_READ_BUDGET_CHARS', '400000'));
-const MAX_ROUNDS = Number(env('ASSIST_MAX_ROUNDS', '5'));
 const DEADLINE_MS = Number(env('ASSIST_DEADLINE_MS', '130000'));
-const MAX_OUT = Number(env('ASSIST_MAX_OUTPUT_TOKENS', '16000'));
-const HISTORY = Number(env('ASSIST_HISTORY_MESSAGES', '12'));
+// Limits an admin can change in Settings (075). The .env values are the defaults; each has an allowed range.
+const LIMITS = {
+  excerpt_chars: { env: 'ASSIST_EXCERPT_BUDGET_CHARS', def: 32000, min: 4000, max: 400000 },
+  item_whole_chars: { env: 'ASSIST_ITEM_WHOLE_CHARS', def: 8000, min: 1000, max: 100000 },
+  read_chars: { env: 'ASSIST_READ_BUDGET_CHARS', def: 400000, min: 0, max: 1000000 },
+  rounds: { env: 'ASSIST_MAX_ROUNDS', def: 5, min: 1, max: 8 },
+  history: { env: 'ASSIST_HISTORY_MESSAGES', def: 12, min: 0, max: 40 },
+  max_output_tokens: { env: 'ASSIST_MAX_OUTPUT_TOKENS', def: 16000, min: 1000, max: 32000 },
+  web_max_uses: { env: 'ASSIST_WEB_MAX_USES', def: 3, min: 1, max: 10 },
+};
+const limitDefaults = Object.fromEntries(Object.entries(LIMITS).map(([k, l]) => [k, Number(env(l.env, String(l.def)))]));
+const cleanLimits = (o) => Object.fromEntries(Object.entries(o || {}).filter(([k, v]) => LIMITS[k] && Number.isInteger(v) && v >= LIMITS[k].min && v <= LIMITS[k].max));
+// The values in force, refreshed at the start of each question (one small query).
+let EXCERPT_BUDGET = limitDefaults.excerpt_chars, ITEM_WHOLE_MAX = limitDefaults.item_whole_chars, READ_BUDGET = limitDefaults.read_chars;
+let MAX_ROUNDS = limitDefaults.rounds, HISTORY = limitDefaults.history, MAX_OUT = limitDefaults.max_output_tokens, WEB_MAX = limitDefaults.web_max_uses;
+async function refreshLimits() {
+  const { rows: [r] } = await db.query('select weft_private.limits_get() as l');
+  const l = { ...limitDefaults, ...cleanLimits(r.l) };
+  ({ excerpt_chars: EXCERPT_BUDGET, item_whole_chars: ITEM_WHOLE_MAX, read_chars: READ_BUDGET, rounds: MAX_ROUNDS, history: HISTORY, max_output_tokens: MAX_OUT, web_max_uses: WEB_MAX } = l);
+  return l;
+}
 // Where personal keys are used. Set by the server, never by the person, so a personal setting cannot
 // point the assistant anywhere else (empty for Anthropic = the SDK's official endpoint).
 const PERSONAL_ANTHROPIC_URL = env('PERSONAL_ANTHROPIC_URL', '');
@@ -185,11 +200,11 @@ async function retrieve(token, question, spaceId, scoped, excludeId, projectId =
 
 const SYSTEM = `You are Weft, the assistant inside a small team's workspace. Answer questions about the team's work using only the numbered items provided (chat messages, documents, calendar events, and records from Weft's apps: announcements, RSVPs, bookings, shifts, time off, kudos, milestones, profiles and the person's own journal) and cite every fact with its number in square brackets, like [2]. If those items do not contain the answer, reply with exactly NOT_FOUND and nothing else; do not guess. Never invent items you were not given. When you talk to the person, call the numbered items "what I can see here" or name them (a message, a document, an event); never say "sources". Address the person as you. Keep answers short and plain: one or two full sentences.
 
-If the person asks about you or what you can do, answer that directly and without citations: you answer from the messages, documents and events they can open (in a channel, only from that channel, because the whole channel reads the answer); you can propose posting a message, creating or changing a calendar event, creating a document, wiki page, spreadsheet, table or task list, adding to or rewriting a document or wiki page, adding rows to a table and adding tasks to a task list, in spaces where they can edit (in a channel, only in that channel); nothing happens until they confirm; and you cannot delete anything. Never answer NOT_FOUND to a question about what you can do.
+If the person asks about you or what you can do, answer that directly and without citations: you answer from the messages, documents and events they can open (in a channel, only from that channel, because the whole channel reads the answer); you can propose posting a message, creating or changing a calendar event, creating a document, wiki page, spreadsheet, table or task list, adding to or rewriting a document or wiki page, adding rows to a table, adding tasks to a task list and adding rows to or setting cells in a spreadsheet, in spaces where they can edit (in a channel, only in that channel); nothing happens until they confirm; and you cannot delete anything. Never answer NOT_FOUND to a question about what you can do.
 
 Example. Sources: [1] message in #festival, Olive, 2026-04-01 09:00: The info booth opens at 11:00. Question: When does the info booth open? Answer: The info booth opens at 11:00 [1].`;
 
-const ACT = `\n\nIf the person asks you to do something, you may propose it with a tool: send_message to post in a channel, create_event to add a new calendar event, change_event to change an event among the numbered items, create_item to make a new document, wiki page, spreadsheet, table or task list, edit_page to add to, rewrite or rename a document or wiki page among the numbered items, add_table_rows to add rows to a table among the numbered items, or add_tasks to add tasks to a task list among the numbered items. A proposal does nothing until the person confirms it, so say in one sentence what you are proposing. Only propose what was asked. Use the person's time zone for times they mention. You cannot delete anything, and you cannot change an existing spreadsheet (offer a new one instead).
+const ACT = `\n\nIf the person asks you to do something, you may propose it with a tool: send_message to post in a channel, create_event to add a new calendar event, change_event to change an event among the numbered items, create_item to make a new document, wiki page, spreadsheet, table or task list, edit_page to add to, rewrite or rename a document or wiki page among the numbered items, add_table_rows to add rows to a table among the numbered items, or add_tasks to add tasks to a task list among the numbered items, or edit_spreadsheet to add rows to or set cells in a spreadsheet among the numbered items. A proposal does nothing until the person confirms it, so say in one sentence what you are proposing. Only propose what was asked. Use the person's time zone for times they mention. You cannot delete anything. To change an existing spreadsheet, read it with read_item first (it shows each cell's address), then use edit_spreadsheet.
 
 Some documents are shown only in part, marked "excerpt". When the answer or the change needs more of one, call read_item with its number first; when what you need is not among the numbered items at all, call search with a few distinctive words (it adds new numbered items). Read before you act: never replace a page's whole content unless you have seen all of it. Cite read or found items by their numbers as usual.
 
@@ -204,7 +219,7 @@ const WEB = `\n\nYou can also search the web with web_search, but only for facts
 // The basic search tool, on purpose: the newer web_search_20260209 filters results through code execution and,
 // measured 2026-11-16, returned text with no citations (and ~45 % more input tokens, ~5x slower). Weft links what
 // an answer relies on, so it needs the citations the basic tool gives.
-const WEB_TOOL = { type: 'web_search_20250305', name: 'web_search', max_uses: Number(env('ASSIST_WEB_MAX_USES', '3')) };
+const webTool = () => ({ type: 'web_search_20250305', name: 'web_search', max_uses: WEB_MAX });
 
 function fmtTime(iso, tz) {
   try { return new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(iso)); }
@@ -249,9 +264,10 @@ function tools(channels, creatable = [], itemKinds = ['document', 'wiki', 'table
   return [
     {
       name: 'read_item', strict: true,
-      description: 'Read the whole of a document, wiki page, table, spreadsheet, task list or other item among the numbered items (they may be shown only as an excerpt). Returns its full text.',
-      input_schema: { type: 'object', additionalProperties: false, required: ['source'], properties: {
-        source: { type: 'integer', description: 'The [n] number of the item.' } } },
+      description: 'Read the whole of a document, wiki page, table, spreadsheet, task list or other item among the numbered items (they may be shown only as an excerpt). Returns its full text; for a spreadsheet, every cell with its address (A1, B2, ...) and the names of its sheets.',
+      input_schema: { type: 'object', additionalProperties: false, required: ['source', 'sheet'], properties: {
+        source: { type: 'integer', description: 'The [n] number of the item.' },
+        sheet: { anyOf: [{ type: 'string' }, { type: 'null' }], description: 'For a spreadsheet: which sheet (null for the first).' } } },
     },
     {
       name: 'search',
@@ -306,6 +322,15 @@ function tools(channels, creatable = [], itemKinds = ['document', 'wiki', 'table
         markdown: { type: 'string', description: 'The Markdown to add or the whole new content; empty to only rename.' },
         title: nullable('A new title, or null to keep it.') } },
     }, {
+      name: 'edit_spreadsheet', strict: true,
+      description: 'Propose changing a spreadsheet among the numbered items: add rows at the end of a sheet and/or set cells by address. Read it first with read_item to see the cell addresses. Nothing changes until the person confirms.',
+      input_schema: { type: 'object', additionalProperties: false, required: ['source', 'sheet', 'append_rows', 'set_cells'], properties: {
+        source: { type: 'integer', description: 'The [n] number of the spreadsheet.' },
+        sheet: nullable('Which sheet, or null for the first.'),
+        append_rows: { type: 'array', description: 'Rows to add after the last filled row, one array of cell values per row, from column A. Empty for none.', items: { type: 'array', items: { type: 'string' } } },
+        set_cells: { type: 'array', description: 'Cells to set, by address like B4. A value starting with = is a formula. Empty for none.', items: { type: 'object', additionalProperties: false, required: ['cell', 'value'], properties: {
+          cell: { type: 'string' }, value: { type: 'string' } } } } } },
+    }, {
       name: 'add_table_rows', strict: true,
       description: 'Propose adding rows to a table among the numbered items. Nothing changes until the person confirms.',
       input_schema: { type: 'object', additionalProperties: false, required: ['source', 'rows'], properties: {
@@ -359,7 +384,7 @@ async function callProvider(p, system, user, toolDefs = null, opts = {}) {
           // would only add 25 %; from the second round on the long shared prefix is read back at a tenth.
           ...(rounds > 1 ? { cache_control: { type: 'ephemeral' } } : {}),
           messages,
-          ...(toolDefs ? { tools: useWeb ? [...toolDefs, WEB_TOOL] : toolDefs, tool_choice: { type: 'auto' } } : {}),
+          ...(toolDefs ? { tools: useWeb ? [...toolDefs, webTool()] : toolDefs, tool_choice: { type: 'auto' } } : {}),
         }, { timeout: Math.min(CALL_TIMEOUT_MS, left) });
         let r;
         try { r = await send(); } catch (e) {
@@ -502,7 +527,7 @@ async function conversation(token, q, inAssistant, asker) {
 
 // read_item and search for the model, bounded by READ_BUDGET characters per question. Everything is read with the
 // question's token, so the model can only reach what the asker (in a channel: that channel) can see.
-function makeReader(token, q, inAssistant, sources, tz) {
+function makeReader(token, q, inAssistant, sources, tz, asker) {
   let used = 0;
   const key = (x) => `${x.type}${x.kind || ''}${x.id}`;
   return async (name, input) => {
@@ -511,6 +536,18 @@ function makeReader(token, q, inAssistant, sources, tz) {
     if (name === 'read_item') {
       const n = Number(input.source); const it = sources[n - 1];
       if (!it) return `There is no item [${n}].`;
+      if (it.type === 'item' && it.kind === 'spreadsheet') {
+        // Every cell with its address, through the files service as the asker (the item is already one they can see here).
+        const ut = await new SignJWT({ role: 'weft_user' }).setProtectedHeader({ alg: 'HS256', typ: 'JWT' }).setSubject(asker).setIssuedAt().setExpirationTime('60s').sign(JWT_SECRET);
+        const g = await fetch(`${FILES_URL}/files/${it.id}/grid${input.sheet ? `?sheet=${encodeURIComponent(input.sheet)}` : ''}`, { headers: { Authorization: `Bearer ${ut}` } })
+          .then(async (r) => ({ ok: r.ok, d: await r.json().catch(() => ({})) })).catch(() => ({ ok: false, d: {} }));
+        if (!g.ok) return `[${n}] could not be read: ${g.d.error || 'the files service did not answer'}.`;
+        const out = `[${n}] spreadsheet "${it.title}", sheet "${g.d.sheet}" (sheets: ${g.d.sheets.join(', ')}). Each line is a row number, then each filled cell as address=value:\n`
+          + g.d.rows.map((row) => `${row.r}: ${Object.entries(row.cells).map(([c, v]) => `${c}${row.r}=${String(v).replace(/\n/g, ' ')}`).join(' | ')}`).join('\n')
+          + (g.d.more ? `\n(${g.d.more} more rows not shown)` : '');
+        const text = out.slice(0, left); used += text.length;
+        return text;
+      }
       const full = it.type === 'item' ? String(it.body_text ?? it.text ?? '') : it.type === 'record' ? String(it.body ?? it.text ?? '') : line(it, n - 1, tz);
       const text = full.slice(0, left); used += text.length;
       if (it.type === 'item' && text.length === full.length) { it.readFull = true; it.whole = true; it.shown = full; }
@@ -544,6 +581,7 @@ async function ask(user, messageId, tzIn) {
   const tz = validTz(tzIn || 'UTC');
   // Read the question as the asker: RLS decides whether it exists for them.
   const started = Date.now();
+  await refreshLimits();
   const [q] = await rest(user.token, `/messages?id=eq.${messageId}&select=id,space_id,project_id,author_id,body,created_at,space:spaces(kind,name)`);
   if (!q) return [404, { error: 'no such message' }];
   if (q.author_id !== user.id) return [403, { error: 'you can only ask with your own message' }];
@@ -572,7 +610,7 @@ async function ask(user, messageId, tzIn) {
       .sort((a, b) => (b.name === 'personal') - (a.name === 'personal'));   // personal first: the safe default
     const itemKinds = ['document', 'wiki', ...(await officeReady(user.token) ? ['spreadsheet'] : []), 'table', 'tasklist'];
     const history = await conversation(token, q, inAssistant, user.id);
-    const reader = makeReader(token, q, inAssistant, sources, tz);
+    const reader = makeReader(token, q, inAssistant, sources, tz, user.id);
     const result = await answer({ asker: user.id, space: q.space_id, question: q.id }, SYSTEM + guide.text,
       (kind) => prompt(question, sources, tz, kind === 'anthropic' ? 'full' : 'small'),
       tools(chans.map((c) => c.name), creatable.map((c) => c.name), itemKinds),
@@ -716,6 +754,22 @@ async function contentProposal(call, i, sources, asker, spaceId, scope, creatabl
     if (!parts.length) return null;
     return store('edit_page', { item_id: s.id, mode, markdown, title }, `Change the ${KIND_NAME[s.kind]} "${s.title}": ${parts.join(', ')}`);
   }
+  if (call.name === 'edit_spreadsheet') {
+    const s = sources[Number(i.source) - 1];
+    if (!s || s.type !== 'item' || s.kind !== 'spreadsheet' || !editable(s)) return null;
+    const rows = (Array.isArray(i.append_rows) ? i.append_rows : []).slice(0, 2000)
+      .map((r) => (Array.isArray(r) ? r : []).slice(0, 200).map((v) => String(v ?? '').slice(0, 2000)))
+      .filter((r) => r.some((v) => v.trim()));
+    const cells = (Array.isArray(i.set_cells) ? i.set_cells : []).slice(0, 1000)
+      .map((c) => ({ cell: String(c?.cell || '').toUpperCase().trim(), value: String(c?.value ?? '').slice(0, 2000) }))
+      .filter((c) => /^[A-Z]{1,3}[1-9]\d{0,6}$/.test(c.cell));
+    if (!rows.length && !cells.length) return null;
+    const sheet = i.sheet ? String(i.sheet).slice(0, 100) : null;
+    const parts = [];
+    if (rows.length) parts.push(`add ${plural(rows.length, 'row')}`);
+    if (cells.length) parts.push(`set ${plural(cells.length, 'cell')} (${cells.slice(0, 4).map((c) => c.cell).join(', ')}${cells.length > 4 ? ', …' : ''})`);
+    return store('edit_sheet', { item_id: s.id, sheet, append_rows: rows, set: cells }, `Change the spreadsheet "${s.title}"${sheet ? ` (sheet ${sheet})` : ''}: ${parts.join(', ')}`);
+  }
   if (call.name === 'add_table_rows') {
     const s = sources[Number(i.source) - 1];
     if (!s || s.type !== 'item' || s.kind !== 'table' || !editable(s)) return null;
@@ -799,6 +853,14 @@ async function runContent(p, userToken) {
     }
     return ['done', 'Changed.', { item_id: it.id, title: it.title, markdown: it.body_text || '' }];
   }
+  if (p.kind === 'edit_sheet') {
+    const r = await fetch(`${FILES_URL}/files/${pl.item_id}/cells`, { method: 'POST', headers: { Authorization: `Bearer ${userToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sheet: pl.sheet, append_rows: pl.append_rows, set: pl.set }) });
+    const d = await r.json().catch(() => ({}));
+    if (r.status === 403) return ['failed', editErr];
+    if (!r.ok) return ['failed', d.error || 'The spreadsheet could not be changed.'];
+    return ['done', 'Changed.', { item_id: pl.item_id, sheet: d.sheet, previous: d.previous || [] }];
+  }
   if (p.kind === 'add_rows') {
     const cols = await rest(userToken, `/table_columns?table_id=eq.${pl.item_id}&select=id,type&order=position,created_at`);
     if (!cols.length) return ['failed', 'That table is gone, or you can no longer see it.'];
@@ -829,6 +891,11 @@ async function undoContent(p, userToken) {
     const ids = (p.kind === 'add_rows' ? b.row_ids : b.task_ids).join(',');
     const gone = await rest(userToken, `/${p.kind === 'add_rows' ? 'table_rows' : 'tasks'}?id=in.(${ids})`, { method: 'DELETE' }).catch(() => null);
     return gone?.length ? 'Removed.' : null;
+  }
+  if (p.kind === 'edit_sheet') {
+    const r = await fetch(`${FILES_URL}/files/${b.item_id}/cells`, { method: 'POST', headers: { Authorization: `Bearer ${userToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sheet: b.sheet, set: b.previous }) });
+    return r.ok ? 'Put back.' : null;
   }
   if (p.kind === 'edit_page') {
     if (p.payload.title && p.payload.title !== b.title) await rest(userToken, `/items?id=eq.${b.item_id}`, { method: 'PATCH', body: { title: b.title } }).catch(() => null);
@@ -895,7 +962,7 @@ async function proposalFrom(call, sources, chans, asker, spaceId, scope, tz, cre
 // ---------------------------------------------------------------- proposals: confirm, dismiss, undo
 // Only the asker may decide. Execution runs as the assistant acting for the asker, with the original
 // scope, through PostgREST: row-level security decides whether the action is allowed at all.
-const CONTENT_KINDS = new Set(['create_item', 'edit_page', 'add_rows', 'add_tasks']);
+const CONTENT_KINDS = new Set(['create_item', 'edit_page', 'add_rows', 'add_tasks', 'edit_sheet']);
 async function proposals(user, method, parts, url) {
   if (method === 'GET' && parts.length === 0) {
     const ids = (url.searchParams.get('ids') || '').split(',').filter((x) => /^[0-9a-f-]{36}$/.test(x)).slice(0, 50);
@@ -1048,6 +1115,25 @@ async function mine(user, method, parts, body) {
     } catch (e) { return [200, { ok: false, error: e.message }]; }
   }
   return [404, { error: 'not found' }];
+}
+
+async function adminLimits(user, method, body) {
+  const { rows } = await db.query('select weft_private.assist_is_admin($1) as a', [user.id]);
+  if (!rows[0].a) return [403, { error: 'admins only' }];
+  if (method === 'PUT') {
+    const b = body || {};
+    for (const [k, v] of Object.entries(b)) {
+      if (!LIMITS[k]) return [400, { error: `unknown limit ${k}` }];
+      if (v !== null && !(Number.isInteger(v) && v >= LIMITS[k].min && v <= LIMITS[k].max)) return [400, { error: `${k} must be a whole number from ${LIMITS[k].min} to ${LIMITS[k].max}` }];
+    }
+    // null puts a limit back to its default.
+    const { rows: [cur] } = await db.query('select weft_private.limits_get() as l');
+    const next = cleanLimits(Object.fromEntries(Object.entries({ ...cur.l, ...b }).filter(([, v]) => v !== null)));
+    await db.query('select weft_private.limits_save($1,$2)', [user.id, next]);
+  }
+  const { rows: [r] } = await db.query('select weft_private.limits_get() as l');
+  const set = cleanLimits(r.l);
+  return [200, { values: { ...limitDefaults, ...set }, set, defaults: limitDefaults, ranges: Object.fromEntries(Object.entries(LIMITS).map(([k, l]) => [k, { min: l.min, max: l.max }])) }];
 }
 
 async function adminSettings(user, method, body) {
@@ -1213,7 +1299,11 @@ async function agentRun(user, q, agent) {
 async function agentAdmin(user, method, parts, body) {
   const { rows } = await db.query('select weft_private.assist_is_admin($1) as a', [user.id]);
   if (!rows[0].a) return [403, { error: 'admins only' }];
-  if (method === 'GET' && parts.length === 0) return [200, (await agentsAll()).map(agentPublic)];
+  if (method === 'GET' && parts.length === 0) {
+    const conn = new Map((await db.query('select * from weft_private.agent_connections()')).rows.map((c) => [c.agent_id, c]));
+    return [200, (await agentsAll()).map((a) => ({ ...agentPublic(a), weft_access: conn.get(a.id)?.connected
+      ? { connected: true, expires_at: conn.get(a.id).expires_at, last_used_at: conn.get(a.id).last_used_at } : { connected: false } }))];
+  }
   const save = async (id) => {
     const b = body || {};
     const handle = String(b.handle || '').trim().toLowerCase();
@@ -1246,6 +1336,17 @@ async function agentAdmin(user, method, parts, body) {
   }
   if (parts[1] === 'key' && method === 'DELETE') {
     await db.query('update weft_private.agents set key_ciphertext = null, key_hint = null, updated_at = now() where id = $1', [id]);
+    return [200, { ok: true }];
+  }
+  if (parts[1] === 'connect' && method === 'POST') {
+    // A connector key for the agent, acting for its owner (075). Shown once; only its hash is kept.
+    const days = Math.max(1, Math.min(730, Number(body?.days) || 365));
+    const token = `weft_agent_${crypto.randomBytes(32).toString('base64url')}`;
+    await db.query('select weft_private.agent_connect($1,$2,$3,$4)', [user.id, id, crypto.createHash('sha256').update(token).digest('hex'), days]);
+    return [200, { ok: true, token, path: '/mcp', days }];
+  }
+  if (parts[1] === 'connect' && method === 'DELETE') {
+    await db.query('select weft_private.agent_disconnect($1,$2)', [user.id, id]);
     return [200, { ok: true }];
   }
   if (parts[1] === 'test' && method === 'POST') {
@@ -1365,6 +1466,7 @@ http.createServer(async (req, res) => {
     const me = /^\/assistant\/me\/provider(?:\/(.*))?$/.exec(url.pathname);
     if (me) return send(res, ...(await mine(user, req.method, (me[1] || '').split('/').filter(Boolean), body)));
     if (url.pathname === '/assistant/admin/settings' && ['GET', 'PUT'].includes(req.method)) return send(res, ...(await adminSettings(user, req.method, body)));
+    if (url.pathname === '/assistant/admin/limits' && ['GET', 'PUT'].includes(req.method)) return send(res, ...(await adminLimits(user, req.method, body)));
     const m = /^\/assistant\/admin\/providers(?:\/(.*))?$/.exec(url.pathname);
     if (m) return send(res, ...(await admin(user, req.method, (m[1] || '').split('/').filter(Boolean), body)));
     send(res, 404, { error: 'not found' });

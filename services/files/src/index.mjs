@@ -27,6 +27,7 @@ import mammoth from 'mammoth';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { unzipSync, strFromU8 } from 'fflate';
 import { readFileSync } from 'node:fs';
+import { readGrid, applyEdits } from './cells.mjs';
 
 const env = (k, d) => { const v = process.env[k] || d; if (v === undefined) throw new Error(`missing ${k}`); return v; };
 const JWT_SECRET = new TextEncoder().encode(env('JWT_SECRET'));
@@ -434,6 +435,50 @@ http.createServer(async (req, res) => {
         return send(res, 201, { ...row, mime, size: bytes.length, has_text: !!text, text_note: note });
       } catch (e) {
         if (e.code === '42501') return send(res, 403, { error: 'You can only add files where you can edit.' });
+        throw e;
+      }
+    }
+
+    // A spreadsheet's cells with their addresses, and edits to them (075). As the person: RLS decides.
+    const cm = /^\/files\/([0-9a-f-]{36})\/(grid|cells)$/.exec(url.pathname);
+    if (cm && cm[2] === 'grid' && req.method === 'GET') {
+      const row = await asUser(user, async (c) => (await c.query(
+        "select b.bytes from weft.items i join weft.file_blobs b on b.item_id = i.id where i.id = $1 and i.kind = 'spreadsheet'", [cm[1]])).rows[0]);
+      if (!row) return send(res, 404, { error: 'No such spreadsheet, or you cannot see it.' });
+      try { return send(res, 200, readGrid(row.bytes, url.searchParams.get('sheet') || null)); } catch (e) { return send(res, e.user ? 400 : 500, { error: e.user || 'The spreadsheet could not be read.' }); }
+    }
+    if (cm && cm[2] === 'cells' && req.method === 'POST') {
+      let b;
+      try { const raw = await readBytes(req); if (raw.length > 2 * 1048576) throw new Error('big'); b = JSON.parse(raw.toString('utf8') || '{}'); } catch { return send(res, 400, { error: 'Send the edits as JSON.' }); }
+      const append = Array.isArray(b.append_rows) ? b.append_rows.slice(0, 2000).map((r) => (Array.isArray(r) ? r.slice(0, 200) : [])) : [];
+      const set = Array.isArray(b.set) ? b.set.slice(0, 1000) : [];
+      if (!append.length && !set.length) return send(res, 400, { error: 'Nothing to change.' });
+      // Someone has it open: their editor would save over this change, so wait until it is closed.
+      if ([...sessions.keys()].some((k) => k.startsWith(`${cm[1]}-`))) return send(res, 409, { error: 'Someone has this spreadsheet open. Close it in every window first, then confirm again.' });
+      try {
+        const out = await asUser(user, async (c) => {
+          // Seen at all? (A locked read also applies the update rules, so a viewer would find nothing there.)
+          const seen = (await c.query("select 1 from weft.items where id = $1 and kind = 'spreadsheet'", [cm[1]])).rowCount;
+          if (!seen) return null;
+          const row = (await c.query("select b.bytes from weft.items i join weft.file_blobs b on b.item_id = i.id where i.id = $1 and i.kind = 'spreadsheet' for update of b", [cm[1]])).rows[0];
+          if (!row) return 0;
+          const done = applyEdits(row.bytes, { sheet: b.sheet || null, append_rows: append, set });
+          const { bytes } = done;
+          const [text, note] = await extract('sheet.xlsx', XLSX, bytes);
+          // version + 1: the next person to open it starts a fresh engine session from these bytes.
+          const u = await c.query('update weft.file_blobs set bytes = $2, size = $3, sha256 = $4, text_note = $5, updated_at = now(), version = version + 1 where item_id = $1',
+            [cm[1], bytes, bytes.length, sha256(bytes), note]);
+          if (!u.rowCount) return 0;
+          await c.query('update weft.items set body_text = $2 where id = $1', [cm[1], text || '']);
+          return done;
+        });
+        if (out === null) return send(res, 404, { error: 'No such spreadsheet, or you cannot see it.' });
+        if (out === 0) return send(res, 403, { error: 'You can only change spreadsheets where you can edit.' });
+        log('cells changed', cm[1].slice(0, 8), `${append.length} rows added, ${set.length} cells set`);
+        return send(res, 200, { ok: true, rows_added: append.length, cells_set: set.length, sheet: out.sheet, previous: out.previous.slice(0, 5000) });
+      } catch (e) {
+        if (e.user) return send(res, 400, { error: e.user });
+        if (e.code === '42501') return send(res, 403, { error: 'You can only change spreadsheets where you can edit.' });
         throw e;
       }
     }

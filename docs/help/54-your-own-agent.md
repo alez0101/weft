@@ -25,3 +25,11 @@ Only you can ask your own agent anything. If someone else mentions it, nothing h
 Your agent sees only what is sent to it: your messages in a conversation, or in a channel the recent messages there. It cannot open your documents, tasks or calendar in Weft. Anything it remembers between conversations it keeps on its own side, the same as when you talk to it elsewhere.
 
 If your agent cannot answer (it is switched off, or it is down), a short note says so instead of an answer. Try again in a moment, or ask your admin.
+
+### Letting your agent use Weft
+
+An admin can also give your agent **Weft access** (Settings → Personal agents). With it, your agent can search
+and read what you can see in Weft, and create or change documents, tasks and events in your **Personal**
+space, the same way a connected app like Claude does. It never deletes anything, and it cannot write in
+channels; you move what it makes into a channel yourself. It appears under **Connected apps** in your account
+menu, where you can disconnect it at any time.

@@ -55,11 +55,13 @@ When you ask Weft to do something, it shows a card with what it would do, and **
   Spreadsheets need the Spreadsheets app to be running; otherwise Weft offers a table.
 - **Add to or rewrite a document or wiki page**, or rename it. People who have it open see the change live.
 - **Add rows to a table** and **add tasks to a task list**.
+- **Change a spreadsheet**: add rows at the end of a sheet, or set cells by address (B4), formulas included.
+  Weft reads the spreadsheet first to see where things are. If someone has it open, close it everywhere
+  first: the card then says so, and you confirm again. Undo puts the cells back.
 
 Weft creates and changes things only where you are an editor or owner. In a channel it works only in that
 channel; in your Weft conversation it can use your personal space or any channel you edit. Asked in a
-project's chat, a new item goes into that project. It cannot change an existing spreadsheet (it can make
-a new one), and it never changes Weft's own help pages.
+project's chat, a new item goes into that project. It never changes Weft's own help pages.
 
 ### How confirming works
 
@@ -67,7 +69,7 @@ a new one), and it never changes Weft's own help pages.
 - **Confirming uses your own permissions.** If you can only view a channel, Weft cannot change anything there for you, even after you confirm. The card then says "Not allowed". Anything it creates is created by you.
 - **Proposals expire after 30 minutes.** Ask again if one expires.
 - **Open**: after confirming, the card shows **Open** to go straight to the new or changed item.
-- **Undo**: after confirming a new or changed event, document, table or task list, the card shows **Undo** for 24 hours. Undoing something new removes it, and that removal is done as you, not as Weft. Undoing a page edit puts the earlier text back (formatting the page had may come back simpler).
+- **Undo**: after confirming a new or changed event, document, table, task list or spreadsheet, the card shows **Undo** for 24 hours. Undoing something new removes it, and that removal is done as you, not as Weft. Undoing a page edit puts the earlier text back (formatting the page had may come back simpler).
 - Posted messages cannot be unsent by Weft.
 
 ### What Weft will never do

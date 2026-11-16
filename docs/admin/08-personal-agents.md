@@ -30,3 +30,13 @@ Then paste its **Key** (for Hermes Agent: `API_SERVER_KEY`; for OpenClaw: the ga
 The agent cannot read Weft. To let it read and edit its owner's documents, tasks and calendar, connect the agent to Weft's connector (see AI app connector) as its owner: it then sees exactly what they can see.
 
 OpenClaw's chat address is off by default: turn on `gateway.http.endpoints.chatCompletions.enabled` in its config first.
+
+### Weft access for an agent (075)
+
+**Give access** on an agent's card makes a connector key for it, acting for its **owner**: the same kind of
+grant Claude gets from the consent screen, so the same rules apply (every token is an AI-app token: it reads
+what the owner can see, writes only in the owner's Personal space, never deletes, and skips channels whose
+owners turned AI agents off). The key and the address (`<your Weft address>/mcp`) are shown once; configure
+the agent's MCP client with them (HTTP transport, `Authorization: Bearer <key>`). Keys last a year; **Make a
+new key** replaces the old one, **Disconnect** ends it, and so do removing the agent or giving it to another
+owner. The owner sees it under Connected apps and can disconnect it there. Only the key's hash is stored.
