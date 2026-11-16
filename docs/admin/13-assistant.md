@@ -21,6 +21,20 @@ When `EMBED_URL` points at an Ollama server, the assistant's embedding worker tu
 
 Two slots in Settings, primary and secondary, each Anthropic, OpenAI-compatible or Ollama. A new Weft starts with Claude Opus 5.5 at low effort as primary and an Ollama fallback that is off until configured. If personal keys are allowed and the asker has one, it is tried first, for their own questions only, at the official Anthropic or OpenAI address. The secondary answers when the primary has no key, is off, has reached its monthly cap, is rate-limited, times out or errors; never when the primary declined a question. Keys are encrypted with AES-256-GCM by the assistant before they are stored and never shown again.
 
+### Reading, rounds and memory
+
+With the Anthropic primary, the numbered items share an excerpt budget (`ASSIST_EXCERPT_BUDGET_CHARS`, default
+200,000 characters, about 50,000 tokens): short documents go in whole, long ones as excerpts marked so. The model
+may then call `read_item` (the whole item) and `search` (more numbered items), in up to `ASSIST_MAX_ROUNDS` (5)
+rounds, reading at most `ASSIST_READ_BUDGET_CHARS` (400,000) more per question, all with the same scoped token.
+The whole question must end within `ASSIST_DEADLINE_MS` (130 s; the web server waits 150 s). Replies may be up to
+`ASSIST_MAX_OUTPUT_TOKENS` (16,000). The prompt is cached between rounds (top-level `cache_control`). The local
+fallback still gets short excerpts and no tools. A full page rewrite is proposed only for a page the model saw
+whole. Conversation memory: the last `ASSIST_HISTORY_MESSAGES` (12) messages of the person's own Weft
+conversation, or of @Weft questions and Weft answers in the same channel or project chat, go along as earlier
+turns (old citation numbers stripped). Cost: input $4 per million tokens on claude-opus-5-5, so a question that
+reads a 50-page document is roughly $0.10; cached rounds cost a tenth. The monthly caps still apply.
+
 ### Proposals
 
 Only the Anthropic primary is offered tools: post a message, create an event, change an event, and (073) create a document, wiki page, spreadsheet, table or task list with its content, add to, rewrite or rename a document or wiki page, add rows to a table, add tasks to a task list. Content tools target only spaces where the asker is an owner or editor and that are in scope (in a channel, only that channel); edits only items among the retrieved sources, never managed pages; spreadsheets are offered only while the office engine is up, and existing spreadsheets are never changed. Content proposals run on confirm with the asker's own token (files service for spreadsheets, collab's internal edit port for pages), so the audit shows the person, and undo (24 hours) removes what was made or puts a page's earlier text back. Each becomes a proposal card that only the asker can confirm or dismiss, within 30 minutes. Confirming runs with the asker's own rights, so the database can still refuse. Created and changed events can be undone for 24 hours. There is no delete tool, and the database refuses deletes from the assistant.

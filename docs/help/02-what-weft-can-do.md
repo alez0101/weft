@@ -28,6 +28,12 @@ Weft answers from everything you can open, with numbered links you can click to 
 - **People and you:** profiles of people you share a space with, and your own journal (only in your Weft
   conversation, never in a channel)
 
+Weft reads short documents whole and long ones in part at first; when it needs more of one, it reads the
+whole thing (very large documents, hundreds of pages, included) or searches again before it answers. It
+also remembers the conversation: in your Weft conversation (and in your personal space) a follow-up like
+"make that a table instead" or "add two more rows" works, and in a channel it remembers earlier @Weft
+questions and answers there (not the rest of the chat).
+
 A message link jumps to the message; a document link opens it in Documents, Wiki, Tables, Spreadsheets or Whiteboard; an event link opens it in the Calendar. If it cannot find the answer, it says so instead of guessing. It searches by meaning as well as by words, so asking about "electricity" also finds a message about a dead outlet.
 
 ### Propose an action

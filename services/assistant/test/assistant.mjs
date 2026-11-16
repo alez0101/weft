@@ -36,13 +36,40 @@ http.createServer((req, res) => {
     }
     if (req.url.startsWith('/anthropic')) {
       // Anthropic Messages format, so the real SDK path (tools included) is exercised.
-      const user = typeof body.messages?.[0]?.content === 'string' ? body.messages[0].content : '';
+      // The question is the last plain-text user turn (earlier turns are conversation memory); a last turn of
+      // tool results means a later round of the same question.
+      const msgs = body.messages || [];
+      const qIdx = msgs.map((m, k) => (m.role === 'user' && typeof m.content === 'string' ? k : -1)).filter((k) => k >= 0).pop() ?? -1;
+      const user = qIdx >= 0 ? msgs[qIdx].content : '';
+      const lastMsg = msgs[msgs.length - 1];
+      const results = Array.isArray(lastMsg?.content) ? lastMsg.content.filter((c) => c.type === 'tool_result').map((c) => String(c.content)) : null;
       const apiKey = req.headers['x-api-key'] || (req.headers.authorization || '').replace(/^Bearer /, '');   // the SDK sends either
-      mock.anthropic.push({ user, system: body.system, tools: body.tools, key: apiKey });
+      mock.anthropic.push({ user, system: body.system, tools: body.tools, key: apiKey, history: msgs.slice(0, Math.max(0, qIdx)), results, max_tokens: body.max_tokens, cache: body.cache_control });
       if (apiKey === 'sk-personal-bad-0000') { res.writeHead(401, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } })); }
       const content = [];
       const ev = /^\[(\d+)\] event "The Backyard Radio/m.exec(user) || /^\[(\d+)\] event /m.exec(user);
-      if (/MOVE-IT/.test(user) && ev) {
+      const big = /^\[(\d+)\] document "Big handbook"/m.exec(user);
+      if (results) {
+        // A later round: answer from what the reading tools returned.
+        const all = results.join('\n');
+        const num = /^\[(\d+)\]/m.exec(all) || /\[(\d+)\] all of/.exec(all);
+        if (/REPLACE-AFTER-READ/.test(user) && big) {
+          content.push({ type: 'text', text: 'I can rewrite it.' });
+          content.push({ type: 'tool_use', id: 'toolu_r2', name: 'edit_page', input: { source: Number(big[1]), mode: 'replace', markdown: 'Rewritten whole.', title: null } });
+        } else content.push({ type: 'text', text: all.includes('TAIL-MARKER-91') ? `The tail says TAIL-MARKER-91 [${num ? num[1] : 1}].` : all.includes('ZEBRA-FOUND') ? `Found it [${num ? num[1] : 1}].` : 'NOT_FOUND' });
+      } else if (/(READ-IT|REPLACE-AFTER-READ)/.test(user) && big) {
+        content.push({ type: 'tool_use', id: 'toolu_r1', name: 'read_item', input: { source: Number(big[1]) } });
+      } else if (/SEARCH-IT/.test(user)) {
+        content.push({ type: 'tool_use', id: 'toolu_s1', name: 'search', input: { query: 'quagga' } });
+      } else if (/REPLACE-BLIND/.test(user) && big) {
+        content.push({ type: 'text', text: 'I can rewrite it.' });
+        content.push({ type: 'tool_use', id: 'toolu_r3', name: 'edit_page', input: { source: Number(big[1]), mode: 'replace', markdown: 'Rewritten from an excerpt.', title: null } });
+      } else if (/HISTORY-2/.test(user)) {
+        const said = msgs.slice(0, qIdx).map((m) => (typeof m.content === 'string' ? m.content : '')).join('\n');
+        content.push({ type: 'text', text: /PELICAN/.test(said) ? 'You said PELICAN earlier.' : 'NOT_FOUND' });
+      } else if (/HISTORY-1/.test(user)) {
+        content.push({ type: 'text', text: 'Noted.' });
+      } else if (/MOVE-IT/.test(user) && ev) {
         content.push({ type: 'text', text: 'I can change that event for you.' });
         content.push({ type: 'tool_use', id: 'toolu_1', name: 'change_event', input: { source: Number(ev[1]), title: null, location: 'Moved by the Weft test', starts_at: null, ends_at: null } });
       } else if (/ADD-IT/.test(user) && body.tools?.some((x) => x.name === 'create_event')) {
@@ -87,10 +114,10 @@ http.createServer((req, res) => {
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ id: 'msg_test', type: 'message', role: 'assistant', model: 'mock-claude', content,
-        stop_reason: content.some((c) => c.type === 'tool_use') ? 'tool_use' : 'end_turn', usage: { input_tokens: 800, output_tokens: 60 } }));
+        stop_reason: content.some((c) => c.type === 'tool_use') ? 'tool_use' : 'end_turn', usage: { input_tokens: 800, output_tokens: 60, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } }));
     }
     const slot = req.url.startsWith('/primary') ? 'primary' : req.url.startsWith('/personal-openai') ? 'personal' : 'secondary';
-    const user = body.messages?.find((m) => m.role === 'user')?.content || '';
+    const user = (body.messages || []).filter((m) => m.role === 'user').pop()?.content || '';   // the last turn: earlier ones are memory
     mock.prompts.push({ slot, user, tools: body.tools, key: (req.headers.authorization || '').replace(/^Bearer /, '') });
     if (mock[slot] === 'fail') { res.writeHead(500); return res.end('{"error":"down"}'); }
     const hasSource = /^\[1\] /m.test(user);
@@ -228,7 +255,7 @@ check('Events: times are given in the asker\'s time zone', /PDT|PST/.test(a6.cal
 const ev6 = (await api(olive.token, `/events?title=eq.The%20Backyard%20Radio%20at%20P02&select=id,location`)).rows[0];
 
 // Tools: offered only on the Anthropic slot, scoped to the channel.
-check('Tools: Claude is offered exactly send_message and change_event, no delete', JSON.stringify((a6.calls[0]?.tools || []).map((x) => x.name).sort()) === '["change_event","send_message"]');
+check('Tools: Claude is offered reading, proposing and content tools, never a delete', ((n) => ['change_event', 'read_item', 'search', 'send_message'].every((x) => n.includes(x)) && n.every((x) => !/delete|remove/.test(x)))((a6.calls[0]?.tools || []).map((x) => x.name)), JSON.stringify((a6.calls[0]?.tools || []).map((x) => x.name).sort()));
 check('Tools: in #festival, send_message can only target #festival', JSON.stringify(a6.calls[0]?.tools?.find((x) => x.name === 'send_message')?.input_schema.properties.channel.enum) === '["festival"]');
 
 // A change waits for confirmation.
@@ -280,6 +307,45 @@ a6 = await askA(pat, await mine(pat), 'ADD-IT: put a reminder on my calendar');
 const pcre = a6.reply?.meta?.proposals?.[0];
 const penum = a6.calls[0]?.tools?.find((x) => x.name === 'create_event')?.input_schema.properties.space.enum || [];
 check('Create: in her own conversation Pat can add to her personal calendar, never to #festival where she only views', penum.includes('personal') && !penum.includes('festival') && pcre?.kind === 'create', JSON.stringify({ status: a6.status, err: a6.error, tools: (a6.calls[0]?.tools || []).map((x) => [x.name, x.input_schema.properties.space?.enum]), meta: a6.reply?.meta, body: a6.reply?.body }));
+
+// ---------------- larger documents, reading tools, conversation memory
+const bigBody = `# Big handbook\n\nHEAD-MARKER-17 how the festival works.\n\n${Array.from({ length: 3000 }, (_, k) => `Paragraph ${k}: porch rules, sound levels, parking and the usual details repeated to make this long.`).join('\n\n')}\n\nTAIL-MARKER-91 the very last rule.`;
+const [bigDoc] = (await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'document', title: 'Big handbook', body_text: bigBody } })).rows;
+check('Reading: the big test document is longer than the excerpt budget', bigBody.length > 250000, String(bigBody.length));
+a6 = await askA(olive, await mine(olive), 'READ-IT what does the big handbook say at the end?');
+const r0 = a6.calls[0]; const r1 = a6.calls[1];
+check('Reading: replies may be long (16,000 output tokens) and the prompt is cached', r0?.max_tokens === 16000 && r0?.cache?.type === 'ephemeral', JSON.stringify({ m: r0?.max_tokens, c: r0?.cache }));
+check('Reading: the first prompt shows the big document as a marked excerpt with its start, not its end', /document "Big handbook" in #festival \(excerpt; read_item \d+ reads all of it\)/.test(r0?.user || '') && r0.user.includes('HEAD-MARKER-17') && !r0.user.includes('TAIL-MARKER-91'), (r0?.user || '').slice(0, 300));
+check('Reading: read_item and search are offered', ['read_item', 'search'].every((n) => (r0?.tools || []).some((x) => x.name === n)));
+check('Reading: a second round gets the whole document from read_item', a6.calls.length === 2 && (r1?.results || []).join('').includes('TAIL-MARKER-91'), `${a6.calls.length} ${(r1?.results || []).join('').slice(-200)}`);
+check('Reading: the answer comes from the end of the document and cites it', /TAIL-MARKER-91 \[1\]/.test(a6.reply?.body || '') && a6.reply?.meta?.citations?.[0]?.id === bigDoc.id, JSON.stringify({ b: a6.reply?.body, c: a6.reply?.meta?.citations }));
+a6 = await askA(olive, await mine(olive), 'CITE-DOC what is in the run of show?');
+check('Reading: a short document is shown whole, without the excerpt mark', /document "Run of show" in #festival: Volunteers check in/.test(a6.calls[0]?.user || ''), (a6.calls[0]?.user || '').slice(0, 300));
+a6 = await askA(olive, await mine(olive), 'REPLACE-BLIND rewrite the big handbook');
+check('Reading: a full rewrite from an excerpt is dropped (nothing to confirm)', !(a6.reply?.meta?.proposals || []).length, JSON.stringify(a6.reply?.meta));
+a6 = await askA(olive, await mine(olive), 'REPLACE-AFTER-READ rewrite the big handbook');
+const rwp = a6.reply?.meta?.proposals?.[0];
+check('Reading: after reading it in full, a rewrite is proposed', rwp?.kind === 'edit_page' && /replace its content/.test(rwp.summary), JSON.stringify(a6.reply?.meta));
+if (rwp) await assist(olive.token, `/assistant/proposals/${rwp.id}/dismiss`, { method: 'POST', body: {} });
+await api(olive.token, '/items', { method: 'POST', body: { space_id: spaces.festival, kind: 'document', title: 'Quagga notes', body_text: 'ZEBRA-FOUND the quagga list.' } });
+a6 = await askA(olive, await mine(olive), 'SEARCH-IT find stripes please');
+check('Reading: search adds new numbered items in a second round', a6.calls.length === 2 && /New numbered items:\n\[\d+\] document "Quagga notes"/.test((a6.calls[1]?.results || []).join('')), (a6.calls[1]?.results || []).join('').slice(0, 300));
+check('Reading: ...and the answer cites the item it found', /Found it \[1\]/.test(a6.reply?.body || '') && a6.reply?.meta?.citations?.[0]?.label === 'Document: Quagga notes', JSON.stringify(a6.reply?.meta?.citations));
+a6 = await askA(pat, await mine(pat), 'SEARCH-IT look up the striped notes');
+check('Reading: Pat\'s search finds only what she can see (Quagga notes is in #festival, which she can read)', a6.status === 200);
+a6 = await askA(pat, spaces.festival, '@Weft SEARCH-IT look up the striped notes');
+check('Reading: search never reaches outside the channel it was asked in', !(a6.calls[1]?.results || []).join('').includes(DOCSECRET), (a6.calls[1]?.results || []).join('').slice(0, 200));
+await api(olive.token, `/items?id=eq.${bigDoc.id}`, { method: 'DELETE' });
+// Conversation memory: in your own Weft conversation, earlier turns go along.
+await askA(vic, await mine(vic), 'HISTORY-1 remember the word PELICAN');
+a6 = await askA(vic, await mine(vic), 'HISTORY-2 what was the word?');
+check('Memory: a follow-up in your Weft conversation gets the earlier turns', /PELICAN/.test(a6.reply?.body || '') && a6.calls[0]?.history?.[0]?.role === 'user', JSON.stringify({ b: a6.reply?.body, h: a6.calls[0]?.history }));
+check('Memory: the earlier turns alternate user, assistant and end with Weft\'s answer', (a6.calls[0]?.history || []).every((m, k) => m.role === (k % 2 ? 'assistant' : 'user')) && a6.calls[0]?.history?.at(-1)?.role === 'assistant');
+a6 = await askA(olive, await mine(olive), 'HISTORY-2 what was the word?');
+check('Memory: another person\'s conversation never comes along', !/PELICAN/.test(a6.reply?.body || ''), a6.reply?.body);
+await api(vic.token, '/messages', { method: 'POST', body: { space_id: spaces.festival, body: 'Plain chat: PELICAN-CHANNEL is the code word' } });
+a6 = await askA(vic, spaces.festival, '@Weft HISTORY-2 what was the word?');
+check('Memory: in a channel only @Weft questions and answers come along, not plain chat', !JSON.stringify(a6.calls[0]?.history || []).includes('PELICAN-CHANNEL'), JSON.stringify(a6.calls[0]?.history));
 
 // ---------------- 073: creating and editing content, confirm first, as the asker
 const statusOf = async (who, id) => ((await assist(who.token, `/assistant/proposals?ids=${id}`)).data || [])[0];
@@ -425,7 +491,7 @@ const [orgIb] = (await api(olive.token, '/items', { method: 'POST', body: { spac
 await api(olive.token, '/ideas', { method: 'POST', body: { board_id: orgIb.id, title: 'IDEA-ORG-SECRET-7731 raise ticket prices' } });
 a6 = await askA(pat, spaces.festival, '@Weft what ideas are there for water at the main stage?');
 check('Ideas: a #festival idea reaches the model for Pat in #festival, labelled as an ideas board with its status',
-  /\] ideas board \([^)]*\) "Festival ideas" in #festival: Ideas, 1 idea \/ Idea: Water refill point by the main stage \(new, 0 votes/.test(a6.calls[0]?.user || ''), (a6.calls[0]?.user || '').slice(0, 300));
+  /\] ideas board \([^)]*\) "Festival ideas" in #festival: Ideas, 1 idea(?: \/ |\n)Idea: Water refill point by the main stage \(new, 0 votes/.test(a6.calls[0]?.user || ''), (a6.calls[0]?.user || '').slice(0, 300));
 a6 = await askA(pat, await mine(pat), 'What ideas are there about ticket prices?');
 check('Ideas: an Organizers idea never reaches the model for Pat', !(a6.calls[0]?.user || '').includes('IDEA-ORG-SECRET'));
 a6 = await askA(olive, await mine(olive), 'What ideas are there about ticket prices?');

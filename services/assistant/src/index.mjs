@@ -25,7 +25,17 @@ const MASTER = Buffer.from(env('ASSIST_MASTER_KEY'), 'hex');
 if (MASTER.length !== 32) throw new Error('ASSIST_MASTER_KEY must be 32 bytes of hex');
 const API = env('POSTGREST_URL', 'http://postgrest:3000');
 const ASSISTANT_ID = '00000000-0000-4000-8000-00000000a001';
-const CALL_TIMEOUT_MS = Number(env('CALL_TIMEOUT_MS', '60000'));
+const CALL_TIMEOUT_MS = Number(env('CALL_TIMEOUT_MS', '120000'));
+// How much an Anthropic model may read for one question (characters; ~4 per token). The numbered items start
+// with up to EXCERPT_BUDGET between them, a short document whole; read_item and search may add up to READ_BUDGET
+// more. Other models (the local fallback) keep short excerpts. The whole question must finish inside DEADLINE_MS,
+// under the web server's 150 s wait.
+const EXCERPT_BUDGET = Number(env('ASSIST_EXCERPT_BUDGET_CHARS', '200000'));
+const READ_BUDGET = Number(env('ASSIST_READ_BUDGET_CHARS', '400000'));
+const MAX_ROUNDS = Number(env('ASSIST_MAX_ROUNDS', '5'));
+const DEADLINE_MS = Number(env('ASSIST_DEADLINE_MS', '130000'));
+const MAX_OUT = Number(env('ASSIST_MAX_OUTPUT_TOKENS', '16000'));
+const HISTORY = Number(env('ASSIST_HISTORY_MESSAGES', '12'));
 // Where personal keys are used. Set by the server, never by the person, so a personal setting cannot
 // point the assistant anywhere else (empty for Anthropic = the SDK's official endpoint).
 const PERSONAL_ANTHROPIC_URL = env('PERSONAL_ANTHROPIC_URL', '');
@@ -102,6 +112,19 @@ function excerpt(text, terms, max = 1200) {
   const hits = paras.filter((x) => terms.some((w) => x.toLowerCase().includes(w)));
   return (hits.length ? hits : paras).join(' / ').slice(0, max);
 }
+// For the larger budget: the whole text if it fits; otherwise the passage search-by-meaning found, then the
+// paragraphs that mention the question's words, in page order, then the start, up to max.
+function budgetText(full, terms, max, chunk = null) {
+  full = String(full || '');
+  if (full.length <= max) return { text: full, whole: true };
+  const paras = full.split(/\n+/);
+  const keep = new Set();
+  const head = chunk ? `${chunk}\n…\n` : '';
+  let used = head.length;
+  paras.forEach((x, k) => { if (used < max && terms.some((w) => x.toLowerCase().includes(w))) { keep.add(k); used += x.length + 1; } });
+  for (let k = 0; k < paras.length && used < max; k++) if (!keep.has(k)) { keep.add(k); used += paras[k].length + 1; }
+  return { text: head + paras.filter((_, k) => keep.has(k)).join('\n').slice(0, Math.max(0, max - head.length)), whole: false };
+}
 
 // Messages, documents and events matching the question, all read with the assistant token, so
 // row-level security (and, in a channel, the scope_space claim) bounds what can be found.
@@ -117,7 +140,7 @@ async function retrieve(token, question, spaceId, scoped, excludeId, projectId =
     // The team's own items before Weft's published help and admin pages (managed), newest first: the 6 kept are
     // then the likely ones, not whichever rows came first.
     (await rest(token, `/items?select=${ISELECT}&or=(title.wfts(english).${q},body_text.wfts(english).${q})&order=managed.asc,updated_at.desc&limit=6`))
-      .forEach((r) => put(`i${r.id}`, { type: 'item', ...r, text: excerpt(r.body_text, terms, r.kind === 'table' || r.kind === 'tasklist' ? 3500 : 1200) }));
+      .forEach((r) => put(`i${r.id}`, { type: 'item', ...r, terms, text: excerpt(r.body_text, terms, r.kind === 'table' || r.kind === 'tasklist' ? 3500 : 1200) }));
     (await rest(token, `/events?select=${ESELECT}&or=(title.wfts(english).${q},location.wfts(english).${q})&order=starts_at&limit=10`))
       .forEach((r) => put(`e${r.id}`, { type: 'event', ...r }));
     (await rest(token, `/records?select=${RSELECT}&or=(title.wfts(english).${q},body.wfts(english).${q})&order=at.desc&limit=8`))
@@ -140,7 +163,7 @@ async function retrieve(token, question, spaceId, scoped, excludeId, projectId =
     const rHits = hits.filter((h) => RKINDS.includes(h.source_type));
     if (mIds.length) (await rest(token, `/messages?select=${SELECT}&id=in.(${mIds.join(',')})`)).forEach(msg);
     if (iIds.length) (await rest(token, `/items?select=${ISELECT}&id=in.(${iIds.join(',')})`))
-      .forEach((r) => put(`i${r.id}`, { type: 'item', ...r, text: (chunkOf.get(r.id) || excerpt(r.body_text, terms)).replace(/^[^\n]*\n/, '') }));
+      .forEach((r) => put(`i${r.id}`, { type: 'item', ...r, terms, chunk: chunkOf.get(r.id)?.replace(/^[^\n]*\n/, '') || null, text: (chunkOf.get(r.id) || excerpt(r.body_text, terms)).replace(/^[^\n]*\n/, '') }));
     if (eIds.length) (await rest(token, `/events?select=${ESELECT}&id=in.(${eIds.join(',')})`)).forEach((r) => put(`e${r.id}`, { type: 'event', ...r }));
     if (rHits.length) {
       const want = new Set(rHits.map((h) => `${h.source_type}${h.source_id}`));
@@ -167,6 +190,8 @@ Example. Sources: [1] message in #festival, Olive, 2026-04-01 09:00: The info bo
 
 const ACT = `\n\nIf the person asks you to do something, you may propose it with a tool: send_message to post in a channel, create_event to add a new calendar event, change_event to change an event among the numbered items, create_item to make a new document, wiki page, spreadsheet, table or task list, edit_page to add to, rewrite or rename a document or wiki page among the numbered items, add_table_rows to add rows to a table among the numbered items, or add_tasks to add tasks to a task list among the numbered items. A proposal does nothing until the person confirms it, so say in one sentence what you are proposing. Only propose what was asked. Use the person's time zone for times they mention. You cannot delete anything, and you cannot change an existing spreadsheet (offer a new one instead).
 
+Some documents are shown only in part, marked "excerpt". When the answer or the change needs more of one, call read_item with its number first; when what you need is not among the numbered items at all, call search with a few distinctive words (it adds new numbered items). Read before you act: never replace a page's whole content unless you have seen all of it. Cite read or found items by their numbers as usual.
+
 When you are asked to make or add content, do not reply NOT_FOUND: write the content yourself from the request, the numbered items and what you generally know, and fill it in properly (real rows, real headings, not placeholders). Content you write does not need citations, but if you had to guess anything you could not check here (for example a school's exact dates), say so in one short sentence so the person can correct it. For a spreadsheet or table, give column names and every row; for a document or wiki page, Markdown.`;
 
 // Questions about the assistant itself ("can you make a spreadsheet?", "what can you do?").
@@ -178,10 +203,22 @@ function fmtTime(iso, tz) {
   catch { return iso; }
 }
 
-function prompt(question, sources, tz) {
-  const lines = sources.map((s, i) => {
+// Sizes each item for the prompt. 'full' (Anthropic): the excerpt budget shared out, short items whole, the rest
+// marked as excerpts the model can read in full. 'small': short excerpts, as before.
+function sizeItems(sources, mode) {
+  const items = sources.filter((s) => s.type === 'item');
+  for (const s of items) {
+    if (mode === 'small') { s.shown = s.text; continue; }
+    if (s.readFull) continue;   // already read in full this question
+    const per = Math.max(3500, Math.floor(EXCERPT_BUDGET / Math.max(1, items.length)));
+    const b = budgetText(s.body_text ?? s.text, s.terms || [], per, s.chunk);
+    s.shown = b.text; s.whole = b.whole;
+  }
+}
+function line(s, i, tz, mode = 'full') {
     const n = `[${i + 1}]`;
-    if (s.type === 'item') return `${n} ${({ wiki: 'wiki page', whiteboard: 'whiteboard', table: 'table', spreadsheet: 'spreadsheet', tasklist: 'task list', poll: 'poll', form: 'form', linklist: 'link list', addressbook: 'address book', decisionlog: 'decision log', qa: 'Q and A board (questions and answers; prefer the accepted answer, then the most upvoted)', checklist: 'checklist (its steps, then recent runs: how far each got and what was not done)', expenselist: 'expense list (who paid what for the group; the balances and the settle-up list are worked out by the database, so quote them rather than adding up yourself)', inventory: 'inventory (the things a group owns, where each is kept and who has it now)', goalset: 'goal set (goals with their key results, each as current of target and percent done; updated by hand, or counted as done tasks out of all tasks in a task list)', retro: 'retrospective (notes on what went well, what to improve and actions for a period; some notes are anonymous, so never guess who wrote a note)', ideaboard: 'ideas board (ideas people suggested, each with its status: new, planned, done or declined, how many votes it has, whether the task a planned idea became is open or done, and why a declined one was declined)', glossary: 'glossary (the words this group uses and what each means; use it to understand the question and the other items, and to explain a term)', meeting: 'meeting notes', file: 'file' })[s.kind] || 'document'} "${s.title}" in ${where(s.space)}: ${s.text || '(empty)'}`;
+    const part = mode === 'full' && s.type === 'item' && !s.whole ? ` (excerpt; read_item ${i + 1} reads all of it)` : '';
+    if (s.type === 'item') return `${n} ${({ wiki: 'wiki page', whiteboard: 'whiteboard', table: 'table', spreadsheet: 'spreadsheet', tasklist: 'task list', poll: 'poll', form: 'form', linklist: 'link list', addressbook: 'address book', decisionlog: 'decision log', qa: 'Q and A board (questions and answers; prefer the accepted answer, then the most upvoted)', checklist: 'checklist (its steps, then recent runs: how far each got and what was not done)', expenselist: 'expense list (who paid what for the group; the balances and the settle-up list are worked out by the database, so quote them rather than adding up yourself)', inventory: 'inventory (the things a group owns, where each is kept and who has it now)', goalset: 'goal set (goals with their key results, each as current of target and percent done; updated by hand, or counted as done tasks out of all tasks in a task list)', retro: 'retrospective (notes on what went well, what to improve and actions for a period; some notes are anonymous, so never guess who wrote a note)', ideaboard: 'ideas board (ideas people suggested, each with its status: new, planned, done or declined, how many votes it has, whether the task a planned idea became is open or done, and why a declined one was declined)', glossary: 'glossary (the words this group uses and what each means; use it to understand the question and the other items, and to explain a term)', meeting: 'meeting notes', file: 'file' })[s.kind] || 'document'} "${s.title}" in ${where(s.space)}${part}: ${(mode === 'full' ? s.shown : s.text) || '(empty)'}`;
     if (s.type === 'record') {
       if (s.kind === 'profile') return `${n} profile of ${s.title} (someone the person shares a space with): ${s.text || '(empty)'}`;
       if (s.kind === 'journal') return `${n} ${RLABEL.journal} "${s.title}": ${s.text || '(empty)'}`;
@@ -189,7 +226,10 @@ function prompt(question, sources, tz) {
     }
     if (s.type === 'event') return `${n} event "${s.title}" in ${where(s.space)}${s.project?.name ? ` (project ${s.project.name})` : ''}, ${fmtTime(s.starts_at, tz)} to ${fmtTime(s.ends_at, tz)}${s.location ? `, at ${s.location}` : ''}`;
     return `${n} message in ${where(s.space)}, ${s.author?.display_name}, ${s.created_at.slice(0, 16).replace('T', ' ')}: ${s.body}`;
-  });
+}
+function prompt(question, sources, tz, mode = 'full') {
+  sizeItems(sources, mode);
+  const lines = sources.map((s, i) => line(s, i, tz, mode));
   return `Sources:\n${lines.join('\n') || '(none)'}\n\nThe person's time zone is ${tz}. Question: ${question}`;
 }
 
@@ -199,6 +239,19 @@ const label = (s) => (s.type === 'record' ? (RCITE[s.kind] ? `${RCITE[s.kind]}: 
 function tools(channels, creatable = [], itemKinds = ['document', 'wiki', 'table', 'tasklist']) {
   const nullable = (desc) => ({ anyOf: [{ type: 'string' }, { type: 'null' }], description: desc });
   return [
+    {
+      name: 'read_item', strict: true,
+      description: 'Read the whole of a document, wiki page, table, spreadsheet, task list or other item among the numbered items (they may be shown only as an excerpt). Returns its full text.',
+      input_schema: { type: 'object', additionalProperties: false, required: ['source'], properties: {
+        source: { type: 'integer', description: 'The [n] number of the item.' } } },
+    },
+    {
+      name: 'search',
+      strict: true,
+      description: 'Search everything the person can see (in a channel: only that channel) for more messages, documents, events and records. Use a few distinctive words. The results are added as new numbered items.',
+      input_schema: { type: 'object', additionalProperties: false, required: ['query'], properties: {
+        query: { type: 'string', description: 'A few words to look for.' } } },
+    },
     {
       name: 'send_message', strict: true,
       description: 'Propose posting a message in a channel. Nothing is sent until the person confirms.',
@@ -264,25 +317,60 @@ function tools(channels, creatable = [], itemKinds = ['document', 'wiki', 'table
 // ---------------------------------------------------------------- providers
 class Unavailable extends Error {}
 
-async function callProvider(p, system, user, toolDefs = null) {
+// opts.history: earlier turns of this conversation ([{role, content}], oldest first, starting with 'user').
+// opts.runTool(name, input) -> string for reading tools (read_item, search), or null for an action tool, which
+// becomes a proposal (collected in calls) after the run. opts.deadline: epoch ms the whole run must end by.
+const READ_TOOLS = new Set(['read_item', 'search']);
+async function callProvider(p, system, user, toolDefs = null, opts = {}) {
   const t0 = Date.now();
+  const history = opts.history || [];
   const key = p.key_ciphertext ? decrypt(p.key_ciphertext) : null;
   if (p.kind === 'anthropic') {
     if (!key) throw new Unavailable('no key set');
     const client = new Anthropic({ apiKey: key, timeout: CALL_TIMEOUT_MS, maxRetries: 1, ...(p.base_url ? { baseURL: p.base_url } : {}) });
     try {
-      // Server-side refusal fallback on by default, per Anthropic's guidance for this model family.
-      const r = await client.beta.messages.create({
-        model: p.model, max_tokens: 2000, system,
-        output_config: { effort: p.effort || 'low' },
-        betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default',
-        messages: [{ role: 'user', content: user }],
-        ...(toolDefs ? { tools: toolDefs, tool_choice: { type: 'auto' } } : {}),
-      });
-      if (r.stop_reason === 'refusal') return { refused: true, text: '', model: r.model, inTok: r.usage.input_tokens, outTok: r.usage.output_tokens, ms: Date.now() - t0 };
-      const text = r.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
-      const calls = r.content.filter((b) => b.type === 'tool_use').map((b) => ({ name: b.name, input: b.input }));
-      return { text, calls, model: r.model, inTok: r.usage.input_tokens, outTok: r.usage.output_tokens, ms: Date.now() - t0 };
+      // A few rounds: the model may read items in full or search before it answers or proposes. Each round's
+      // whole response (thinking blocks included) goes back unchanged. Prompt caching keeps the repeated prefix cheap.
+      const messages = [...history, { role: 'user', content: user }];
+      const calls = []; let text = ''; let model = p.model; let rounds = 0;
+      const tok = { in: 0, out: 0, cost: 0 };
+      const deadline = opts.deadline || (Date.now() + CALL_TIMEOUT_MS);
+      for (;;) {
+        rounds++;
+        const left = deadline - Date.now();
+        if (left < 5000) break;
+        // Server-side refusal fallback on by default, per Anthropic's guidance for this model family.
+        const r = await client.beta.messages.create({
+          model: p.model, max_tokens: MAX_OUT, system,
+          output_config: { effort: p.effort || 'low' },
+          betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default',
+          cache_control: { type: 'ephemeral' },
+          messages,
+          ...(toolDefs ? { tools: toolDefs, tool_choice: { type: 'auto' } } : {}),
+        }, { timeout: Math.min(CALL_TIMEOUT_MS, left) });
+        model = r.model;
+        const u = r.usage || {};
+        const cw = u.cache_creation_input_tokens || 0; const cr = u.cache_read_input_tokens || 0;
+        tok.in += (u.input_tokens || 0) + cw + cr; tok.out += u.output_tokens || 0;
+        tok.cost += (u.input_tokens || 0) + 1.25 * cw + 0.1 * cr;   // input-price equivalents
+        if (r.stop_reason === 'refusal') return { refused: true, text: '', model, inTok: tok.in, outTok: tok.out, inCost: tok.cost, ms: Date.now() - t0 };
+        const said = r.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
+        if (said) text = said;
+        const uses = r.content.filter((b) => b.type === 'tool_use');
+        if (r.stop_reason !== 'tool_use' || !uses.length) break;
+        const results = [];
+        for (const b of uses) {
+          const got = READ_TOOLS.has(b.name) && opts.runTool ? await opts.runTool(b.name, b.input || {}) : null;
+          if (got === null) {
+            calls.push({ name: b.name, input: b.input });
+            results.push({ type: 'tool_result', tool_use_id: b.id, content: 'Proposed. Nothing happens until the person confirms it.' });
+          } else results.push({ type: 'tool_result', tool_use_id: b.id, content: got });
+        }
+        // Only proposals this round, or out of rounds: stop; the answer is what was said, plus the proposal cards.
+        if (rounds >= MAX_ROUNDS || uses.every((b) => !READ_TOOLS.has(b.name))) break;
+        messages.push({ role: 'assistant', content: r.content }, { role: 'user', content: results });
+      }
+      return { text, calls, model, rounds, inTok: tok.in, outTok: tok.out, inCost: tok.cost, ms: Date.now() - t0 };
     } catch (e) {
       if (e instanceof Anthropic.RateLimitError) throw new Unavailable('rate limited');
       if (e instanceof Anthropic.AuthenticationError) throw new Unavailable('key rejected');
@@ -293,7 +381,7 @@ async function callProvider(p, system, user, toolDefs = null) {
   }
   // Ollama and OpenAI-compatible endpoints: plain HTTP.
   const ctl = AbortSignal.timeout(CALL_TIMEOUT_MS);
-  const messages = [{ role: 'system', content: system }, { role: 'user', content: user }];
+  const messages = [{ role: 'system', content: system }, ...history, { role: 'user', content: user }];
   let r;
   try {
     r = p.kind === 'ollama'
@@ -307,13 +395,13 @@ async function callProvider(p, system, user, toolDefs = null) {
     : { text: (d.choices?.[0]?.message?.content || '').trim(), model: d.model || p.model, inTok: d.usage?.prompt_tokens || 0, outTok: d.usage?.completion_tokens || 0, ms: Date.now() - t0 };
 }
 
-const cost = (p, r) => (r.inTok * Number(p.price_in) + r.outTok * Number(p.price_out)) / 1e6;
+const cost = (p, r) => ((r.inCost ?? r.inTok) * Number(p.price_in) + r.outTok * Number(p.price_out)) / 1e6;
 
 // The asker's own key (if allowed and set), then primary, then secondary. Failover on unavailability
 // (no key, cap reached, timeouts, rate limits, server errors), never on a refusal: a declined question
 // is not re-asked elsewhere.
 const slotName = (p) => (p.slot === 'personal' ? 'your own key' : p.slot);
-async function answer(ctx, system, user, toolDefs = null) {
+async function answer(ctx, system, user, toolDefs = null, opts = {}) {
   const { rows: providers } = await db.query('select * from weft_private.providers_for_call()');
   const { rows: [mine] } = await db.query('select * from weft_private.personal_for_call($1)', [ctx.asker]);
   if (mine) providers.unshift({ ...mine, slot: 'personal', base_url: mine.kind === 'anthropic' ? (PERSONAL_ANTHROPIC_URL || null) : PERSONAL_OPENAI_URL });
@@ -328,7 +416,10 @@ async function answer(ctx, system, user, toolDefs = null) {
     }
     try {
       // Only Anthropic models get the action tools; the fallback answers read-only.
-      const r = await callProvider(p, p.kind === 'anthropic' && toolDefs ? system + ACT : system, user, p.kind === 'anthropic' ? toolDefs : null);
+      // user may be a function of the provider kind: Anthropic models get the large prompt, others short excerpts.
+      const u = typeof user === 'function' ? user(p.kind) : user;
+      const r = await callProvider(p, p.kind === 'anthropic' && toolDefs ? system + ACT : system, u, p.kind === 'anthropic' ? toolDefs : null,
+        p.kind === 'anthropic' ? opts : { history: opts.history });
       const c = cost(p, r);
       await db.query('select weft_private.run_log($1,$2,$3,$4,$5,$6,true,$7,$8,$9,$10,$11,null)',
         [ctx.asker, ctx.space, ctx.question, p.slot, p.kind, r.model, reason, r.inTok, r.outTok, c, r.ms]);
@@ -353,6 +444,66 @@ async function officeReady(userToken) {
   return ready;
 }
 
+// ---------------------------------------------------------------- conversation memory and reading
+// The earlier turns of this conversation, so follow-ups ("make it a table instead") work. In the person's own Weft
+// conversation, every message; elsewhere, only @Weft questions and Weft's answers, in the same chat (general or
+// project). Read with the same (scoped) token as everything else. Old citation numbers are dropped: they pointed
+// at that answer's own numbered items.
+async function conversation(token, q, inAssistant, asker) {
+  if (!HISTORY) return [];
+  const proj = q.project_id ? `eq.${q.project_id}` : 'is.null';
+  const only = inAssistant ? '' : `&or=(author_id.eq.${ASSISTANT_ID},body.ilike.*@weft*)`;
+  const rows = (await rest(token, `/messages?select=author_id,body,meta,author:users(display_name)&space_id=eq.${q.space_id}&project_id=${proj}&created_at=lt.${encodeURIComponent(q.created_at)}&id=neq.${q.id}${only}&order=created_at.desc&limit=${HISTORY}`).catch(() => [])).reverse();
+  const turns = [];
+  for (const m of rows) {
+    const role = m.author_id === ASSISTANT_ID ? 'assistant' : 'user';
+    let text = String(m.body || '').replace(/\[\d{1,2}\]/g, '').trim().slice(0, 4000);
+    if (role === 'user' && m.author_id !== asker) text = `${m.author?.display_name || 'Someone'} asked: ${text}`;
+    if (role === 'assistant' && m.meta?.proposals?.length) text += `\n(I proposed: ${m.meta.proposals.map((x) => x.summary).join('; ')})`;
+    if (!text) continue;
+    const last = turns[turns.length - 1];
+    if (last?.role === role) last.content += `\n\n${text}`; else turns.push({ role, content: text });
+  }
+  while (turns.length && turns[0].role !== 'user') turns.shift();
+  while (turns.length && turns[turns.length - 1].role !== 'assistant') turns.pop();
+  return turns;
+}
+
+// read_item and search for the model, bounded by READ_BUDGET characters per question. Everything is read with the
+// question's token, so the model can only reach what the asker (in a channel: that channel) can see.
+function makeReader(token, q, inAssistant, sources, tz) {
+  let used = 0;
+  const key = (x) => `${x.type}${x.kind || ''}${x.id}`;
+  return async (name, input) => {
+    const left = READ_BUDGET - used;
+    if (left <= 0) return 'The reading limit for this question is used up. Answer with what you have, and say what you could not read.';
+    if (name === 'read_item') {
+      const n = Number(input.source); const it = sources[n - 1];
+      if (!it) return `There is no item [${n}].`;
+      const full = it.type === 'item' ? String(it.body_text ?? it.text ?? '') : it.type === 'record' ? String(it.body ?? it.text ?? '') : line(it, n - 1, tz);
+      const text = full.slice(0, left); used += text.length;
+      if (it.type === 'item' && text.length === full.length) { it.readFull = true; it.whole = true; it.shown = full; }
+      return `[${n}] all of "${it.title || it.type}"${text.length < full.length ? ` (the first ${text.length} of ${full.length} characters: the reading limit)` : ''}:\n${text || '(empty)'}`;
+    }
+    if (name === 'search') {
+      const query = String(input.query || '').trim().slice(0, 200);
+      if (!query) return 'Give a few words to search for.';
+      const have = new Set(sources.map(key));
+      const found = (await retrieve(token, query, q.space_id, !inAssistant, q.id, q.project_id)).filter((x) => !have.has(key(x))).slice(0, 12);
+      if (!found.length) return 'Nothing more found for that.';
+      const per = Math.max(3500, Math.floor(Math.min(left, 120000) / found.length));
+      const lines = found.map((x) => {
+        if (x.type === 'item') { const b = budgetText(x.body_text ?? x.text, x.terms || [], per, x.chunk); x.shown = b.text; x.whole = b.whole; }
+        sources.push(x);
+        return line(x, sources.length - 1, tz);
+      });
+      const out = lines.join('\n'); used += out.length;
+      return `New numbered items:\n${out}`;
+    }
+    return null;
+  };
+}
+
 // ---------------------------------------------------------------- ask
 const inflight = new Set();
 const validTz = (tz) => { try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return tz; } catch { return 'UTC'; } };
@@ -361,7 +512,8 @@ async function ask(user, messageId, tzIn) {
   if (!/^[0-9a-f-]{36}$/.test(messageId || '')) return [400, { error: 'message_id required' }];
   const tz = validTz(tzIn || 'UTC');
   // Read the question as the asker: RLS decides whether it exists for them.
-  const [q] = await rest(user.token, `/messages?id=eq.${messageId}&select=id,space_id,project_id,author_id,body,space:spaces(kind,name)`);
+  const started = Date.now();
+  const [q] = await rest(user.token, `/messages?id=eq.${messageId}&select=id,space_id,project_id,author_id,body,created_at,space:spaces(kind,name)`);
   if (!q) return [404, { error: 'no such message' }];
   if (q.author_id !== user.id) return [403, { error: 'you can only ask with your own message' }];
   const inAssistant = q.space.kind === 'assistant';
@@ -388,8 +540,12 @@ async function ask(user, messageId, tzIn) {
       .map((s) => ({ id: s.id, name: s.kind === 'personal' ? 'personal' : s.name }))
       .sort((a, b) => (b.name === 'personal') - (a.name === 'personal'));   // personal first: the safe default
     const itemKinds = ['document', 'wiki', ...(await officeReady(user.token) ? ['spreadsheet'] : []), 'table', 'tasklist'];
-    const result = await answer({ asker: user.id, space: q.space_id, question: q.id }, SYSTEM + guide.text, prompt(question, sources, tz),
-      tools(chans.map((c) => c.name), creatable.map((c) => c.name), itemKinds));
+    const history = await conversation(token, q, inAssistant, user.id);
+    const reader = makeReader(token, q, inAssistant, sources, tz);
+    const result = await answer({ asker: user.id, space: q.space_id, question: q.id }, SYSTEM + guide.text,
+      (kind) => prompt(question, sources, tz, kind === 'anthropic' ? 'full' : 'small'),
+      tools(chans.map((c) => c.name), creatable.map((c) => c.name), itemKinds),
+      { history, runTool: reader, deadline: started + DEADLINE_MS });
 
     let body; let citations = []; const proposals = [];
     if (result.unavailable) {
@@ -410,6 +566,10 @@ async function ask(user, messageId, tzIn) {
         citations = used.map((n) => { const s = sources[n - 1]; return { type: s.type, id: s.id, space_id: s.space_id, label: label(s), ...(s.type === 'record' ? { kind: s.kind, ref: s.ref } : {}) }; });
       } else if (proposals.length) {
         body = result.text && !notFound ? result.text.replace(/\[\d{1,2}\]/g, '').trim() : 'Here is what I can do. Nothing happens until you confirm.';
+      } else if (!notFound && result.text && result.kind === 'anthropic' && history.length) {
+        // A follow-up answered from the conversation itself ("what did I just ask you?", "say that shorter"): there
+        // is nothing new to cite. Only for the main model, and only with earlier turns; otherwise no citation, no answer.
+        body = result.text.replace(/\[\d{1,2}\]/g, '').trim();
       } else if (CAPABILITY.test(question)) {
         // The model holds to NOT_FOUND for questions about itself; answer those plainly instead.
         body = CAN_DO;
@@ -507,6 +667,8 @@ async function contentProposal(call, i, sources, asker, spaceId, scope, creatabl
     if (!s || s.type !== 'item' || !['document', 'wiki'].includes(s.kind) || s.managed || !editable(s)) return null;
     const markdown = String(i.markdown || '').slice(0, 200000);
     const mode = i.mode === 'replace' ? 'replace' : 'append';
+    // A rewrite only from a page seen whole (shown whole, or read with read_item): never rebuilt from an excerpt.
+    if (mode === 'replace' && markdown.trim() && !s.whole) return null;
     const title = i.title ? String(i.title).trim().slice(0, 200) : null;
     if (!markdown.trim() && !title) return null;
     const parts = [];
