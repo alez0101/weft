@@ -40,3 +40,9 @@ owners turned AI agents off). The key and the address (`<your Weft address>/mcp`
 the agent's MCP client with them (HTTP transport, `Authorization: Bearer <key>`). Keys last a year; **Make a
 new key** replaces the old one, **Disconnect** ends it, and so do removing the agent or giving it to another
 owner. The owner sees it under Connected apps and can disconnect it there. Only the key's hash is stored.
+
+Anyone can also make a key for their own agent from Connected apps (076, `POST /oauth/connections/keys`, only
+from the Weft app: it needs the `X-Weft-Request` header and the person's own token, never an AI app's token).
+These keys are separate from the personal agents listed here: any MCP client works, read only or read and
+write, up to 20 per person, a year each. Both kinds show ready-to-paste setup for Claude Code, Hermes Agent,
+OpenClaw and a generic JSON block.

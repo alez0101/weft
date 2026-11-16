@@ -10,6 +10,7 @@
 //   POST /oauth/approve                        the person's answer (with their Weft token) -> a code
 //   POST /oauth/token                          code + PKCE -> tokens; refresh tokens rotate
 //   GET/DELETE /oauth/connections[/id]         the person's own connected apps (with their Weft token)
+//   POST /oauth/connections/keys                 a key for an agent that cannot sign in: {name, access, days} (076)
 //   POST /mcp                                  the tools
 //
 // Every tool call runs as the person: the service mints a 5-minute Weft token for them and calls the
@@ -69,7 +70,8 @@ async function weftUser(req) {
   if (!m) return null;
   try {
     const { payload } = await jwtVerify(m[1], JWT_SECRET, { algorithms: ['HS256'] });
-    return payload.role === 'weft_user' && payload.sub ? payload.sub : null;
+    // Never an AI app's own token: only the person, in Weft, approves apps and makes keys.
+    return payload.role === 'weft_user' && payload.sub && payload.agent !== true ? payload.sub : null;
   } catch { return null; }
 }
 // Every token for a connected app is marked agent = true (070). The database then hides channels whose owners
@@ -193,6 +195,25 @@ async function connections(req, res, id) {
   const user = await weftUser(req);
   if (!user) return send(res, 401, { error: 'Sign in first.' });
   if (req.method === 'GET' && !id) return send(res, 200, (await db.query('select * from weft_private.mcp_grants_of($1)', [user])).rows);
+  // A key for an agent that cannot do the sign-in (076): shown once, stored hashed.
+  if (req.method === 'POST' && id === 'keys') {
+    if (req.headers['x-weft-request'] !== '1') return send(res, 403, { error: 'Make keys from Weft.' });
+    const b = await readBody(req);
+    const name = String(b.name || '').replace(/[\u0000-\u001f\u007f]/g, '').trim();
+    const access = b.access === 'write' ? 'write' : b.access === 'read' ? 'read' : null;
+    const days = Math.max(1, Math.min(365, Number(b.days) || 365));
+    if (!name || name.length > 60) return send(res, 400, { error: 'Give the agent a name (up to 60 characters).' });
+    if (!access) return send(res, 400, { error: 'Choose read only, or read and write.' });
+    const token = `weft_key_${crypto.randomBytes(32).toString('base64url')}`;
+    try {
+      const { rows: [r] } = await db.query('select weft_private.mcp_key_create($1,$2,$3,$4,$5) as id', [user, name, access, sha(token), days]);
+      log('key made for an agent', access);
+      return send(res, 201, { id: r.id, token, url: `${baseOf(req)}/mcp`, access, days });
+    } catch (e) {
+      if (e.code === '54000' || e.code === '22023' || e.code === '42501') return send(res, 400, { error: e.message });
+      throw e;
+    }
+  }
   if (req.method === 'DELETE' && id && UUID.test(id)) {
     const { rows: [r] } = await db.query('select weft_private.mcp_grant_revoke($1, $2) as ok', [user, id]);
     return r.ok ? send(res, 200, { ok: true }) : send(res, 404, { error: 'No such connection.' });

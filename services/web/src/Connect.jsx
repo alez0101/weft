@@ -4,6 +4,7 @@
 // Approving sends the person back to the app with a one-time code; the app never sees their password.
 import { useEffect, useRef, useState } from 'react';
 import { oauth } from './api.js';
+import AgentSetup from './AgentSetup.jsx';
 
 export const CONNECTING = location.pathname === '/oauth/authorize';
 
@@ -62,6 +63,9 @@ export function ConnectedApps({ onClose }) {
   const ref = useRef(null);
   const [rows, setRows] = useState(null);
   const [status, setStatus] = useState('');
+  const [made, setMade] = useState(null);   // a key just made: shown once
+  const [kname, setKname] = useState('');
+  const [kaccess, setKaccess] = useState('read');
   const load = () => oauth('/connections').then(setRows).catch((e) => setStatus(e.message));
   useEffect(() => { load(); ref.current?.showModal(); }, []);
   const when = (t) => new Date(t).toLocaleString();
@@ -88,6 +92,23 @@ export function ConnectedApps({ onClose }) {
             </li>
           ))}
         </ul>
+      )}
+      <h3 className="admin-sub">Connect an agent with a key</h3>
+      <p className="admin-lead">For an AI agent that cannot sign in through a browser, such as Claude Code, Hermes Agent or OpenClaw. It works in Weft as you, with the same rules: it sees only what you can see, makes changes only in your Personal space, and never deletes anything.</p>
+      {made ? (
+        <>
+          <AgentSetup url={made.url} token={made.token} />
+          <p><button className="btn btn--sm" type="button" onClick={() => setMade(null)}>Done</button></p>
+        </>
+      ) : (
+        <form className="key-form" onSubmit={async (e) => {
+          e.preventDefault(); setStatus('');
+          try { const r = await oauth('/connections/keys', { method: 'POST', body: { name: kname, access: kaccess } }); setMade(r); setKname(''); load(); } catch (err) { setStatus(err.message); }
+        }}>
+          <label>Agent name<input value={kname} maxLength={60} required onChange={(e) => setKname(e.target.value)} placeholder="My Hermes" /></label>
+          <label>Access<select value={kaccess} onChange={(e) => setKaccess(e.target.value)}><option value="read">Read only</option><option value="write">Read and write</option></select></label>
+          <button className="btn btn--primary btn--sm" type="submit" disabled={!kname.trim()}>Make a key</button>
+        </form>
       )}
       {status && <p className="slot-status" role="status">{status}</p>}
     </dialog>

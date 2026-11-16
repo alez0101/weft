@@ -1,3 +1,4 @@
+import { SignJWT } from 'jose';
 // Connector suite (services/mcp). Runs inside the test stack's network (tests/run.sh starts it):
 //   MCP = the connector directly, WEB = nginx (to check the routes people and apps use), AUTH = test sign-in.
 // Proves: discovery documents; registration only for allowed redirect addresses; the consent request is
@@ -380,6 +381,34 @@ let pageId;
   check('Agent key: ...and a new key acts for the new owner', (await call(await mcpClient(k4.data.token), 'whoami')).data.name === 'Pat Public');
   await adm(`/assistant/admin/agents/${agentId}`, 'DELETE');
   check('Agent key: removing the agent ends its key', await mcpStatus(k4.data.token) === 401);
+}
+
+// ---------- keys anyone can make for their own agent (076)
+{
+  const mk = (who, body, extra = {}) => http('/oauth/connections/keys', { method: 'POST', body, headers: { Authorization: `Bearer ${who.token}`, 'X-Weft-Request': '1', ...extra } });
+  const r = await mk(pat, { name: 'Pat bot', access: 'read' });
+  check('Keys: Pat makes a read-only key for her agent, shown once with the /mcp address', r.status === 201 && /^weft_key_[\w-]{40,}$/.test(r.data.token || '') && /\/mcp$/.test(r.data.url) && r.data.access === 'read', r.data);
+  const pc = await mcpClient(r.data.token);
+  const who = await call(pc, 'whoami');
+  check('Keys: the agent works as Pat, read only', who.data.name === 'Pat Public' && who.data.access === 'read only', who.data);
+  const tl = (await pc.listTools()).tools.map((t) => t.name);
+  check('Keys: a read-only key has no write tools', !tl.includes('create_page') && tl.includes('search'), tl.join(','));
+  const conns = (await http('/oauth/connections', { headers: { Authorization: `Bearer ${pat.token}` } })).data;
+  const mine = conns.find((x) => x.client_name === 'Pat bot');
+  check('Keys: it is listed under Pat\'s Connected apps', mine?.access === 'read', conns);
+  check('Keys: Olive does not see Pat\'s key', !JSON.stringify((await http('/oauth/connections', { headers: { Authorization: `Bearer ${olive.token}` } })).data).includes('Pat bot'));
+  check('Keys: a name is required', (await mk(pat, { name: '  ', access: 'read' })).status === 400);
+  check('Keys: access must be read or write', (await mk(pat, { name: 'x', access: 'admin' })).status === 400);
+  check('Keys: only from Weft itself (the request header)', (await http('/oauth/connections/keys', { method: 'POST', body: { name: 'x', access: 'read' }, headers: { Authorization: `Bearer ${pat.token}` } })).status === 403);
+  const agentTok = await new SignJWT({ role: 'weft_user', agent: true }).setProtectedHeader({ alg: 'HS256', typ: 'JWT' }).setSubject(pat.user.id).setIssuedAt().setExpirationTime('60s').sign(new TextEncoder().encode(process.env.JWT_SECRET));
+  check('Keys: an AI app\'s own token cannot make keys or list connections', (await mk({ token: agentTok }, { name: 'sneaky', access: 'write' })).status === 401
+    && (await http('/oauth/connections', { headers: { Authorization: `Bearer ${agentTok}` } })).status === 401);
+  const w = await mk(olive, { name: 'Olive writer', access: 'write' });
+  const oc = await mcpClient(w.data.token);
+  check('Keys: a read-and-write key may create in Personal', !(await call(oc, 'create_page', { channel: 'personal', kind: 'document', title: 'From a key', markdown: 'hi' })).error);
+  check('Keys: ...but never in a channel', (await call(oc, 'create_page', { channel: 'festival', kind: 'document', title: 'Key in festival', markdown: 'x' })).error);
+  await http(`/oauth/connections/${mine.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${pat.token}` } });
+  check('Keys: Disconnect ends the key', await mcpStatus(r.data.token) === 401);
 }
 
 const w = Math.max(...results.map((r) => r.name.length));

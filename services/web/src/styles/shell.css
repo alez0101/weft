@@ -1265,3 +1265,15 @@ select.idea-status:focus-visible { outline: 2px solid var(--color-focus); outlin
   .shell[data-full] .docs.has-open .docs-head { padding: 4px var(--space-xs); }
   .shell[data-full] .tab:not(.is-active):not(#tab-home) { padding-right: var(--space-3xs); }
 }
+
+/* 076: setting up an agent with a key */
+.agent-setup { display: grid; gap: var(--space-xs); margin-top: var(--space-xs); }
+.agent-setup-pair { display: grid; grid-template-columns: auto 1fr; gap: var(--space-2xs) var(--space-sm); align-items: center; margin: 0; }
+.agent-setup-pair dt { color: var(--color-ink-2); font-weight: 500; font-size: var(--text-sm); }
+.agent-setup-pair dd { margin: 0; display: flex; gap: var(--space-xs); align-items: center; min-width: 0; }
+.agent-setup-pair code { overflow-wrap: anywhere; font-size: var(--text-xs); }
+.agent-setup-tabs { display: flex; flex-wrap: wrap; gap: var(--space-2xs); }
+.agent-setup-code { margin: 0; padding: var(--space-sm); border-radius: var(--radius-input); background: var(--color-paper-2); box-shadow: inset 0 0 0 1px var(--color-rule); font-size: var(--text-xs); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 16rem; overflow: auto; }
+.key-form { display: grid; gap: var(--space-xs); grid-template-columns: 1fr auto auto; align-items: end; margin-top: var(--space-sm); }
+.key-form label { display: grid; gap: var(--space-3xs); color: var(--color-ink-2); font-size: var(--text-sm); font-weight: 500; }
+@media (max-width: 560px) { .key-form { grid-template-columns: 1fr; } }

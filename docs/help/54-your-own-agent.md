@@ -28,8 +28,9 @@ If your agent cannot answer (it is switched off, or it is down), a short note sa
 
 ### Letting your agent use Weft
 
-An admin can also give your agent **Weft access** (Settings → Personal agents). With it, your agent can search
-and read what you can see in Weft, and create or change documents, tasks and events in your **Personal**
-space, the same way a connected app like Claude does. It never deletes anything, and it cannot write in
-channels; you move what it makes into a channel yourself. It appears under **Connected apps** in your account
-menu, where you can disconnect it at any time.
+You can do this yourself: in **Connected apps** (account menu), make a key under **Connect an agent with a key**
+and paste the setup it shows into your agent (see **Connecting AI apps**). An admin can also give an agent
+added here a key from Settings → Personal agents. Either way the agent can search and read what you can see in
+Weft, and create or change documents, tasks and events in your **Personal** space, the same way a connected app
+like Claude does. It never deletes anything, and it cannot write in channels; you move what it makes into a
+channel yourself. You can disconnect it at any time under **Connected apps**.

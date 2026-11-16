@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import { api, assistant } from './api.js';
 import { AdminUsers } from './People.jsx';
+import AgentSetup from './AgentSetup.jsx';
 
 const KIND_LABEL = { anthropic: 'Anthropic', openai: 'OpenAI-compatible', ollama: 'Ollama' };
 const usd = (n) => (n === null || n === undefined || n === '' ? '' : `$${Number(n).toFixed(2)}`);
@@ -315,14 +316,10 @@ function WeftAccess({ agent, onChanged }) {
         ? `Connected until ${new Date(w.expires_at).toLocaleDateString()}${w.last_used_at ? `, last used ${new Date(w.last_used_at).toLocaleString()}` : ', not used yet'}. It reads what ${agent.owner_name} can see and writes only in their Personal space. ${agent.owner_name} can also disconnect it under Connected apps.`
         : `Not connected. With access, the agent can search and read what ${agent.owner_name} can see in Weft, and create or change documents, tasks and events in their Personal space, never deleting anything.`}</p>
       {shown ? (
-        <div className="fields">
-          <p className="key-state"><b>Copy these now; the key is not shown again.</b> Give them to the agent as an MCP server (HTTP), with the key sent as a Bearer token.</p>
-          <label htmlFor={`aa-url-${agent.id}`}>Address</label>
-          <input id={`aa-url-${agent.id}`} readOnly value={url} onFocus={(e) => e.target.select()} />
-          <label htmlFor={`aa-key-${agent.id}`}>Key</label>
-          <input id={`aa-key-${agent.id}`} readOnly value={shown} onFocus={(e) => e.target.select()} />
+        <>
+          <AgentSetup url={url} token={shown} />
           <span><button className="btn btn--sm" type="button" onClick={() => { setShown(null); onChanged(); }}>Done</button></span>
-        </div>
+        </>
       ) : (
         <span className="pair">
           <button className="btn btn--sm" disabled={busy} onClick={() => go('POST')}>{w.connected ? 'Make a new key' : 'Give access'}</button>

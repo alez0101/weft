@@ -33,3 +33,18 @@ Other apps that support MCP connectors (Claude Desktop, Claude Code and others) 
 Open your account menu (your initial, top right) and choose **Connected apps**. Each app shows what it may do and when it was last used. Press **Disconnect** and it stops working at once. You can connect it again later.
 
 If an admin disables your account, every app connected to it stops too.
+
+### Agents that cannot sign in: connect with a key
+
+Some agents (Claude Code, Hermes Agent, OpenClaw and other MCP clients that run on a computer or server) cannot
+open the sign-in page. Give them a key instead:
+
+1. Open your account menu (your initial, top right) and choose **Connected apps**.
+2. Under **Connect an agent with a key**, name the agent, choose **Read only** or **Read and write**, and press
+   **Make a key**.
+3. Copy the address and key, or pick your agent (Claude Code, Hermes Agent, OpenClaw, or Other) and copy the
+   ready-made setup. **The key is shown only once.**
+
+The agent then works in Weft as you, with the same rules as any connected app: it sees only what you can see,
+makes changes only in your Personal space, and never deletes anything. A key lasts a year. It is listed under
+Connected apps, where **Disconnect** ends it at once. If a key leaks, disconnect it and make a new one.
