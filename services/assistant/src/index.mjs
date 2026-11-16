@@ -201,7 +201,10 @@ const CAN_DO = 'Here is what I can do. Ask me to make or change something and I 
 
 // Added to the instructions when an admin has turned web search on (074).
 const WEB = `\n\nYou can also search the web with web_search, but only for facts about the outside world that are not in the numbered items (public dates such as a school district's calendar, places, opening hours, how-tos). Look in the numbered items first. Search with general words; never put private details from the numbered items into a search. The web pages you use are linked automatically; keep citing numbered items with [n]. When an answer or something you create relies on the web, say so in a few words.`;
-const WEB_TOOL = { type: 'web_search_20260209', name: 'web_search', max_uses: Number(env('ASSIST_WEB_MAX_USES', '3')) };
+// The basic search tool, on purpose: the newer web_search_20260209 filters results through code execution and,
+// measured 2026-11-16, returned text with no citations (and ~45 % more input tokens, ~5x slower). Weft links what
+// an answer relies on, so it needs the citations the basic tool gives.
+const WEB_TOOL = { type: 'web_search_20250305', name: 'web_search', max_uses: Number(env('ASSIST_WEB_MAX_USES', '3')) };
 
 function fmtTime(iso, tz) {
   try { return new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(iso)); }
@@ -339,6 +342,7 @@ async function callProvider(p, system, user, toolDefs = null, opts = {}) {
       const messages = [...history, { role: 'user', content: user }];
       const calls = []; let text = ''; let model = p.model; let rounds = 0;
       const web = new Map();   // url -> title, from the citations of the model's text
+      const searched = [];     // every result of its searches, for when nothing was quoted (e.g. a spreadsheet it wrote)
       let useWeb = !!opts.web;
       const tok = { in: 0, out: 0, cost: 0 };
       const deadline = opts.deadline || (Date.now() + CALL_TIMEOUT_MS);
@@ -377,6 +381,9 @@ async function callProvider(p, system, user, toolDefs = null, opts = {}) {
         for (const b of r.content) for (const c of (b.type === 'text' && b.citations) || []) {
           if (c.type === 'web_search_result_location' && /^https?:\/\//.test(c.url || '') && !web.has(c.url)) web.set(c.url, String(c.title || '').slice(0, 120));
         }
+        for (const b of r.content) if (b.type === 'web_search_tool_result' && Array.isArray(b.content)) {
+          for (const x of b.content) if (x.type === 'web_search_result' && /^https?:\/\//.test(x.url || '')) searched.push({ url: x.url, title: String(x.title || '').slice(0, 120) });
+        }
         // A server tool (web search) that ran long: send the turn back as it is and let the model continue.
         if (r.stop_reason === 'pause_turn' && rounds < MAX_ROUNDS) { messages.push({ role: 'assistant', content: r.content }); continue; }
         const uses = r.content.filter((b) => b.type === 'tool_use');
@@ -393,7 +400,7 @@ async function callProvider(p, system, user, toolDefs = null, opts = {}) {
         if (rounds >= MAX_ROUNDS || uses.every((b) => !READ_TOOLS.has(b.name))) break;
         messages.push({ role: 'assistant', content: r.content }, { role: 'user', content: results });
       }
-      return { searches: tok.searches || 0, text, calls, model, rounds, web: [...web].slice(0, 8).map(([url, title]) => ({ url, title })), inTok: tok.in, outTok: tok.out, inCost: tok.cost, ms: Date.now() - t0 };
+      return { searches: tok.searches || 0, text, calls, model, rounds, web: (web.size ? [...web].slice(0, 8).map(([url, title]) => ({ url, title })) : [...new Map(searched.map((x) => [x.url, x])).values()].slice(0, 3)), inTok: tok.in, outTok: tok.out, inCost: tok.cost, ms: Date.now() - t0 };
     } catch (e) {
       if (e instanceof Anthropic.RateLimitError) throw new Unavailable('rate limited');
       if (e instanceof Anthropic.AuthenticationError) throw new Unavailable('key rejected');

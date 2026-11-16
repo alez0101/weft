@@ -39,7 +39,7 @@ reads a 50-page document roughly $0.10 more; cached rounds cost a tenth. The mon
 
 Settings → Web search (admins; off by default, `weft_private.assistant_settings.web_search`). When on, the
 Anthropic model (workspace slots and personal Anthropic keys) also gets Anthropic's server-side
-`web_search_20260209` tool, at most `ASSIST_WEB_MAX_USES` (3) searches per question, and an instruction to use it
+`web_search_20250305` tool (the basic one: the newer variant returned no citations when measured), at most `ASSIST_WEB_MAX_USES` (3) searches per question, and an instruction to use it
 only for outside facts, Weft first, no private details in queries. Web pages cited in the model's text become
 `type: "web"` citations (http/https only), shown as links that open in a new tab; an answer backed only by web
 citations is shown. Each search adds `ASSIST_WEB_SEARCH_USD` (0.01) to the run's cost, so the monthly cap covers
