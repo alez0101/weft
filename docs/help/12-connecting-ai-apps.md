@@ -23,7 +23,7 @@ Other apps that support MCP connectors (Claude Desktop, Claude Code and others) 
 ### What it can and cannot do
 
 - Anything it writes appears **under your name**, in your Personal space. When you move it into a channel, people there see it as yours.
-- It can read a project's instructions and pinned documents, so it can follow them when it drafts something for that project.
+- It can read a project's instructions and pinned documents, so it can follow them when it drafts something for that project, and list one project's events.
 - It **cannot delete** anything, manage channels or people, or change settings.
 - Pages from Weft's own help and admin wikis cannot be edited.
 - When it edits one of your documents while you have it open, you see the change appear, just like another person editing.
