@@ -23,7 +23,7 @@ Two slots in Settings, primary and secondary, each Anthropic, OpenAI-compatible 
 
 ### Proposals
 
-Only the Anthropic primary is offered tools: post a message, create an event, change an event. Each becomes a proposal card that only the asker can confirm or dismiss, within 30 minutes. Confirming runs with the asker's own rights, so the database can still refuse. Created and changed events can be undone for 24 hours. There is no delete tool, and the database refuses deletes from the assistant.
+Only the Anthropic primary is offered tools: post a message, create an event, change an event, and (073) create a document, wiki page, spreadsheet, table or task list with its content, add to, rewrite or rename a document or wiki page, add rows to a table, add tasks to a task list. Content tools target only spaces where the asker is an owner or editor and that are in scope (in a channel, only that channel); edits only items among the retrieved sources, never managed pages; spreadsheets are offered only while the office engine is up, and existing spreadsheets are never changed. Content proposals run on confirm with the asker's own token (files service for spreadsheets, collab's internal edit port for pages), so the audit shows the person, and undo (24 hours) removes what was made or puts a page's earlier text back. Each becomes a proposal card that only the asker can confirm or dismiss, within 30 minutes. Confirming runs with the asker's own rights, so the database can still refuse. Created and changed events can be undone for 24 hours. There is no delete tool, and the database refuses deletes from the assistant.
 
 ### Costs
 
