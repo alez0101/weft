@@ -82,7 +82,7 @@ Operations page has the details.
 ## Tests
 
 ```sh
-tests/run.sh          # builds a separate test stack, runs nine suites (2374 checks), removes it
+tests/run.sh          # builds a separate test stack, runs nine suites (2378 checks), removes it
 tests/run.sh --keep   # leaves the test stack up for the browser checks in tests/*.cjs
 ```
 

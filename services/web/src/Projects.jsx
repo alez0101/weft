@@ -21,11 +21,13 @@ export function ProjectStrip({ projects, active, onPick, owner, onCreate, rulesO
   }
   return (
     <div className="project-strip">
-      <div className="links-tags" role="group" aria-label="Chat in">
-        <button type="button" className="link-tag" aria-pressed={!active} onClick={() => onPick(null)}>General</button>
-        {open.map((p) => (
-          <button key={p.id} type="button" className="link-tag" aria-pressed={active === p.id} onClick={() => onPick(p.id)}>{p.name}</button>
-        ))}
+      <div className="project-row">
+        <div className="links-tags project-chips" role="group" aria-label="Chat in">
+          <button type="button" className="link-tag" aria-pressed={!active} onClick={() => onPick(null)}>General</button>
+          {open.map((p) => (
+            <button key={p.id} type="button" className="link-tag" aria-pressed={active === p.id} onClick={() => onPick(p.id)}>{p.name}</button>
+          ))}
+        </div>
         {owner && !adding && <button type="button" className="link-btn project-add" onClick={() => setAdding(true)}>+ Project</button>}
         <button type="button" className="link-btn project-rules-btn" aria-expanded={rulesOpen} onClick={onToggleRules}>
           {active ? 'Project settings' : 'Rules'}

@@ -9,6 +9,8 @@ The **search box** at the top finds things across Weft: messages, documents and 
 
 Click the box, or press **/** (or Ctrl+K, Cmd+K on a Mac), and type. Words match as you type. Results are grouped by kind (**Announcements**, **Shifts**, **Kudos**, **Your journal** and so on), with the matching words highlighted. Use the arrow keys and **Enter**, or click a result, to open it in its app: an announcement opens the announcements of its channel, a kudos the channel's wall, a journal page that day in Journal, a profile the Profiles app.
 
+Something in a project says so, for example "#festival › Scouting for Food". Choosing a message opens the chat it was written in, the project's chat if it is in one, and highlights it. If it is older than the latest messages, the chat shows the messages around it, with **Back to the latest** above them. If it has been deleted since, the chat says so.
+
 Below the word matches, **Related by meaning** lists things about the same topic in other words (if your Weft has meaning search turned on).
 
 Weft (the assistant) uses the same things when you ask it a question, and links to where each answer came from.

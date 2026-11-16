@@ -84,8 +84,9 @@ export default function Chat({ me, spaces, personal = null, agents = [], agentSp
     setState('loading');
     setError('');
     try {
-      const rows = await api(`/messages?space_id=eq.${spaceId}&project_id=${projectId ? `eq.${projectId}` : 'is.null'}&select=${SEL}&order=created_at.asc&limit=200`);
-      setMessages(rows);
+      // The latest 200, oldest first (fetched newest first so a long conversation shows its end, not its start).
+      const rows = (await api(`/messages?space_id=eq.${spaceId}&project_id=${projectId ? `eq.${projectId}` : 'is.null'}&select=${SEL}&order=created_at.desc&limit=200`)).reverse();
+      setMessages(rows); setAround(false);
       setState('ready');
       await api('/reads?on_conflict=space_id,user_id', {
         method: 'POST', body: { space_id: spaceId, last_read_at: new Date().toISOString() },
@@ -95,12 +96,45 @@ export default function Chat({ me, spaces, personal = null, agents = [], agentSp
   }, []);
 
   useEffect(() => { if (active && active !== ASSISTANT) load(active, pid); }, [active, pid, load]);
+  // Jumping to a message (from search or a citation): find where it lives first, as the person, then open that
+  // conversation and the right project's chat (General or a project), and load the messages around it if it is
+  // older than the latest ones loaded. Say so when it cannot be shown.
+  const [target, setTarget] = useState(null);   // {id, space_id, project_id, created_at, widened: false | 'loading' | true}
+  const [around, setAround] = useState(false);  // showing older messages around a target, not the latest
   useEffect(() => {
-    if (!focus || state !== 'ready') return;
-    const el = document.getElementById(`msg-${focus}`);
-    if (el) { el.scrollIntoView({ block: 'center' }); el.classList.add('is-focus'); setTimeout(() => el.classList.remove('is-focus'), 2400); }
-    setFocus(null);
-  }, [focus, state, messages]);
+    if (!focus) return undefined;
+    let gone = false;
+    api(`/messages?id=eq.${focus}&select=id,space_id,project_id,created_at`).then(([m]) => {
+      if (gone) return;
+      setFocus(null);
+      if (!m) { setInfo('That message is no longer here, or it was in a project that has been deleted.'); return; }
+      setProjBy((p) => ({ ...p, [m.space_id]: m.project_id || null }));
+      setTarget({ ...m, widened: false });
+      if (m.space_id !== active) setActive(m.space_id);
+    }).catch(() => { if (!gone) setFocus(null); });
+    return () => { gone = true; };
+  }, [focus]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!target || target.widened === 'loading' || state !== 'ready' || active !== target.space_id || (pid ?? null) !== (target.project_id ?? null)) return;
+    const el = document.getElementById(`msg-${target.id}`);
+    if (el) {
+      // Scroll only the message list (scrollIntoView would also scroll the page around it).
+      const list = listRef.current;
+      if (list) list.scrollTop += el.getBoundingClientRect().top - list.getBoundingClientRect().top - (list.clientHeight - el.clientHeight) / 2;
+      el.classList.add('is-focus'); setTimeout(() => el.classList.remove('is-focus'), 2400);
+      setTarget(null); return;
+    }
+    if (!target.widened) {   // older than the latest loaded: load the stretch around it
+      setTarget((t) => ({ ...t, widened: 'loading' }));   // look again only once the older messages are in
+      const base = `/messages?space_id=eq.${target.space_id}&project_id=${target.project_id ? `eq.${target.project_id}` : 'is.null'}&select=${SEL}`;
+      const at = encodeURIComponent(target.created_at);
+      Promise.all([api(`${base}&created_at=lte.${at}&order=created_at.desc&limit=100`), api(`${base}&created_at=gt.${at}&order=created_at.asc&limit=100`)])
+        .then(([before, after]) => { setMessages([...before.reverse(), ...after]); setAround(true); setTarget((t) => (t ? { ...t, widened: true } : t)); })
+        .catch(() => { setInfo('That message could not be shown.'); setTarget(null); });
+      return;
+    }
+    setInfo('That message could not be shown here.'); setTarget(null);
+  }, [target, state, messages, active, pid]);
 
   // A live notice for the open conversation: fetch just that row (RLS decides) and append.
   useEffect(() => {
@@ -125,7 +159,7 @@ export default function Chat({ me, spaces, personal = null, agents = [], agentSp
     }).catch(() => {});
   }, [notice, working, agents]);
 
-  useEffect(() => { const el = listRef.current; if (el && !focus) el.scrollTop = el.scrollHeight; }, [messages, focus]);
+  useEffect(() => { const el = listRef.current; if (el && !focus && !target && !around) el.scrollTop = el.scrollHeight; }, [messages, focus, target, around]);
 
   async function askAgent(messageId, spaceId, name) {
     setWorking((w) => ({ ...w, [spaceId]: name }));
@@ -292,6 +326,10 @@ export default function Chat({ me, spaces, personal = null, agents = [], agentSp
               onChanged={() => loadProjects(current.id).catch(() => {})} onClose={() => setRulesOpen(false)}
               onArchived={() => { setProjBy((m) => ({ ...m, [active]: null })); setRulesOpen(false); }} />
           )}
+          {around && (   // in the header: the panel is a grid of header, messages and message box
+            <p className="thread-sub around-bar" role="status">Showing older messages.{' '}
+              <button type="button" className="link-btn" onClick={() => load(active, pid)}>Back to the latest</button></p>
+          )}
           {current?.kind === 'channel' && <Pinned spaceId={current.id} notice={notice} me={me} onOpenAll={() => onOpenNotices(current.id)} />}
         </header>
         {active === ASSISTANT ? (
@@ -320,7 +358,7 @@ export default function Chat({ me, spaces, personal = null, agents = [], agentSp
                           if (c.type === 'item') return onOpenItem(c.id);
                           if (c.type === 'event') return onOpenEvent(c.id);
                           if (c.type === 'record') return onOpenRecord?.(c);
-                          setFocus(c.id); if (c.space_id !== active) setActive(c.space_id);
+                          setFocus(c.id);   // the jump finds its conversation and project
                         }}>
                         [{i + 1}] {c.label}
                       </button>

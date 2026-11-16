@@ -14,7 +14,9 @@ const KIND = { document: 'Document', wiki: 'Wiki page', table: 'Table', spreadsh
   announcement: 'Announcement', rsvps: 'RSVPs', resource: 'Thing to book', shift: 'Shift', timeoff: 'Time off', kudos: 'Kudos', milestone: 'Milestone', profile: 'Profile', journal: 'Your journal' };
 // Rows of apps that are not items (048): opened in their own app.
 const RECORD = new Set(['announcement', 'rsvps', 'resource', 'shift', 'timeoff', 'kudos', 'milestone', 'profile', 'journal']);
-const where = (r) => (r.kind === 'journal' ? 'Only you' : r.kind === 'profile' ? '' : r.space_kind === 'channel' ? `#${r.space_name}` : r.space_kind === 'personal' ? 'Personal' : r.space_kind === 'dm' ? 'Direct message' : r.space_kind === 'assistant' ? 'Your Weft conversation' : r.space_kind === 'agent' ? 'Conversation with your agent' : '');
+// Where a result lives; with its project (072) when it is in one: "#festival › Scouting for Food".
+const where = (r) => { const w = place(r); return r.project_name && w ? `${w} › ${r.project_name}` : w; };
+const place = (r) => (r.kind === 'journal' ? 'Only you' : r.kind === 'profile' ? '' : r.space_kind === 'channel' ? `#${r.space_name}` : r.space_kind === 'personal' ? 'Personal' : r.space_kind === 'dm' ? 'Direct message' : r.space_kind === 'assistant' ? 'Your Weft conversation' : r.space_kind === 'agent' ? 'Conversation with your agent' : '');
 const when = (iso) => (iso ? new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '');
 
 // « and » mark the matches; everything else is plain text (never HTML).
