@@ -6746,6 +6746,32 @@ def project_calendar():
     check("Project calendars: an outsider filtering by an Organizers project gets nothing", st == 200 and rows == [], str(rows))
 
 
+# ---------------------------------------------------------------- search knows projects (072)
+def search_projects():
+    pat, alex, vic = mint("u-pub"), mint("u-alex"), mint("u-vol")
+    F, ORG = SID["festival"], SID["organizers"]
+    st, rows = call("POST", "/projects", alex, {"space_id": F, "name": "Search project"})
+    sp = rows[0]["id"]
+    st, rows = call("POST", "/projects", alex, {"space_id": ORG, "name": "SEARCHORG secret project"})
+    op = rows[0]["id"]
+    call("POST", "/messages", alex, {"space_id": F, "project_id": sp, "body": "zebracrossing plan for the drive"})
+    call("POST", "/messages", alex, {"space_id": F, "body": "zebracrossing in general"})
+    call("POST", "/messages", alex, {"space_id": ORG, "project_id": op, "body": "zebracrossing budget"})
+    st, rows = call("POST", "/rpc/search", pat, {"p_q": "zebracrossing", "p_limit": 10})
+    msgs = [r for r in rows if r["kind"] == "message"] if st == 200 else []
+    check("Search: a project message comes back with its project, a general one without (positive control)",
+          any(r["project_id"] == sp and r["project_name"] == "Search project" for r in msgs)
+          and any(r["project_id"] is None and r["project_name"] is None for r in msgs), str(msgs))
+    check("Search: Pat never sees the Organizers project's message or its name",
+          all(r["space_id"] != ORG and "SEARCHORG" not in (r["project_name"] or "") for r in rows), str(rows))
+    st, rows = call("POST", "/rpc/search", alex, {"p_q": "zebracrossing", "p_limit": 10})
+    check("Search: Alex (in Organizers) gets that project's name (positive control)",
+          st == 200 and any(r.get("project_name") == "SEARCHORG secret project" for r in rows), str(rows))
+    st, rows = call("POST", "/items", alex, {"space_id": F, "project_id": sp, "kind": "document", "title": "zebracrossing route"})
+    st, rows = call("POST", "/rpc/search", vic, {"p_q": "zebracrossing", "p_limit": 10})
+    check("Search: documents carry their project too", st == 200 and any(r["kind"] == "document" and r["project_name"] == "Search project" for r in rows), str(rows))
+
+
 if __name__ == "__main__":
     read_matrix()
     writes()
@@ -6805,6 +6831,7 @@ if __name__ == "__main__":
     projects()
     agent_fence()
     project_calendar()
+    search_projects()
     if "--teeth" in sys.argv:
         teeth()
     width = max(len(n) for n, _, _ in results)

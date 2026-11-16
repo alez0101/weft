@@ -316,7 +316,6 @@ body { height: 100dvh; background: var(--color-paper-2); }
 /* Projects inside channels (069): the strip under a conversation's title, its settings, and project groups in app lists. */
 .project-strip { display: grid; gap: var(--space-2xs); margin-top: var(--space-xs); }
 .project-strip .link-btn { font-size: var(--text-xs); }
-.project-rules-btn { margin-left: auto; }
 .project-new { flex-wrap: wrap; }
 .project-new input { flex: 1 1 8rem; min-width: 0; }
 .project-following { margin-top: var(--space-2xs); font-size: var(--text-xs); }
@@ -341,3 +340,11 @@ body { height: 100dvh; background: var(--color-paper-2); }
 .cal-project select { width: 100%; min-width: 0; height: var(--ctl-h); padding: 0 var(--space-xs); font: inherit; font-size: var(--text-sm); }
 .cal-project-pick select { flex: 1 1 auto; min-width: 0; max-width: 100%; }
 .cal-project-pick { align-items: center; font-size: var(--text-sm); color: var(--color-ink-2); }
+
+/* The header never swallows the chat: it scrolls itself past 45% of the screen, and project chips stay on one line. */
+.thread-head { max-height: 45vh; overflow-y: auto; }
+.project-row { display: flex; align-items: center; gap: var(--space-xs); min-width: 0; }
+.project-chips { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; padding: var(--space-3xs) var(--space-3xs) var(--space-2xs); }
+.project-chips > * { flex: none; }
+.project-row > .link-btn { flex: none; white-space: nowrap; }
+.around-bar { margin-top: var(--space-2xs); }
