@@ -97,6 +97,7 @@ export default function AdminPanel({ me, info }) {
         : !rows ? <div className="skeleton" aria-label="Loading settings"><span /><span /><span /></div>
         : <div className="slots">{rows.map((r) => <Slot key={`${r.slot}-${r.updated_at}`} slot={r.slot} initial={r} onSaved={load} />)}</div>}
       <PersonalKeys />
+      <WebSearch />
       <Agents />
     </div>
   );
@@ -121,6 +122,29 @@ function PersonalKeys() {
           }} /> Allow</label>
       </header>
       <p className="admin-lead">When allowed, each person can add their own Anthropic or OpenAI key from the menu on their initial. It answers only their own questions, before the models above, and is billed to them. Nobody else can see or use it, admins included. {s.personal_keys} {s.personal_keys === 1 ? 'person has' : 'people have'} a key saved.</p>
+    </section>
+  );
+}
+
+// Web search (074): lets the main model look things up on the web. Workspace-wide, off by default.
+function WebSearch() {
+  const [s, setS] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => { assistant('/admin/settings').then(setS).catch((e) => setError(e.message)); }, []);
+  if (error) return <p className="send-error" role="alert">{error}</p>;
+  if (!s) return null;
+  return (
+    <section className="slot users" aria-labelledby="ws-title">
+      <header className="slot-head">
+        <h3 id="ws-title">Web search</h3>
+        <label className="toggle"><input type="checkbox" checked={!!s.web_search}
+          onChange={async (e) => {
+            const on = e.target.checked; const was = s;
+            setS({ ...s, web_search: on });   // the switch moves at once; put back if saving fails
+            try { setS(await assistant('/admin/settings', { method: 'PUT', body: { web_search: on } })); } catch (err) { setS(was); setError(err.message); }
+          }} /> Allow</label>
+      </header>
+      <p className="admin-lead">When allowed, Weft's main (Anthropic) model may search the web for facts that are not in Weft, such as a school district's calendar or opening hours, up to three searches a question, and links the pages it used under the answer. Searches run at Anthropic and cost about one cent each on top of the model, counted in the monthly cap. The local fallback model never searches.</p>
     </section>
   );
 }

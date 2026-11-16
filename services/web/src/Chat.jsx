@@ -352,8 +352,9 @@ export default function Chat({ me, spaces, personal = null, agents = [], agentSp
                   <p className="msg-who">{mine ? 'You' : m.author?.display_name} <time dateTime={m.created_at}>{time(m.created_at)}</time></p>
                   <Body text={m.body} onOpenItem={onOpenItem} onOpenEvent={onOpenEvent} />
                   {m.meta?.citations?.length > 0 && (
-                    <p className="sources">{m.meta.citations.map((c, i) => (
-                      <button key={c.id} type="button" className="source" title={`Open ${c.label}`}
+                    <p className="sources">{m.meta.citations.map((c, i) => (c.type === 'web'
+                      ? /^https?:\/\//.test(c.url || '') && <a key={c.url} className="source source-web" href={c.url} target="_blank" rel="noopener noreferrer nofollow" title={c.url}>[{i + 1}] {c.label} ↗</a>
+                      : <button key={c.id} type="button" className="source" title={`Open ${c.label}`}
                         onClick={() => {
                           if (c.type === 'item') return onOpenItem(c.id);
                           if (c.type === 'event') return onOpenEvent(c.id);

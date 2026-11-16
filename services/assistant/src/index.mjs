@@ -199,6 +199,10 @@ When you are asked to make or add content, do not reply NOT_FOUND: write the con
 const CAPABILITY = /\b(?:can|could|will|would)\s+you\s+(?:please\s+)?(?:create|make|build|start|set\s+up|add|write|draft|edit|change|update|rename|post|send|schedule|put)\b|\bwhat\s+(?:can|could)\s+you\s+do\b|\bare\s+you\s+able\s+to\s+(?:create|make|add|write|edit|change)\b/i;
 const CAN_DO = 'Here is what I can do. Ask me to make or change something and I will propose it for you to confirm: create a document, wiki page, spreadsheet, table or task list with the content filled in; add to or rewrite a page; add rows to a table or tasks to a list; post a message; add or change calendar events. I work only where you can edit (in a channel, only in that channel), nothing happens until you confirm, and I never delete anything.';
 
+// Added to the instructions when an admin has turned web search on (074).
+const WEB = `\n\nYou can also search the web with web_search, but only for facts about the outside world that are not in the numbered items (public dates such as a school district's calendar, places, opening hours, how-tos). Look in the numbered items first. Search with general words; never put private details from the numbered items into a search. The web pages you use are linked automatically; keep citing numbered items with [n]. When an answer or something you create relies on the web, say so in a few words.`;
+const WEB_TOOL = { type: 'web_search_20260209', name: 'web_search', max_uses: Number(env('ASSIST_WEB_MAX_USES', '3')) };
+
 function fmtTime(iso, tz) {
   try { return new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(iso)); }
   catch { return iso; }
@@ -334,6 +338,8 @@ async function callProvider(p, system, user, toolDefs = null, opts = {}) {
       // whole response (thinking blocks included) goes back unchanged. Prompt caching keeps the repeated prefix cheap.
       const messages = [...history, { role: 'user', content: user }];
       const calls = []; let text = ''; let model = p.model; let rounds = 0;
+      const web = new Map();   // url -> title, from the citations of the model's text
+      let useWeb = !!opts.web;
       const tok = { in: 0, out: 0, cost: 0 };
       const deadline = opts.deadline || (Date.now() + CALL_TIMEOUT_MS);
       for (;;) {
@@ -341,24 +347,38 @@ async function callProvider(p, system, user, toolDefs = null, opts = {}) {
         const left = deadline - Date.now();
         if (left < 5000) break;
         // Server-side refusal fallback on by default, per Anthropic's guidance for this model family.
-        const r = await client.beta.messages.create({
-          model: p.model, max_tokens: MAX_OUT, system,
+        const send = () => client.beta.messages.create({
+          model: p.model, max_tokens: MAX_OUT, system: useWeb ? system + WEB : system,
           output_config: { effort: p.effort || 'low' },
           betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default',
           // Cached only once the model has started reading: most questions are one round, where a cache write
           // would only add 25 %; from the second round on the long shared prefix is read back at a tenth.
           ...(rounds > 1 ? { cache_control: { type: 'ephemeral' } } : {}),
           messages,
-          ...(toolDefs ? { tools: toolDefs, tool_choice: { type: 'auto' } } : {}),
+          ...(toolDefs ? { tools: useWeb ? [...toolDefs, WEB_TOOL] : toolDefs, tool_choice: { type: 'auto' } } : {}),
         }, { timeout: Math.min(CALL_TIMEOUT_MS, left) });
+        let r;
+        try { r = await send(); } catch (e) {
+          // If the account cannot use web search (turned off in the Anthropic console, say), answer without it
+          // rather than failing over to the local model.
+          if (!(useWeb && e instanceof Anthropic.BadRequestError && /web.?search|server tool/i.test(e.message))) throw e;
+          log('web search refused by the API; answering without it:', e.message.slice(0, 160));
+          useWeb = false; r = await send();
+        }
         model = r.model;
         const u = r.usage || {};
         const cw = u.cache_creation_input_tokens || 0; const cr = u.cache_read_input_tokens || 0;
         tok.in += (u.input_tokens || 0) + cw + cr; tok.out += u.output_tokens || 0;
         tok.cost += (u.input_tokens || 0) + 1.25 * cw + 0.1 * cr;   // input-price equivalents
+        tok.searches = (tok.searches || 0) + (u.server_tool_use?.web_search_requests || 0);
         if (r.stop_reason === 'refusal') return { refused: true, text: '', model, inTok: tok.in, outTok: tok.out, inCost: tok.cost, ms: Date.now() - t0 };
         const said = r.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
         if (said) text = said;
+        for (const b of r.content) for (const c of (b.type === 'text' && b.citations) || []) {
+          if (c.type === 'web_search_result_location' && /^https?:\/\//.test(c.url || '') && !web.has(c.url)) web.set(c.url, String(c.title || '').slice(0, 120));
+        }
+        // A server tool (web search) that ran long: send the turn back as it is and let the model continue.
+        if (r.stop_reason === 'pause_turn' && rounds < MAX_ROUNDS) { messages.push({ role: 'assistant', content: r.content }); continue; }
         const uses = r.content.filter((b) => b.type === 'tool_use');
         if (r.stop_reason !== 'tool_use' || !uses.length) break;
         const results = [];
@@ -373,7 +393,7 @@ async function callProvider(p, system, user, toolDefs = null, opts = {}) {
         if (rounds >= MAX_ROUNDS || uses.every((b) => !READ_TOOLS.has(b.name))) break;
         messages.push({ role: 'assistant', content: r.content }, { role: 'user', content: results });
       }
-      return { text, calls, model, rounds, inTok: tok.in, outTok: tok.out, inCost: tok.cost, ms: Date.now() - t0 };
+      return { searches: tok.searches || 0, text, calls, model, rounds, web: [...web].slice(0, 8).map(([url, title]) => ({ url, title })), inTok: tok.in, outTok: tok.out, inCost: tok.cost, ms: Date.now() - t0 };
     } catch (e) {
       if (e instanceof Anthropic.RateLimitError) throw new Unavailable('rate limited');
       if (e instanceof Anthropic.AuthenticationError) throw new Unavailable('key rejected');
@@ -398,7 +418,8 @@ async function callProvider(p, system, user, toolDefs = null, opts = {}) {
     : { text: (d.choices?.[0]?.message?.content || '').trim(), model: d.model || p.model, inTok: d.usage?.prompt_tokens || 0, outTok: d.usage?.completion_tokens || 0, ms: Date.now() - t0 };
 }
 
-const cost = (p, r) => ((r.inCost ?? r.inTok) * Number(p.price_in) + r.outTok * Number(p.price_out)) / 1e6;
+const WEB_SEARCH_USD = Number(env('ASSIST_WEB_SEARCH_USD', '0.01'));   // per search (Anthropic: $10 per 1,000)
+const cost = (p, r) => ((r.inCost ?? r.inTok) * Number(p.price_in) + r.outTok * Number(p.price_out)) / 1e6 + (r.searches || 0) * WEB_SEARCH_USD;
 
 // The asker's own key (if allowed and set), then primary, then secondary. Failover on unavailability
 // (no key, cap reached, timeouts, rate limits, server errors), never on a refusal: a declined question
@@ -548,7 +569,7 @@ async function ask(user, messageId, tzIn) {
     const result = await answer({ asker: user.id, space: q.space_id, question: q.id }, SYSTEM + guide.text,
       (kind) => prompt(question, sources, tz, kind === 'anthropic' ? 'full' : 'small'),
       tools(chans.map((c) => c.name), creatable.map((c) => c.name), itemKinds),
-      { history, runTool: reader, deadline: started + DEADLINE_MS });
+      { history, runTool: reader, deadline: started + DEADLINE_MS, web: (await db.query('select weft_private.web_search_get() as w')).rows[0].w });
 
     let body; let citations = []; const proposals = [];
     if (result.unavailable) {
@@ -563,10 +584,16 @@ async function ask(user, messageId, tzIn) {
       const notFound = /^\W*NOT_FOUND\W*$/i.test(result.text) || result.text.includes('NOT_FOUND');
       const used = notFound ? [] : [...new Set([...result.text.matchAll(/\[(\d{1,2})\]/g)].map((m) => Number(m[1])))].filter((n) => n >= 1 && n <= sources.length);
       const order = new Map(used.map((n, i) => [n, i + 1]));
-      if (used.length) {
+      const webCites = notFound ? [] : (result.web || []).map((w) => ({ type: 'web', id: w.url, url: w.url, label: w.title || new URL(w.url).hostname }));
+      if (!used.length && webCites.length) {
+        // Answered from the web: the links are the citations.
+        body = result.text.replace(/\[\d{1,2}\]/g, '').trim();
+        citations = webCites;
+      } else if (used.length) {
         body = result.text.replace(/\[(\d{1,2})\]/g, (all, n) => (order.has(Number(n)) ? `[${order.get(Number(n))}]` : ''));
         if (!/[a-z]{3,}/i.test(body.replace(/\[\d+\]/g, ''))) body = `Here is what I found: ${used.map((n) => `[${order.get(n)}]`).join(' ')}`;
         citations = used.map((n) => { const s = sources[n - 1]; return { type: s.type, id: s.id, space_id: s.space_id, label: label(s), ...(s.type === 'record' ? { kind: s.kind, ref: s.ref } : {}) }; });
+        citations.push(...webCites);
       } else if (proposals.length) {
         body = result.text && !notFound ? result.text.replace(/\[\d{1,2}\]/g, '').trim() : 'Here is what I can do. Nothing happens until you confirm.';
       } else if (!notFound && result.text && result.kind === 'anthropic' && history.length) {
@@ -1017,9 +1044,12 @@ async function mine(user, method, parts, body) {
 async function adminSettings(user, method, body) {
   const { rows } = await db.query('select weft_private.assist_is_admin($1) as a', [user.id]);
   if (!rows[0].a) return [403, { error: 'admins only' }];
-  if (method === 'PUT') await db.query('select weft_private.settings_save($1,$2)', [user.id, !!body?.allow_personal_keys]);
+  // Each switch changes only when it is sent, so turning one on never turns the other off.
+  if (method === 'PUT' && body && 'allow_personal_keys' in body) await db.query('select weft_private.settings_save($1,$2)', [user.id, !!body.allow_personal_keys]);
+  if (method === 'PUT' && body && 'web_search' in body) await db.query('select weft_private.web_search_save($1,$2)', [user.id, !!body.web_search]);
   const { rows: [s] } = await db.query('select * from weft_private.settings_get()');
-  return [200, { allow_personal_keys: s.allow_personal_keys, personal_keys: Number(s.personal_keys) }];   // a count, never whose
+  const { rows: [w] } = await db.query('select weft_private.web_search_get() as on');
+  return [200, { allow_personal_keys: s.allow_personal_keys, personal_keys: Number(s.personal_keys), web_search: w.on }];   // a count, never whose
 }
 
 // ---------------------------------------------------------------- admin

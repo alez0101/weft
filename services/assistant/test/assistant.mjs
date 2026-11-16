@@ -49,7 +49,17 @@ http.createServer((req, res) => {
       const content = [];
       const ev = /^\[(\d+)\] event "The Backyard Radio/m.exec(user) || /^\[(\d+)\] event /m.exec(user);
       const big = /^\[(\d+)\] document "Big handbook"/m.exec(user);
-      if (results) {
+      const webTool = (body.tools || []).find((x) => x.type === 'web_search_20260209');
+      if (/WEB-IT/.test(user) && webTool) {
+        // Like the real server tool: a server_tool_use, its results, then text whose citations point at the web.
+        content.push({ type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search', input: { query: 'school calendar 2026-27' } });
+        content.push({ type: 'web_search_tool_result', tool_use_id: 'srvtoolu_1', content: [{ type: 'web_search_result', url: 'https://example.org/calendar', title: 'District calendar 2026-27', encrypted_content: 'x', page_age: null }] });
+        content.push({ type: 'text', text: 'School starts on August 12, 2026.', citations: [{ type: 'web_search_result_location', url: 'https://example.org/calendar', title: 'District calendar 2026-27', encrypted_index: 'x', cited_text: 'First day: August 12' }] });
+        content.push({ type: 'text', text: ' The web page lists the breaks too.', citations: [{ type: 'web_search_result_location', url: 'javascript:alert(1)', title: 'bad', encrypted_index: 'y', cited_text: 'x' }] });
+      } else if (/WEB-REFUSE/.test(user) && webTool) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'web_search tool is not enabled for this organization' } }));
+      } else if (results) {
         // A later round: answer from what the reading tools returned.
         const all = results.join('\n');
         const num = /^\[(\d+)\]/m.exec(all) || /\[(\d+)\] all of/.exec(all);
@@ -112,9 +122,10 @@ http.createServer((req, res) => {
           || (/CITE-NOTICE/.test(user) && /^\[(\d+)\] announcement /m.exec(user)) || /^\[(\d+)\] /m.exec(user);
         content.push({ type: 'text', text: first ? `Here is what I found [${first[1]}].` : 'NOT_FOUND' });
       }
+      if (/WEB-IT/.test(user) && webTool) mock.searches = (mock.searches || 0) + 1;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ id: 'msg_test', type: 'message', role: 'assistant', model: 'mock-claude', content,
-        stop_reason: content.some((c) => c.type === 'tool_use') ? 'tool_use' : 'end_turn', usage: { input_tokens: 800, output_tokens: 60, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } }));
+        stop_reason: content.some((c) => c.type === 'tool_use') ? 'tool_use' : 'end_turn', usage: { input_tokens: 800, output_tokens: 60, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, ...(/WEB-IT/.test(user) && webTool ? { server_tool_use: { web_search_requests: 1 } } : {}) } }));
     }
     const slot = req.url.startsWith('/primary') ? 'primary' : req.url.startsWith('/personal-openai') ? 'personal' : 'secondary';
     const user = (body.messages || []).filter((m) => m.role === 'user').pop()?.content || '';   // the last turn: earlier ones are memory
@@ -307,6 +318,26 @@ a6 = await askA(pat, await mine(pat), 'ADD-IT: put a reminder on my calendar');
 const pcre = a6.reply?.meta?.proposals?.[0];
 const penum = a6.calls[0]?.tools?.find((x) => x.name === 'create_event')?.input_schema.properties.space.enum || [];
 check('Create: in her own conversation Pat can add to her personal calendar, never to #festival where she only views', penum.includes('personal') && !penum.includes('festival') && pcre?.kind === 'create', JSON.stringify({ status: a6.status, err: a6.error, tools: (a6.calls[0]?.tools || []).map((x) => [x.name, x.input_schema.properties.space?.enum]), meta: a6.reply?.meta, body: a6.reply?.body }));
+
+// ---------------- web search (074): an admin switch, off by default
+a6 = await askA(olive, await mine(olive), 'WEB-IT when does school start?');
+check('Web: off by default, the web search tool is not offered', !(a6.calls[0]?.tools || []).some((x) => x.type === 'web_search_20260209') && !/search the web/.test(String(a6.calls[0]?.system)));
+check('Web: Pat (not admin) cannot turn it on', (await assist(pat.token, '/assistant/admin/settings', { method: 'PUT', body: { web_search: true } })).status === 403);
+const pk0 = (await assist(alex.token, '/assistant/admin/settings')).data?.allow_personal_keys;
+const wsOn = await assist(alex.token, '/assistant/admin/settings', { method: 'PUT', body: { web_search: true } });
+check('Web: an admin turns it on, and the personal-keys switch is left as it was', wsOn.data?.web_search === true && wsOn.data?.allow_personal_keys === pk0, JSON.stringify(wsOn.data));
+a6 = await askA(olive, await mine(olive), 'WEB-IT when does school start?');
+const wt = (a6.calls[0]?.tools || []).find((x) => x.type === 'web_search_20260209');
+check('Web: on, the main model gets web search, at most 3 searches, and is told when to use it', wt?.name === 'web_search' && wt.max_uses === 3 && /search the web with web_search/.test(String(a6.calls[0]?.system)), JSON.stringify(wt));
+check('Web: an answer from the web is shown, with the page as a link', /School starts on August 12, 2026/.test(a6.reply?.body || '') && a6.reply?.meta?.citations?.some((c) => c.type === 'web' && c.url === 'https://example.org/calendar' && c.label === 'District calendar 2026-27'), JSON.stringify({ b: a6.reply?.body, c: a6.reply?.meta?.citations }));
+check('Web: a link that is not http(s) is dropped', !(a6.reply?.meta?.citations || []).some((c) => /javascript:/.test(c.url || '')));
+const prov = (await assist(alex.token, '/assistant/admin/providers')).data?.find((x) => x.slot === 'primary');
+check('Web: searches count towards the month\'s cost', Number(prov?.month_cost_usd) > 0, JSON.stringify(prov?.month_cost_usd));
+a6 = await askA(olive, await mine(olive), 'WEB-REFUSE when does school start?');
+check('Web: if the API refuses the search tool, Weft answers without it instead of failing over', a6.status === 200 && a6.reply?.meta?.served_by?.slot === 'primary' && a6.calls.length === 2 && !(a6.calls[1]?.tools || []).some((x) => x.type === 'web_search_20260209'), JSON.stringify({ s: a6.status, sb: a6.reply?.meta?.served_by, n: a6.calls.length }));
+await assist(alex.token, '/assistant/admin/settings', { method: 'PUT', body: { web_search: false } });
+a6 = await askA(olive, await mine(olive), 'WEB-IT when does school start?');
+check('Web: turned off again, it is gone', !(a6.calls[0]?.tools || []).some((x) => x.type === 'web_search_20260209'));
 
 // ---------------- larger documents, reading tools, conversation memory
 const bigBody = `# Big handbook\n\nHEAD-MARKER-17 how the festival works.\n\n${Array.from({ length: 3000 }, (_, k) => `Paragraph ${k}: porch rules, sound levels, parking and the usual details repeated to make this long.`).join('\n\n')}\n\nTAIL-MARKER-91 the very last rule.`;

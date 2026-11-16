@@ -34,6 +34,12 @@ also remembers the conversation: in your Weft conversation (and in your personal
 "make that a table instead" or "add two more rows" works, and in a channel it remembers earlier @Weft
 questions and answers there (not the rest of the chat).
 
+**Web search** (only if your admin has turned it on): for facts that are not in Weft, like a school
+district's calendar or a shop's opening hours, Weft can search the web, up to three searches a question. The
+pages it used are listed under the answer as links that open in a new tab, and it says when an answer or
+something it made relies on the web. It looks in Weft first, and does not put your private details into
+searches. The local fallback model never searches.
+
 A message link jumps to the message; a document link opens it in Documents, Wiki, Tables, Spreadsheets or Whiteboard; an event link opens it in the Calendar. If it cannot find the answer, it says so instead of guessing. It searches by meaning as well as by words, so asking about "electricity" also finds a message about a dead outlet.
 
 ### Propose an action
