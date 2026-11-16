@@ -24,16 +24,16 @@ Two slots in Settings, primary and secondary, each Anthropic, OpenAI-compatible 
 ### Reading, rounds and memory
 
 With the Anthropic primary, the numbered items share an excerpt budget (`ASSIST_EXCERPT_BUDGET_CHARS`, default
-200,000 characters, about 50,000 tokens): short documents go in whole, long ones as excerpts marked so. The model
+32,000 characters, about 8,000 tokens): items up to `ASSIST_ITEM_WHOLE_CHARS` (8,000) go in whole, longer ones as excerpts marked so. The model
 may then call `read_item` (the whole item) and `search` (more numbered items), in up to `ASSIST_MAX_ROUNDS` (5)
 rounds, reading at most `ASSIST_READ_BUDGET_CHARS` (400,000) more per question, all with the same scoped token.
 The whole question must end within `ASSIST_DEADLINE_MS` (130 s; the web server waits 150 s). Replies may be up to
-`ASSIST_MAX_OUTPUT_TOKENS` (16,000). The prompt is cached between rounds (top-level `cache_control`). The local
+`ASSIST_MAX_OUTPUT_TOKENS` (16,000). From the second round on the prompt is cached (top-level `cache_control`); single-round questions are not, since a cache write costs 25 % more. The local
 fallback still gets short excerpts and no tools. A full page rewrite is proposed only for a page the model saw
 whole. Conversation memory: the last `ASSIST_HISTORY_MESSAGES` (12) messages of the person's own Weft
 conversation, or of @Weft questions and Weft answers in the same channel or project chat, go along as earlier
-turns (old citation numbers stripped). Cost: input $4 per million tokens on claude-opus-5-5, so a question that
-reads a 50-page document is roughly $0.10; cached rounds cost a tenth. The monthly caps still apply.
+turns (old citation numbers stripped). Cost: input $4 per million tokens on claude-opus-5-5: an ordinary question is a few cents, one that
+reads a 50-page document roughly $0.10 more; cached rounds cost a tenth. The monthly caps still apply.
 
 ### Proposals
 

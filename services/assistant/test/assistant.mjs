@@ -314,7 +314,7 @@ const [bigDoc] = (await api(olive.token, '/items', { method: 'POST', body: { spa
 check('Reading: the big test document is longer than the excerpt budget', bigBody.length > 250000, String(bigBody.length));
 a6 = await askA(olive, await mine(olive), 'READ-IT what does the big handbook say at the end?');
 const r0 = a6.calls[0]; const r1 = a6.calls[1];
-check('Reading: replies may be long (16,000 output tokens) and the prompt is cached', r0?.max_tokens === 16000 && r0?.cache?.type === 'ephemeral', JSON.stringify({ m: r0?.max_tokens, c: r0?.cache }));
+check('Reading: replies may be long (16,000 output tokens); the first round is not cached, later rounds are', r0?.max_tokens === 16000 && !r0?.cache && a6.calls[1]?.cache?.type === 'ephemeral', JSON.stringify({ m: r0?.max_tokens, c0: r0?.cache, c1: a6.calls[1]?.cache }));
 check('Reading: the first prompt shows the big document as a marked excerpt with its start, not its end', /document "Big handbook" in #festival \(excerpt; read_item \d+ reads all of it\)/.test(r0?.user || '') && r0.user.includes('HEAD-MARKER-17') && !r0.user.includes('TAIL-MARKER-91'), (r0?.user || '').slice(0, 300));
 check('Reading: read_item and search are offered', ['read_item', 'search'].every((n) => (r0?.tools || []).some((x) => x.name === n)));
 check('Reading: a second round gets the whole document from read_item', a6.calls.length === 2 && (r1?.results || []).join('').includes('TAIL-MARKER-91'), `${a6.calls.length} ${(r1?.results || []).join('').slice(-200)}`);

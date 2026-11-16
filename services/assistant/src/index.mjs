@@ -30,7 +30,8 @@ const CALL_TIMEOUT_MS = Number(env('CALL_TIMEOUT_MS', '120000'));
 // with up to EXCERPT_BUDGET between them, a short document whole; read_item and search may add up to READ_BUDGET
 // more. Other models (the local fallback) keep short excerpts. The whole question must finish inside DEADLINE_MS,
 // under the web server's 150 s wait.
-const EXCERPT_BUDGET = Number(env('ASSIST_EXCERPT_BUDGET_CHARS', '200000'));
+const EXCERPT_BUDGET = Number(env('ASSIST_EXCERPT_BUDGET_CHARS', '32000'));
+const ITEM_WHOLE_MAX = Number(env('ASSIST_ITEM_WHOLE_CHARS', '8000'));   // longer items start as excerpts
 const READ_BUDGET = Number(env('ASSIST_READ_BUDGET_CHARS', '400000'));
 const MAX_ROUNDS = Number(env('ASSIST_MAX_ROUNDS', '5'));
 const DEADLINE_MS = Number(env('ASSIST_DEADLINE_MS', '130000'));
@@ -210,7 +211,7 @@ function sizeItems(sources, mode) {
   for (const s of items) {
     if (mode === 'small') { s.shown = s.text; continue; }
     if (s.readFull) continue;   // already read in full this question
-    const per = Math.max(3500, Math.floor(EXCERPT_BUDGET / Math.max(1, items.length)));
+    const per = Math.min(ITEM_WHOLE_MAX, Math.max(3500, Math.floor(EXCERPT_BUDGET / Math.max(1, items.length))));
     const b = budgetText(s.body_text ?? s.text, s.terms || [], per, s.chunk);
     s.shown = b.text; s.whole = b.whole;
   }
@@ -344,7 +345,9 @@ async function callProvider(p, system, user, toolDefs = null, opts = {}) {
           model: p.model, max_tokens: MAX_OUT, system,
           output_config: { effort: p.effort || 'low' },
           betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default',
-          cache_control: { type: 'ephemeral' },
+          // Cached only once the model has started reading: most questions are one round, where a cache write
+          // would only add 25 %; from the second round on the long shared prefix is read back at a tenth.
+          ...(rounds > 1 ? { cache_control: { type: 'ephemeral' } } : {}),
           messages,
           ...(toolDefs ? { tools: toolDefs, tool_choice: { type: 'auto' } } : {}),
         }, { timeout: Math.min(CALL_TIMEOUT_MS, left) });
