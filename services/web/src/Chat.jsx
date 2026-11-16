@@ -364,7 +364,7 @@ export default function Chat({ me, spaces, personal = null, agents = [], agentSp
                       </button>
                     ))}</p>
                   )}
-                  {m.meta?.proposals?.length > 0 && <Proposals list={m.meta.proposals} mine={m.meta.asker === me.id} members={members} asker={m.meta.asker} notice={notice} />}
+                  {m.meta?.proposals?.length > 0 && <Proposals list={m.meta.proposals} mine={m.meta.asker === me.id} members={members} asker={m.meta.asker} notice={notice} onOpenItem={onOpenItem} />}
                   {m.author?.is_assistant && m.meta && !m.meta.agent && (
                     <p className="served-by">{m.meta.served_by ? `Answered by ${m.meta.served_by.model}${m.meta.served_by.slot === 'personal' ? (m.meta.asker === me.id ? ' with your own key' : " with the asker's own key") : ''}` : 'No model answered'}{m.meta.fallback ? ` (fallback: ${m.meta.fallback})` : ''}</p>
                   )}
@@ -391,7 +391,8 @@ export default function Chat({ me, spaces, personal = null, agents = [], agentSp
 }
 
 // Actions Weft proposed. Only the person who asked can confirm; everyone else sees who decides.
-function Proposals({ list, mine, members, asker, notice }) {
+const UNDOABLE = new Set(['change', 'create', 'create_item', 'edit_page', 'add_rows', 'add_tasks']);
+function Proposals({ list, mine, members, asker, notice, onOpenItem }) {
   const [status, setStatus] = useState({});
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
@@ -422,7 +423,8 @@ function Proposals({ list, mine, members, asker, notice }) {
               ) : (
                 <p className="proposal-state">
                   {s === 'done' ? (status[p.id]?.result || 'Done.') : s === 'dismissed' ? 'Dismissed.' : s === 'undone' ? 'Undone.' : (status[p.id]?.result || 'Failed.')}
-                  {s === 'done' && (p.kind === 'change' || p.kind === 'create') && <button className="btn btn--sm proposal-undo" disabled={busy === p.id} onClick={() => act(p.id, 'undo')}>Undo</button>}
+                  {s === 'done' && status[p.id]?.item_id && onOpenItem && <button className="btn btn--sm proposal-open" onClick={() => onOpenItem(status[p.id].item_id)}>Open</button>}
+                  {s === 'done' && UNDOABLE.has(p.kind) && <button className="btn btn--sm proposal-undo" disabled={busy === p.id} onClick={() => act(p.id, 'undo')}>Undo</button>}
                 </p>
               )}
           </div>

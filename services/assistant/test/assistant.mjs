@@ -49,6 +49,29 @@ http.createServer((req, res) => {
         const sp = body.tools.find((x) => x.name === 'create_event').input_schema.properties.space.enum[0];
         content.push({ type: 'text', text: 'I can add that to the calendar.' });
         content.push({ type: 'tool_use', id: 'toolu_3', name: 'create_event', input: { space: sp, title: 'Weft test meetup', starts_at: '2027-04-12T10:00:00-07:00', ends_at: '2027-04-12T11:00:00-07:00', location: null } });
+      } else if (/MAKE-(DOC|TABLE|TASKS|SHEET)/.test(user) && body.tools?.some((x) => x.name === 'create_item')) {
+        // 073: content. The first space offered, so scoping is what the tool definition allows.
+        const def = body.tools.find((x) => x.name === 'create_item').input_schema.properties;
+        const kind = { DOC: 'document', TABLE: 'table', TASKS: 'tasklist', SHEET: 'spreadsheet' }[/MAKE-(DOC|TABLE|TASKS|SHEET)/.exec(user)[1]];
+        const tableish = kind === 'table' || kind === 'spreadsheet';
+        content.push({ type: 'text', text: `I can make that ${kind}.` });
+        content.push({ type: 'tool_use', id: 'toolu_4', name: 'create_item', input: { space: def.space.enum[0], kind, title: `Weft test ${kind}`,
+          markdown: kind === 'document' ? '# School year\n\n- First day: 2027-08-12\n- Winter break: 2027-12-20' : '',
+          columns: tableish ? [{ name: 'Date', type: 'date' }, { name: 'What', type: 'text' }, { name: 'Days', type: 'number' }, { name: 'No school', type: 'checkbox' }] : [],
+          rows: tableish ? [['2027-08-12', 'First day, "half" day', '1', 'no'], ['2027-12-20', 'Winter break', '10', 'yes']] : [],
+          tasks: kind === 'tasklist' ? [{ title: 'Buy supplies', due_on: '2027-08-01' }, { title: 'Label backpacks', due_on: null }] : [] } });
+      } else if (/EDIT-DOC/.test(user) && body.tools?.some((x) => x.name === 'edit_page')) {
+        const d = /^\[(\d+)\] (?:document|wiki page) "Run of show"/m.exec(user) || /^\[(\d+)\] (?:document|wiki page) /m.exec(user);
+        content.push({ type: 'text', text: 'I can add that.' });
+        content.push({ type: 'tool_use', id: 'toolu_5', name: 'edit_page', input: { source: d ? Number(d[1]) : 1, mode: 'append', markdown: 'EDITED-BY-WEFT: doors open at 10:45.', title: null } });
+      } else if (/ADD-ROWS/.test(user) && body.tools?.some((x) => x.name === 'add_table_rows')) {
+        const t = /^\[(\d+)\] table "Weft test table"/m.exec(user);
+        content.push({ type: 'text', text: 'I can add those rows.' });
+        content.push({ type: 'tool_use', id: 'toolu_6', name: 'add_table_rows', input: { source: t ? Number(t[1]) : 1, rows: [['2028-01-03', 'Back to school', '1', 'no']] } });
+      } else if (/ADD-TODO/.test(user) && body.tools?.some((x) => x.name === 'add_tasks')) {
+        const t = /^\[(\d+)\] task list "Weft test tasklist"/m.exec(user);
+        content.push({ type: 'text', text: 'I can add that task.' });
+        content.push({ type: 'tool_use', id: 'toolu_7', name: 'add_tasks', input: { source: t ? Number(t[1]) : 1, tasks: [{ title: 'Pack lunch', due_on: null }] } });
       } else if (/TELL-THEM/.test(user)) {
         const ch = body.tools?.find((x) => x.name === 'send_message')?.input_schema.properties.channel.enum[0];
         content.push({ type: 'text', text: 'I can post that.' });
@@ -255,6 +278,96 @@ a6 = await askA(pat, await mine(pat), 'ADD-IT: put a reminder on my calendar');
 const pcre = a6.reply?.meta?.proposals?.[0];
 const penum = a6.calls[0]?.tools?.find((x) => x.name === 'create_event')?.input_schema.properties.space.enum || [];
 check('Create: in her own conversation Pat can add to her personal calendar, never to #festival where she only views', penum.includes('personal') && !penum.includes('festival') && pcre?.kind === 'create', JSON.stringify({ status: a6.status, err: a6.error, tools: (a6.calls[0]?.tools || []).map((x) => [x.name, x.input_schema.properties.space?.enum]), meta: a6.reply?.meta, body: a6.reply?.body }));
+
+// ---------------- 073: creating and editing content, confirm first, as the asker
+const statusOf = async (who, id) => ((await assist(who.token, `/assistant/proposals?ids=${id}`)).data || [])[0];
+const confirm = (who, id) => assist(who.token, `/assistant/proposals/${id}/confirm`, { method: 'POST', body: {} });
+const undo = (who, id) => assist(who.token, `/assistant/proposals/${id}/undo`, { method: 'POST', body: {} });
+a6 = await askA(olive, await mine(olive), 'can you create a spreadsheet?');
+const capSys = a6.calls[0]?.system; const capText = Array.isArray(capSys) ? capSys.map((x) => x.text || '').join('\n') : String(capSys || '');
+check('Content: the model is told it can create documents, spreadsheets, tables and task lists', /creating a document, wiki page, spreadsheet, table or task list/.test(capText) && /Never answer NOT_FOUND to a question about what you can do/.test(capText));
+check('Content: create_item, edit_page, add_table_rows and add_tasks are offered', ['create_item', 'edit_page', 'add_table_rows', 'add_tasks'].every((n) => (a6.calls[0]?.tools || []).some((x) => x.name === n)));
+
+// A document in Olive's personal space, from her own Weft conversation.
+a6 = await askA(olive, await mine(olive), 'MAKE-DOC: a school calendar document');
+const dp = a6.reply?.meta?.proposals?.[0];
+const olivePersonal = (await api(olive.token, '/spaces?kind=eq.personal&select=id')).rows[0].id;
+const penumC = a6.calls[0]?.tools?.find((x) => x.name === 'create_item')?.input_schema.properties.space.enum || [];
+check('Content: in her own conversation Olive may create in personal and the channels she edits', penumC[0] === 'personal' && penumC.includes('festival'), JSON.stringify(penumC));
+check('Content: Weft proposes the document', dp?.kind === 'create_item' && /document "Weft test document" in your personal space/.test(dp.summary), JSON.stringify(a6.reply?.meta));
+check('Content: nothing exists before confirmation', (await api(olive.token, '/items?title=eq.Weft%20test%20document&select=id')).rows.length === 0);
+check('Content: Pat cannot confirm Olive\'s proposal', (await confirm(pat, dp.id)).status === 403);
+check('Content: Olive confirms', (await confirm(olive, dp.id)).data?.status === 'done');
+const [dmade] = (await api(olive.token, '/items?title=eq.Weft%20test%20document&select=id,space_id,kind,body_text,created_by')).rows;
+check('Content: the document is in her personal space, made by Olive, with the content', dmade?.space_id === olivePersonal && dmade.kind === 'document' && dmade.created_by === olive.user.id && /Winter break/.test(dmade.body_text || ''), JSON.stringify(dmade));
+check('Content: the status links to the new document', (await statusOf(olive, dp.id))?.item_id === dmade?.id);
+check('Content: Undo removes the document', (await undo(olive, dp.id)).data?.status === 'undone' && (await api(olive.token, '/items?title=eq.Weft%20test%20document&select=id')).rows.length === 0);
+const dDel = (await api(olive.token, `/audit?row_id=eq.${dmade?.id}&op=eq.DELETE&select=actor_role,actor_id`)).rows[0];
+check('Content: the removal ran as Olive herself (her own token, so RLS judged it as her)', dDel?.actor_role === 'weft_user' && dDel.actor_id === olive.user.id, JSON.stringify(dDel));
+
+// A table in #festival, asked in #festival: typed cells.
+a6 = await askA(olive, spaces.festival, '@Weft MAKE-TABLE: dates for the school year');
+const tp = a6.reply?.meta?.proposals?.[0];
+const fenum = a6.calls[0]?.tools?.find((x) => x.name === 'create_item')?.input_schema.properties.space.enum || [];
+check('Content: asked in #festival, it can only create in #festival', fenum.length === 1 && fenum[0] === 'festival', JSON.stringify(fenum));
+check('Content: Weft proposes the table with its columns and rows', tp?.kind === 'create_item' && /table "Weft test table" in #festival \(columns Date, What, Days, No school; 2 rows\)/.test(tp.summary), JSON.stringify(a6.reply?.meta));
+await confirm(olive, tp?.id);
+const [tmade] = (await api(olive.token, '/items?title=eq.Weft%20test%20table&select=id,space_id')).rows;
+const tcols = (await api(olive.token, `/table_columns?table_id=eq.${tmade?.id}&select=id,name,type&order=position`)).rows;
+const trows = (await api(olive.token, `/table_rows?table_id=eq.${tmade?.id}&select=cells&order=position`)).rows;
+const cellOf = (row, name) => row?.cells?.[tcols.find((c) => c.name === name)?.id];
+check('Content: the table has typed columns', tcols.map((c) => `${c.name}:${c.type}`).join(',') === 'Date:date,What:text,Days:number,No school:checkbox', JSON.stringify(tcols));
+check('Content: ...and typed cells (number, checkbox, text with quotes)', trows.length === 2 && cellOf(trows[1], 'Days') === 10 && cellOf(trows[1], 'No school') === true && cellOf(trows[0], 'No school') === false && cellOf(trows[0], 'What') === 'First day, "half" day', JSON.stringify(trows));
+a6 = await askA(olive, spaces.festival, '@Weft ADD-ROWS to the Weft test table');
+const rp = a6.reply?.meta?.proposals?.[0];
+check('Content: Weft proposes adding a row to the table', rp?.kind === 'add_rows' && /Add 1 row to the table "Weft test table"/.test(rp.summary), JSON.stringify({ meta: a6.reply?.meta, body: a6.reply?.body }));
+await confirm(olive, rp?.id);
+check('Content: the row is added at the end', (await api(olive.token, `/table_rows?table_id=eq.${tmade?.id}&select=cells&order=position`)).rows.length === 3);
+check('Content: Undo removes just that row', (await undo(olive, rp?.id)).data?.status === 'undone' && (await api(olive.token, `/table_rows?table_id=eq.${tmade?.id}&select=id`)).rows.length === 2);
+
+// Pat only views #festival: nothing to create there, and edits there are dropped even from her own conversation.
+a6 = await askA(pat, spaces.festival, '@Weft MAKE-TABLE: dates for the school year');
+check('Content: Pat (viewer in #festival) is not offered create_item there', !(a6.calls[0]?.tools || []).some((x) => x.name === 'create_item') && !a6.reply?.meta?.proposals);
+a6 = await askA(pat, await mine(pat), 'EDIT-DOC add to the run of show');
+check('Content: Pat cannot get an edit proposal for a #festival page she only views', !(a6.reply?.meta?.proposals || []).length, JSON.stringify(a6.reply?.meta));
+a6 = await askA(pat, await mine(pat), 'MAKE-TASKS: a back to school list');
+const ptl = a6.reply?.meta?.proposals?.[0];
+check('Content: Pat can still create in her own personal space', ptl?.kind === 'create_item' && /your personal space/.test(ptl.summary), JSON.stringify(a6.reply?.meta));
+await confirm(pat, ptl?.id);
+const [ptlist] = (await api(pat.token, '/items?title=eq.Weft%20test%20tasklist&select=id')).rows;
+const ptasks = (await api(pat.token, `/tasks?list_id=eq.${ptlist?.id}&select=title,due_on&order=position`)).rows;
+check('Content: the task list has its tasks', ptasks.length === 2 && ptasks[0].title === 'Buy supplies' && ptasks[0].due_on === '2027-08-01', JSON.stringify(ptasks));
+a6 = await askA(pat, await mine(pat), 'ADD-TODO to the Weft test tasklist');
+const ptp = a6.reply?.meta?.proposals?.[0];
+await confirm(pat, ptp?.id);
+check('Content: a task is added to the existing list', ptp?.kind === 'add_tasks' && (await api(pat.token, `/tasks?list_id=eq.${ptlist?.id}&select=id`)).rows.length === 3, JSON.stringify(a6.reply?.meta));
+check('Content: Olive cannot see Pat\'s personal task list', (await api(olive.token, `/items?id=eq.${ptlist?.id}&select=id`)).rows.length === 0);
+
+// Editing a page Olive can edit: appended through collab, and undone.
+a6 = await askA(olive, spaces.festival, '@Weft EDIT-DOC add the door time to the run of show');
+const ep = a6.reply?.meta?.proposals?.[0];
+check('Content: Weft proposes the edit', ep?.kind === 'edit_page' && /Change the document "Run of show": add 1 line at the end/.test(ep.summary), JSON.stringify({ meta: a6.reply?.meta, body: a6.reply?.body }));
+const runId = items6['Run of show'];
+check('Content: Olive confirms the edit', (await confirm(olive, ep?.id)).data?.status === 'done');
+let runText = '';
+for (let k = 0; k < 20 && !runText.includes('EDITED-BY-WEFT'); k++) { await sleep(250); runText = (await api(olive.token, `/items?id=eq.${runId}&select=body_text`)).rows[0]?.body_text || ''; }
+check('Content: the page now ends with the new line, the old content kept', /EDITED-BY-WEFT/.test(runText) && /Volunteers check in/.test(runText), runText.slice(0, 300));
+check('Content: Undo puts the page back', (await undo(olive, ep?.id)).data?.status === 'undone');
+for (let k = 0; k < 20 && runText.includes('EDITED-BY-WEFT'); k++) { await sleep(250); runText = (await api(olive.token, `/items?id=eq.${runId}&select=body_text`)).rows[0]?.body_text || ''; }
+check('Content: ...without the added line', !/EDITED-BY-WEFT/.test(runText) && /Volunteers check in/.test(runText), runText.slice(0, 300));
+
+// A spreadsheet needs the optional office engine; offered only when it is up.
+const office = await fetch('http://files:8095/files/office', { headers: { Authorization: `Bearer ${olive.token}` } }).then((x) => x.json()).catch(() => ({}));
+a6 = await askA(olive, await mine(olive), 'MAKE-SHEET: a school calendar spreadsheet');
+const kinds = a6.calls[0]?.tools?.find((x) => x.name === 'create_item')?.input_schema.properties.kind.enum || [];
+if (office.enabled && office.ready) {
+  const sp = a6.reply?.meta?.proposals?.[0];
+  await confirm(olive, sp?.id);
+  const [smade] = (await api(olive.token, '/items?title=eq.Weft%20test%20spreadsheet&select=id,kind,body_text')).rows;
+  check('Content: with the engine up, a spreadsheet is made from the rows', smade?.kind === 'spreadsheet' && /Winter break/.test(smade.body_text || ''), JSON.stringify(smade));
+} else {
+  check('Content: without the office engine, spreadsheets are not offered', !kinds.includes('spreadsheet') && kinds.includes('table'), JSON.stringify(kinds));
+}
 
 // Dismiss.
 a6 = await askA(olive, spaces.festival, '@Weft MOVE-IT: change where The Backyard Radio plays');

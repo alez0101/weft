@@ -36,6 +36,10 @@ const EMBED_URL = env('EMBED_URL', '');
 const EMBED_MODEL = env('EMBED_MODEL', 'nomic-embed-text');
 const EMBED_DIM = Number(env('EMBED_DIM', '768'));
 const MAX_DISTANCE = Number(env('SEMANTIC_MAX_DISTANCE', '0.7'));
+// Where confirmed content changes go: the files service (new spreadsheets) and collab's internal edit port
+// (documents and wiki pages, so people with the page open see the edit live).
+const FILES_URL = env('FILES_URL', 'http://files:8095');
+const COLLAB_EDIT = env('COLLAB_EDIT_URL', 'http://collab:1235');
 const db = new pg.Pool({ connectionString: env('DATABASE_URL_ASSIST'), max: 4 });
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
@@ -81,7 +85,7 @@ async function rest(token, path, { method = 'GET', body } = {}) {
 // ---------------------------------------------------------------- retrieval
 const STOP = new Set('a an and are as at be but by can could do does for from has have how i in is it me my of on or our please should so tell than that the their them there these they this to was we what when where which who why will with would you your weft'.split(' '));
 const SELECT = 'id,space_id,body,created_at,author:users(display_name,is_assistant),space:spaces(name,kind)';
-const ISELECT = 'id,space_id,kind,title,body_text,space:spaces(name,kind)';
+const ISELECT = 'id,space_id,kind,title,body_text,managed,space:spaces(name,kind)';
 const ESELECT = 'id,space_id,title,location,starts_at,ends_at,space:spaces(name,kind),project:projects(name)';
 const TIMEY = /\b(when|schedule|calendar|event|events|meeting|set|sets|shift|shifts|today|tomorrow|saturday|sunday|week|time|move|reschedule|start|starts)\b/i;
 // Records: rows of the apps that are not items (048, weft.records), read through a view that runs as the caller.
@@ -157,11 +161,13 @@ async function retrieve(token, question, spaceId, scoped, excludeId, projectId =
 
 const SYSTEM = `You are Weft, the assistant inside a small team's workspace. Answer questions about the team's work using only the numbered items provided (chat messages, documents, calendar events, and records from Weft's apps: announcements, RSVPs, bookings, shifts, time off, kudos, milestones, profiles and the person's own journal) and cite every fact with its number in square brackets, like [2]. If those items do not contain the answer, reply with exactly NOT_FOUND and nothing else; do not guess. Never invent items you were not given. When you talk to the person, call the numbered items "what I can see here" or name them (a message, a document, an event); never say "sources". Address the person as you. Keep answers short and plain: one or two full sentences.
 
-If the person asks about you or what you can do, answer that directly and without citations: you answer from the messages, documents and events they can open (in a channel, only from that channel, because the whole channel reads the answer); you can propose posting a message, creating an event and changing an event; nothing happens until they confirm; and you cannot delete anything.
+If the person asks about you or what you can do, answer that directly and without citations: you answer from the messages, documents and events they can open (in a channel, only from that channel, because the whole channel reads the answer); you can propose posting a message, creating or changing a calendar event, creating a document, wiki page, spreadsheet, table or task list, adding to or rewriting a document or wiki page, adding rows to a table and adding tasks to a task list, in spaces where they can edit (in a channel, only in that channel); nothing happens until they confirm; and you cannot delete anything. Never answer NOT_FOUND to a question about what you can do.
 
 Example. Sources: [1] message in #festival, Olive, 2026-04-01 09:00: The info booth opens at 11:00. Question: When does the info booth open? Answer: The info booth opens at 11:00 [1].`;
 
-const ACT = `\n\nIf the person asks you to do something, you may propose it with a tool: send_message to post in a channel, create_event to add a new calendar event, or change_event to change an event among the numbered items. A proposal does nothing until the person confirms it, so say in one sentence what you are proposing. Only propose what was asked. Use the person's time zone for times they mention. You cannot delete anything.`;
+const ACT = `\n\nIf the person asks you to do something, you may propose it with a tool: send_message to post in a channel, create_event to add a new calendar event, change_event to change an event among the numbered items, create_item to make a new document, wiki page, spreadsheet, table or task list, edit_page to add to, rewrite or rename a document or wiki page among the numbered items, add_table_rows to add rows to a table among the numbered items, or add_tasks to add tasks to a task list among the numbered items. A proposal does nothing until the person confirms it, so say in one sentence what you are proposing. Only propose what was asked. Use the person's time zone for times they mention. You cannot delete anything, and you cannot change an existing spreadsheet (offer a new one instead).
+
+When you are asked to make or add content, do not reply NOT_FOUND: write the content yourself from the request, the numbered items and what you generally know, and fill it in properly (real rows, real headings, not placeholders). Content you write does not need citations, but if you had to guess anything you could not check here (for example a school's exact dates), say so in one short sentence so the person can correct it. For a spreadsheet or table, give column names and every row; for a document or wiki page, Markdown.`;
 
 function fmtTime(iso, tz) {
   try { return new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(iso)); }
@@ -186,7 +192,7 @@ function prompt(question, sources, tz) {
 const label = (s) => (s.type === 'record' ? (RCITE[s.kind] ? `${RCITE[s.kind]}: ${s.title}` : s.title) : s.type === 'item' ? `${({ wiki: 'Wiki', whiteboard: 'Whiteboard', table: 'Table', file: 'File' })[s.kind] || 'Document'}: ${s.title}`
   : s.type === 'event' ? `Event: ${s.title}` : `${where(s.space)}, ${s.author?.display_name}`);
 
-function tools(channels, creatable = []) {
+function tools(channels, creatable = [], itemKinds = ['document', 'wiki', 'table', 'tasklist']) {
   const nullable = (desc) => ({ anyOf: [{ type: 'string' }, { type: 'null' }], description: desc });
   return [
     {
@@ -213,6 +219,40 @@ function tools(channels, creatable = []) {
         starts_at: { type: 'string', description: 'Start as ISO 8601 with offset.' },
         ends_at: { type: 'string', description: 'End as ISO 8601 with offset.' },
         location: nullable('Location, or null.') } },
+    }, {
+      name: 'create_item', strict: true,
+      description: 'Propose creating a new document, wiki page, spreadsheet, table or task list, with its content. Nothing is created until the person confirms. Fill in only the fields for the kind you choose; give empty values for the rest.',
+      input_schema: { type: 'object', additionalProperties: false, required: ['space', 'kind', 'title', 'markdown', 'columns', 'rows', 'tasks'], properties: {
+        space: { type: 'string', enum: creatable, description: 'Where it goes: a channel name without #, or "personal".' },
+        kind: { type: 'string', enum: itemKinds, description: 'document or wiki: Markdown text. spreadsheet or table: columns and rows. tasklist: tasks.' },
+        title: { type: 'string', description: 'Its title.' },
+        markdown: { type: 'string', description: 'Document or wiki page content in Markdown (headings, lists, tables). Empty for other kinds.' },
+        columns: { type: 'array', description: 'Spreadsheet or table columns, in order. Empty for other kinds.', items: { type: 'object', additionalProperties: false, required: ['name', 'type'], properties: {
+          name: { type: 'string' }, type: { type: 'string', enum: ['text', 'number', 'date', 'checkbox'], description: 'date as YYYY-MM-DD; checkbox as true or false.' } } } },
+        rows: { type: 'array', description: 'Spreadsheet or table rows: one array of cell values per row, in column order. Empty for other kinds.', items: { type: 'array', items: { type: 'string' } } },
+        tasks: { type: 'array', description: 'Task list tasks. Empty for other kinds.', items: { type: 'object', additionalProperties: false, required: ['title', 'due_on'], properties: {
+          title: { type: 'string' }, due_on: nullable('Due date as YYYY-MM-DD, or null.') } } } } },
+    }, {
+      name: 'edit_page', strict: true,
+      description: 'Propose adding Markdown to the end of a document or wiki page among the numbered items, replacing its whole content, and/or renaming it. Nothing changes until the person confirms.',
+      input_schema: { type: 'object', additionalProperties: false, required: ['source', 'mode', 'markdown', 'title'], properties: {
+        source: { type: 'integer', description: 'The [n] number of the document or wiki page.' },
+        mode: { type: 'string', enum: ['append', 'replace'], description: 'append adds to the end; replace rewrites the whole page (give all of it).' },
+        markdown: { type: 'string', description: 'The Markdown to add or the whole new content; empty to only rename.' },
+        title: nullable('A new title, or null to keep it.') } },
+    }, {
+      name: 'add_table_rows', strict: true,
+      description: 'Propose adding rows to a table among the numbered items. Nothing changes until the person confirms.',
+      input_schema: { type: 'object', additionalProperties: false, required: ['source', 'rows'], properties: {
+        source: { type: 'integer', description: 'The [n] number of the table.' },
+        rows: { type: 'array', description: 'One array of cell values per row, in the table\'s column order.', items: { type: 'array', items: { type: 'string' } } } } },
+    }, {
+      name: 'add_tasks', strict: true,
+      description: 'Propose adding tasks to a task list among the numbered items. Nothing changes until the person confirms.',
+      input_schema: { type: 'object', additionalProperties: false, required: ['source', 'tasks'], properties: {
+        source: { type: 'integer', description: 'The [n] number of the task list.' },
+        tasks: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['title', 'due_on'], properties: {
+          title: { type: 'string' }, due_on: nullable('Due date as YYYY-MM-DD, or null.') } } } } },
     }] : []),
   ];
 }
@@ -299,6 +339,16 @@ async function answer(ctx, system, user, toolDefs = null) {
   return { unavailable: true, fallback: reason };
 }
 
+// Whether new spreadsheets can be made (the optional office engine is up). Cached for a minute.
+let officeCache = { at: 0, ready: false };
+async function officeReady(userToken) {
+  if (Date.now() - officeCache.at < 60000) return officeCache.ready;
+  const ready = await fetch(`${FILES_URL}/files/office`, { headers: { Authorization: `Bearer ${userToken}` }, signal: AbortSignal.timeout(3000) })
+    .then((r) => (r.ok ? r.json() : {})).then((d) => d.enabled === true && d.ready === true).catch(() => false);
+  officeCache = { at: Date.now(), ready };
+  return ready;
+}
+
 // ---------------------------------------------------------------- ask
 const inflight = new Set();
 const validTz = (tz) => { try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return tz; } catch { return 'UTC'; } };
@@ -331,9 +381,11 @@ async function ask(user, messageId, tzIn) {
     // Where a new event could go: spaces in scope where the asker is an owner or editor.
     const mineRoles = await rest(token, `/members?user_id=eq.${user.id}&role=in.(owner,editor)&select=space_id,space:spaces(id,kind,name)`);
     const creatable = mineRoles.map((m) => m.space).filter((s) => s && (s.kind === 'channel' || s.kind === 'personal'))
-      .map((s) => ({ id: s.id, name: s.kind === 'personal' ? 'personal' : s.name }));
+      .map((s) => ({ id: s.id, name: s.kind === 'personal' ? 'personal' : s.name }))
+      .sort((a, b) => (b.name === 'personal') - (a.name === 'personal'));   // personal first: the safe default
+    const itemKinds = ['document', 'wiki', ...(await officeReady(user.token) ? ['spreadsheet'] : []), 'table', 'tasklist'];
     const result = await answer({ asker: user.id, space: q.space_id, question: q.id }, SYSTEM + guide.text, prompt(question, sources, tz),
-      tools(chans.map((c) => c.name), creatable.map((c) => c.name)));
+      tools(chans.map((c) => c.name), creatable.map((c) => c.name), itemKinds));
 
     let body; let citations = []; const proposals = [];
     if (result.unavailable) {
@@ -342,7 +394,7 @@ async function ask(user, messageId, tzIn) {
       body = "I can't help with that one.";
     } else {
       for (const c of result.calls || []) {
-        const prop = await proposalFrom(c, sources, chans, user.id, q.space_id, scope, tz, creatable, guide.project);
+        const prop = await proposalFrom(c, sources, chans, user.id, q.space_id, scope, tz, creatable, guide.project, { token, itemKinds });
         if (prop) proposals.push(prop);
       }
       const notFound = /^\W*NOT_FOUND\W*$/i.test(result.text) || result.text.includes('NOT_FOUND');
@@ -399,10 +451,195 @@ async function guidance(user, token, q, inAssistant) {
   return { text, pinned, project };
 }
 
+// ---------------------------------------------------------------- content proposals (073)
+// Documents, wiki pages, spreadsheets, tables and task lists. Returns undefined for any other tool, null for
+// a call that does not hold up, else the stored proposal. Targets are limited to spaces where the asker is an
+// owner or editor and that are in scope (in a channel, only that channel); RLS checks again on confirm.
+const KIND_NAME = { document: 'document', wiki: 'wiki page', spreadsheet: 'spreadsheet', table: 'table', tasklist: 'task list' };
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const cleanRows = (rows, width) => (Array.isArray(rows) ? rows : []).slice(0, 2000)
+  .map((r) => (Array.isArray(r) ? r : []).slice(0, width).map((v) => String(v ?? '').slice(0, 2000)))
+  .filter((r) => r.some((v) => v.trim()));
+const cleanTasks = (tasks) => (Array.isArray(tasks) ? tasks : []).slice(0, 200)
+  .map((t) => ({ title: String(t?.title || '').trim().slice(0, 300), due_on: DAY.test(String(t?.due_on || '')) ? t.due_on : null }))
+  .filter((t) => t.title);
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const placeOf = (sp) => (sp.name === 'personal' ? 'your personal space' : `#${sp.name}`);
+async function contentProposal(call, i, sources, asker, spaceId, scope, creatable, project, { token, itemKinds = [] }) {
+  const store = async (kind, payload, summary) => {
+    const id = (await db.query('select weft_private.proposal_create($1,$2,$3,$4,$5,$6) as id', [asker, spaceId, scope, kind, payload, summary])).rows[0].id;
+    return { id, kind, summary };
+  };
+  const editable = (s) => creatable.some((c) => c.id === s.space_id);
+  if (call.name === 'create_item') {
+    const sp = creatable.find((c) => c.name === i.space);
+    const kind = String(i.kind || '');
+    const title = String(i.title || '').trim().slice(0, 200);
+    if (!sp || !title || !itemKinds.includes(kind)) return null;
+    const inProject = project && sp.id === spaceId ? project : null;
+    const payload = { space_id: sp.id, kind, title, ...(inProject ? { project_id: inProject.id } : {}) };
+    let what;
+    if (kind === 'document' || kind === 'wiki') {
+      payload.markdown = String(i.markdown || '').slice(0, 200000);
+      what = payload.markdown.trim() ? `${plural(payload.markdown.split(/\n/).filter((x) => x.trim()).length, 'line')} of content` : 'empty';
+    } else if (kind === 'spreadsheet' || kind === 'table') {
+      payload.columns = (Array.isArray(i.columns) ? i.columns : []).slice(0, 50)
+        .map((c) => ({ name: String(c?.name || '').trim().slice(0, 80), type: ['text', 'number', 'date', 'checkbox'].includes(c?.type) ? c.type : 'text' }))
+        .filter((c) => c.name);
+      if (!payload.columns.length) return null;
+      payload.rows = cleanRows(i.rows, payload.columns.length);
+      what = `columns ${payload.columns.map((c) => c.name).join(', ')}; ${plural(payload.rows.length, 'row')}`;
+    } else {
+      payload.tasks = cleanTasks(i.tasks);
+      what = plural(payload.tasks.length, 'task');
+    }
+    return store('create_item', payload, `Create the ${KIND_NAME[kind]} "${title}" in ${placeOf(sp)}${inProject ? ` › ${inProject.name}` : ''} (${what})`);
+  }
+  if (call.name === 'edit_page') {
+    const s = sources[Number(i.source) - 1];
+    if (!s || s.type !== 'item' || !['document', 'wiki'].includes(s.kind) || s.managed || !editable(s)) return null;
+    const markdown = String(i.markdown || '').slice(0, 200000);
+    const mode = i.mode === 'replace' ? 'replace' : 'append';
+    const title = i.title ? String(i.title).trim().slice(0, 200) : null;
+    if (!markdown.trim() && !title) return null;
+    const parts = [];
+    if (markdown.trim()) parts.push(mode === 'replace' ? `replace its content (${plural(markdown.split(/\n/).filter((x) => x.trim()).length, 'line')})` : `add ${plural(markdown.split(/\n/).filter((x) => x.trim()).length, 'line')} at the end`);
+    if (title && title !== s.title) parts.push(`rename it "${title}"`);
+    if (!parts.length) return null;
+    return store('edit_page', { item_id: s.id, mode, markdown, title }, `Change the ${KIND_NAME[s.kind]} "${s.title}": ${parts.join(', ')}`);
+  }
+  if (call.name === 'add_table_rows') {
+    const s = sources[Number(i.source) - 1];
+    if (!s || s.type !== 'item' || s.kind !== 'table' || !editable(s)) return null;
+    const cols = await rest(token, `/table_columns?table_id=eq.${s.id}&select=id,name&order=position,created_at`);
+    const rows = cleanRows(i.rows, cols.length);
+    if (!cols.length || !rows.length) return null;
+    return store('add_rows', { item_id: s.id, rows }, `Add ${plural(rows.length, 'row')} to the table "${s.title}"`);
+  }
+  if (call.name === 'add_tasks') {
+    const s = sources[Number(i.source) - 1];
+    if (!s || s.type !== 'item' || s.kind !== 'tasklist' || !editable(s)) return null;
+    const tasks = cleanTasks(i.tasks);
+    if (!tasks.length) return null;
+    return store('add_tasks', { item_id: s.id, tasks }, `Add ${plural(tasks.length, 'task')} to "${s.title}": ${tasks.slice(0, 3).map((t) => t.title).join('; ')}${tasks.length > 3 ? '; …' : ''}`);
+  }
+  return undefined;
+}
+
+// Carry out a confirmed content proposal with the asker's own token (they confirmed it, so it is their action,
+// and row-level security decides as if they had done it by hand). Returns [status, result, before].
+const csvCell = (v) => (/[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+const cellValue = (type, v) => {
+  const t = String(v ?? '').trim();
+  if (type === 'number') { const n = Number(t.replace(/[$,]/g, '')); return t && Number.isFinite(n) ? n : (t || null); }
+  if (type === 'checkbox') return /^(true|yes|y|x|1|done|✓)$/i.test(t);
+  return t || null;
+};
+async function runContent(p, userToken) {
+  const pl = p.payload;
+  const editErr = "Not allowed: you can only change things in spaces where you are an editor or owner.";
+  if (p.kind === 'create_item') {
+    let item;
+    if (pl.kind === 'spreadsheet') {
+      const csv = [pl.columns.map((c) => c.name), ...pl.rows].map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
+      const r = await fetch(`${FILES_URL}/files/spreadsheets?space=${pl.space_id}&name=${encodeURIComponent(`${pl.title}.csv`)}`, {
+        method: 'POST', headers: { Authorization: `Bearer ${userToken}`, 'Content-Type': 'text/csv' }, body: csv,
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.status === 403) return ['failed', editErr];
+      if (!r.ok) return ['failed', d.error || 'The spreadsheet could not be made.'];
+      item = d;
+      if (pl.project_id) await rest(userToken, `/items?id=eq.${item.id}`, { method: 'PATCH', body: { project_id: pl.project_id } }).catch(() => null);
+    } else {
+      const row = { space_id: pl.space_id, kind: pl.kind, title: pl.title, ...(pl.project_id ? { project_id: pl.project_id } : {}),
+        ...(pl.kind === 'document' || pl.kind === 'wiki' ? { body_text: pl.markdown || null } : {}) };
+      [item] = await rest(userToken, '/items?select=id', { method: 'POST', body: row }).catch(() => [null]);
+      if (!item) return ['failed', editErr];
+      try {
+        if (pl.kind === 'table') {
+          const cols = await rest(userToken, '/table_columns?select=id,type', { method: 'POST', body: pl.columns.map((c, n) => ({ table_id: item.id, name: c.name, type: c.type, position: n + 1 })) });
+          if (pl.rows.length) await rest(userToken, '/table_rows?select=id', { method: 'POST', body: pl.rows.map((r, n) => ({ table_id: item.id, position: n + 1,
+            cells: Object.fromEntries(cols.map((c, k) => [c.id, cellValue(c.type, r[k])]).filter(([, v]) => v !== null && v !== '')) })) });
+        }
+        if (pl.kind === 'tasklist' && pl.tasks.length) {
+          await rest(userToken, '/tasks?select=id', { method: 'POST', body: pl.tasks.map((t, n) => ({ list_id: item.id, title: t.title, due_on: t.due_on, position: n + 1 })) });
+        }
+      } catch (e) {
+        await rest(userToken, `/items?id=eq.${item.id}`, { method: 'DELETE' }).catch(() => null);
+        log('content create failed', e.message);
+        return ['failed', 'Something went wrong; nothing was created.'];
+      }
+    }
+    return ['done', `Created the ${KIND_NAME[pl.kind]}.`, { item_id: item.id }];
+  }
+  if (p.kind === 'edit_page') {
+    const [it] = await rest(userToken, `/items?id=eq.${pl.item_id}&select=id,title,body_text,managed`);
+    if (!it) return ['failed', 'That page is gone, or you can no longer see it.'];
+    if (it.managed) return ['failed', 'That page is managed and cannot be changed in Weft.'];
+    if (pl.title && pl.title !== it.title) {
+      const r = await rest(userToken, `/items?id=eq.${it.id}&select=id`, { method: 'PATCH', body: { title: pl.title } }).catch(() => null);
+      if (!r?.length) return ['failed', editErr];
+    }
+    if (pl.markdown.trim()) {
+      const r = await fetch(`${COLLAB_EDIT}/edit`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: userToken, id: it.id, mode: pl.mode, markdown: pl.markdown }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        if (pl.title && pl.title !== it.title) await rest(userToken, `/items?id=eq.${it.id}`, { method: 'PATCH', body: { title: it.title } }).catch(() => null);
+        return ['failed', d.error || 'The page could not be changed.'];
+      }
+    }
+    return ['done', 'Changed.', { item_id: it.id, title: it.title, markdown: it.body_text || '' }];
+  }
+  if (p.kind === 'add_rows') {
+    const cols = await rest(userToken, `/table_columns?table_id=eq.${pl.item_id}&select=id,type&order=position,created_at`);
+    if (!cols.length) return ['failed', 'That table is gone, or you can no longer see it.'];
+    const [last] = await rest(userToken, `/table_rows?table_id=eq.${pl.item_id}&select=position&order=position.desc&limit=1`);
+    const base = Number(last?.position || 0);
+    const made = await rest(userToken, '/table_rows?select=id', { method: 'POST', body: pl.rows.map((r, n) => ({ table_id: pl.item_id, position: base + n + 1,
+      cells: Object.fromEntries(cols.map((c, k) => [c.id, cellValue(c.type, r[k])]).filter(([, v]) => v !== null && v !== '')) })) }).catch(() => null);
+    if (!made?.length) return ['failed', editErr];
+    return ['done', `Added ${plural(made.length, 'row')}.`, { item_id: pl.item_id, row_ids: made.map((x) => x.id) }];
+  }
+  if (p.kind === 'add_tasks') {
+    const [last] = await rest(userToken, `/tasks?list_id=eq.${pl.item_id}&select=position&order=position.desc&limit=1`).catch(() => []);
+    const base = Number(last?.position || 0);
+    const made = await rest(userToken, '/tasks?select=id', { method: 'POST', body: pl.tasks.map((t, n) => ({ list_id: pl.item_id, title: t.title, due_on: t.due_on, position: base + n + 1 })) }).catch(() => null);
+    if (!made?.length) return ['failed', editErr];
+    return ['done', `Added ${plural(made.length, 'task')}.`, { item_id: pl.item_id, task_ids: made.map((x) => x.id) }];
+  }
+  return null;
+}
+
+async function undoContent(p, userToken) {
+  const b = p.before;
+  if (p.kind === 'create_item') {
+    const gone = await rest(userToken, `/items?id=eq.${b.item_id}`, { method: 'DELETE' }).catch(() => null);
+    return gone?.length ? 'Removed.' : null;
+  }
+  if (p.kind === 'add_rows' || p.kind === 'add_tasks') {
+    const ids = (p.kind === 'add_rows' ? b.row_ids : b.task_ids).join(',');
+    const gone = await rest(userToken, `/${p.kind === 'add_rows' ? 'table_rows' : 'tasks'}?id=in.(${ids})`, { method: 'DELETE' }).catch(() => null);
+    return gone?.length ? 'Removed.' : null;
+  }
+  if (p.kind === 'edit_page') {
+    if (p.payload.title && p.payload.title !== b.title) await rest(userToken, `/items?id=eq.${b.item_id}`, { method: 'PATCH', body: { title: b.title } }).catch(() => null);
+    if (p.payload.markdown.trim()) {
+      const r = await fetch(`${COLLAB_EDIT}/edit`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: userToken, id: b.item_id, mode: 'replace', markdown: b.markdown.trim() ? b.markdown : ' ' }) });
+      if (!r.ok) return null;
+    }
+    return 'Put back.';
+  }
+  return null;
+}
+
 // Turn a model tool call into a stored proposal, or drop it if it does not hold up.
 // project: the project chat it was asked in (071), so a new event there goes into that project.
-async function proposalFrom(call, sources, chans, asker, spaceId, scope, tz, creatable = [], project = null) {
+async function proposalFrom(call, sources, chans, asker, spaceId, scope, tz, creatable = [], project = null, extra = {}) {
   const i = call.input || {};
+  const content = await contentProposal(call, i, sources, asker, spaceId, scope, creatable, project, extra);
+  if (content !== undefined) return content;
   if (call.name === 'create_event') {
     const sp = creatable.find((c) => c.name === i.space);
     const title = String(i.title || '').trim().slice(0, 200);
@@ -450,6 +687,7 @@ async function proposalFrom(call, sources, chans, asker, spaceId, scope, tz, cre
 // ---------------------------------------------------------------- proposals: confirm, dismiss, undo
 // Only the asker may decide. Execution runs as the assistant acting for the asker, with the original
 // scope, through PostgREST: row-level security decides whether the action is allowed at all.
+const CONTENT_KINDS = new Set(['create_item', 'edit_page', 'add_rows', 'add_tasks']);
 async function proposals(user, method, parts, url) {
   if (method === 'GET' && parts.length === 0) {
     const ids = (url.searchParams.get('ids') || '').split(',').filter((x) => /^[0-9a-f-]{36}$/.test(x)).slice(0, 50);
@@ -470,6 +708,11 @@ async function proposals(user, method, parts, url) {
     if (Date.now() - new Date(p.created_at).getTime() > 30 * 60 * 1000) { await move('pending', 'failed', 'expired'); return [409, { error: 'this proposal expired; ask again' }]; }
     if (!(await move('pending', 'done', 'running'))) return [409, { error: 'already decided' }];
     try {
+      if (CONTENT_KINDS.has(p.kind)) {
+        const [status, result, before] = await runContent(p, user.token);
+        await move('done', status, result, before || null);
+        return [200, { status }];
+      }
       if (p.kind === 'send') {
         const r = await rest(token, '/messages', { method: 'POST', body: { space_id: p.payload.space_id, author_id: ASSISTANT_ID, body: p.payload.text, meta: { sent_for: user.id, proposal_id: id } } }).catch(() => null);
         if (!r?.length) { await move('done', 'failed', 'Not allowed: you can only post where you are a member.'); return [200, { status: 'failed' }]; }
@@ -490,6 +733,14 @@ async function proposals(user, method, parts, url) {
       await move('done', 'done', 'Changed.', before);
       return [200, { status: 'done' }];
     } catch (e) { await move('done', 'failed', 'Something went wrong; nothing was changed.'); throw e; }
+  }
+  if (action === 'undo' && CONTENT_KINDS.has(p.kind)) {
+    if (p.status !== 'done' || !p.before) return [409, { error: 'only a confirmed change can be undone' }];
+    if (Date.now() - new Date(p.decided_at).getTime() > 24 * 3600 * 1000) return [409, { error: 'too late to undo (24 hours)' }];
+    const done = await undoContent(p, user.token);
+    if (!done) return [409, { error: 'could not undo; it may already be gone or changed' }];
+    await move('done', 'undone', done);
+    return [200, { status: 'undone' }];
   }
   if (action === 'undo') {
     if (!['change', 'create'].includes(p.kind) || p.status !== 'done' || !p.before) return [409, { error: 'only a confirmed event change or new event can be undone' }];

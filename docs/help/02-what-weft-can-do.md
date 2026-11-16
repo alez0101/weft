@@ -3,7 +3,7 @@ title: What Weft can do
 parent: Weft help
 summary: The assistant's actions, and what it will never do.
 ---
-Weft can answer questions and propose three actions. It never acts on its own: every action waits for the person who asked to confirm it.
+Weft can answer questions, and propose actions: messages, events, and new or changed documents, tables, spreadsheets and task lists. It never acts on its own: every action waits for the person who asked to confirm it.
 
 ### Answer questions
 
@@ -37,18 +37,30 @@ When you ask Weft to do something, it shows a card with what it would do, and **
 - **Post a message** in a channel.
 - **Add an event** to the calendar of a channel, or to your personal calendar.
 - **Change an event**: its title, time or location.
+- **Create a document, wiki page, spreadsheet, table or task list**, with the content already written
+  (for example "make me a spreadsheet of this year's school holidays"). Weft writes it from your request,
+  what it can see and what it generally knows; if it had to guess something (like exact dates), it says so.
+  Spreadsheets need the Spreadsheets app to be running; otherwise Weft offers a table.
+- **Add to or rewrite a document or wiki page**, or rename it. People who have it open see the change live.
+- **Add rows to a table** and **add tasks to a task list**.
+
+Weft creates and changes things only where you are an editor or owner. In a channel it works only in that
+channel; in your Weft conversation it can use your personal space or any channel you edit. Asked in a
+project's chat, a new item goes into that project. It cannot change an existing spreadsheet (it can make
+a new one), and it never changes Weft's own help pages.
 
 ### How confirming works
 
 - **Only the person who asked can confirm.** Everyone else in the channel sees "Waiting for (name) to confirm."
-- **Confirming uses your own permissions.** If you can only view a channel, Weft cannot change its events for you, even after you confirm. The card then says "Not allowed".
+- **Confirming uses your own permissions.** If you can only view a channel, Weft cannot change anything there for you, even after you confirm. The card then says "Not allowed". Anything it creates is created by you.
 - **Proposals expire after 30 minutes.** Ask again if one expires.
-- **Undo**: after confirming a new or changed event, the card shows **Undo** for 24 hours. Undoing a new event removes it, and that removal is done as you, not as Weft.
+- **Open**: after confirming, the card shows **Open** to go straight to the new or changed item.
+- **Undo**: after confirming a new or changed event, document, table or task list, the card shows **Undo** for 24 hours. Undoing something new removes it, and that removal is done as you, not as Weft. Undoing a page edit puts the earlier text back (formatting the page had may come back simpler).
 - Posted messages cannot be unsent by Weft.
 
 ### What Weft will never do
 
-- **Delete anything.** There is no delete action, and the database refuses deletes from the assistant.
+- **Delete anything.** There is no delete action, and the database refuses deletes from the assistant. (Undo removes only what Weft just made for you, and runs as you.)
 - **Reach outside what you can see.** It works with your permissions, never more.
 - **Act without a confirmation.**
 
