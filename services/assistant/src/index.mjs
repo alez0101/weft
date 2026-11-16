@@ -169,6 +169,10 @@ const ACT = `\n\nIf the person asks you to do something, you may propose it with
 
 When you are asked to make or add content, do not reply NOT_FOUND: write the content yourself from the request, the numbered items and what you generally know, and fill it in properly (real rows, real headings, not placeholders). Content you write does not need citations, but if you had to guess anything you could not check here (for example a school's exact dates), say so in one short sentence so the person can correct it. For a spreadsheet or table, give column names and every row; for a document or wiki page, Markdown.`;
 
+// Questions about the assistant itself ("can you make a spreadsheet?", "what can you do?").
+const CAPABILITY = /\b(?:can|could|will|would)\s+you\s+(?:please\s+)?(?:create|make|build|start|set\s+up|add|write|draft|edit|change|update|rename|post|send|schedule|put)\b|\bwhat\s+(?:can|could)\s+you\s+do\b|\bare\s+you\s+able\s+to\s+(?:create|make|add|write|edit|change)\b/i;
+const CAN_DO = 'Here is what I can do. Ask me to make or change something and I will propose it for you to confirm: create a document, wiki page, spreadsheet, table or task list with the content filled in; add to or rewrite a page; add rows to a table or tasks to a list; post a message; add or change calendar events. I work only where you can edit (in a channel, only in that channel), nothing happens until you confirm, and I never delete anything.';
+
 function fmtTime(iso, tz) {
   try { return new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(iso)); }
   catch { return iso; }
@@ -406,6 +410,9 @@ async function ask(user, messageId, tzIn) {
         citations = used.map((n) => { const s = sources[n - 1]; return { type: s.type, id: s.id, space_id: s.space_id, label: label(s), ...(s.type === 'record' ? { kind: s.kind, ref: s.ref } : {}) }; });
       } else if (proposals.length) {
         body = result.text && !notFound ? result.text.replace(/\[\d{1,2}\]/g, '').trim() : 'Here is what I can do. Nothing happens until you confirm.';
+      } else if (CAPABILITY.test(question)) {
+        // The model holds to NOT_FOUND for questions about itself; answer those plainly instead.
+        body = CAN_DO;
       } else {
         body = "I couldn't find anything about that in what you can see.";
       }

@@ -49,6 +49,8 @@ http.createServer((req, res) => {
         const sp = body.tools.find((x) => x.name === 'create_event').input_schema.properties.space.enum[0];
         content.push({ type: 'text', text: 'I can add that to the calendar.' });
         content.push({ type: 'tool_use', id: 'toolu_3', name: 'create_event', input: { space: sp, title: 'Weft test meetup', starts_at: '2027-04-12T10:00:00-07:00', ends_at: '2027-04-12T11:00:00-07:00', location: null } });
+      } else if (/SAY-NOT-FOUND/.test(user)) {
+        content.push({ type: 'text', text: 'NOT_FOUND' });
       } else if (/MAKE-(DOC|TABLE|TASKS|SHEET)/.test(user) && body.tools?.some((x) => x.name === 'create_item')) {
         // 073: content. The first space offered, so scoping is what the tool definition allows.
         const def = body.tools.find((x) => x.name === 'create_item').input_schema.properties;
@@ -286,6 +288,10 @@ const undo = (who, id) => assist(who.token, `/assistant/proposals/${id}/undo`, {
 a6 = await askA(olive, await mine(olive), 'can you create a spreadsheet?');
 const capSys = a6.calls[0]?.system; const capText = Array.isArray(capSys) ? capSys.map((x) => x.text || '').join('\n') : String(capSys || '');
 check('Content: the model is told it can create documents, spreadsheets, tables and task lists', /creating a document, wiki page, spreadsheet, table or task list/.test(capText) && /Never answer NOT_FOUND to a question about what you can do/.test(capText));
+a6 = await askA(olive, await mine(olive), 'SAY-NOT-FOUND can you create a spreadsheet?');
+check('Content: a "can you make..." question the model answers NOT_FOUND gets the list of what Weft can do', /^Here is what I can do\./.test(a6.reply?.body || ''), a6.reply?.body);
+a6 = await askA(olive, await mine(olive), 'SAY-NOT-FOUND can you tell me the gate code?');
+check('Content: ...but a plain question phrased "can you tell me" still says it found nothing', /couldn't find anything/.test(a6.reply?.body || ''), a6.reply?.body);
 check('Content: create_item, edit_page, add_table_rows and add_tasks are offered', ['create_item', 'edit_page', 'add_table_rows', 'add_tasks'].every((n) => (a6.calls[0]?.tools || []).some((x) => x.name === n)));
 
 // A document in Olive's personal space, from her own Weft conversation.
