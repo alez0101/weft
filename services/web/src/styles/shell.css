@@ -29,7 +29,7 @@
 .sources .source:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
 .msg.is-focus { box-shadow: 0 0 0 2px var(--color-accent), var(--shadow-card); }
 
-.admin { max-width: 980px; margin-inline: auto; padding: var(--space-xl); }
+.admin { max-width: var(--content-max); margin-inline: auto; padding: var(--space-xl); }
 .admin h2 { font-size: var(--text-section); }
 .admin-lead { margin: var(--space-xs) 0 var(--space-lg); color: var(--color-ink-2); max-width: 70ch; }
 .slots { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: var(--space-md); }
@@ -72,7 +72,7 @@
 .doc-link:active { transform: translateY(1px); }
 .doc-link.is-active { background: var(--color-accent-soft); color: var(--color-ink); font-weight: 500; }
 .docs-main { min-width: 0; background: var(--color-paper-2); }
-.docs-head { max-width: 860px; margin: 0 auto; padding: var(--space-lg) var(--space-xl) var(--space-sm); display: grid; gap: var(--space-2xs); }
+.docs-head { max-width: var(--prose-max); margin: 0 auto; padding: var(--space-lg) var(--space-xl) var(--space-sm); display: grid; gap: var(--space-2xs); }
 .docs-title {
   font: var(--display-weight, 700) var(--text-section) var(--font-display); letter-spacing: var(--tracking-display);
   border: 0; border-radius: var(--radius-input); padding: var(--space-3xs) var(--space-2xs); margin-left: calc(var(--space-2xs) * -1);
@@ -82,7 +82,7 @@
 .docs-meta { display: flex; flex-wrap: wrap; gap: var(--space-sm); font-size: var(--text-sm); color: var(--color-muted); }
 .docs-status { color: var(--color-ink-2); }
 .docs-share { display: flex; gap: var(--space-xs); margin-top: var(--space-2xs); }
-.docs-editor { max-width: 860px; margin: 0 auto var(--space-2xl); padding: var(--space-md) 0; background: var(--color-paper); border-radius: var(--radius-card); box-shadow: 0 0 0 1px var(--color-rule), var(--shadow-card); min-height: 50vh; }
+.docs-editor { max-width: var(--prose-max); margin: 0 auto var(--space-2xl); padding: var(--space-md) 0; background: var(--color-paper); border-radius: var(--radius-card); box-shadow: 0 0 0 1px var(--color-rule), var(--shadow-card); min-height: 50vh; }
 .docs-editor .bn-editor { font-family: var(--font-body); background: transparent; }
 .item-link { border: 0; cursor: pointer; margin-left: var(--space-2xs); font-family: var(--font-body); }
 @media (max-width: 60rem) { .docs { grid-template-columns: minmax(0, 1fr); } .docs-list { border-right: 0; border-bottom: 1px solid var(--color-rule); } }
@@ -148,12 +148,12 @@
 .proposal-open + .proposal-undo { margin-left: 0; }
 
 /* Version 1.5: whiteboard */
-.docs-board { height: calc(100dvh - 260px); min-height: 420px; margin: 0 auto var(--space-lg); max-width: 1400px; border-radius: var(--radius-card); overflow: hidden; box-shadow: 0 0 0 1px var(--color-rule); background: var(--color-paper); }
+.docs-board { height: calc(100dvh - 260px); min-height: 420px; margin: 0 auto var(--space-lg); max-width: none; border-radius: var(--radius-card); overflow: hidden; box-shadow: 0 0 0 1px var(--color-rule); background: var(--color-paper); }
 .board { height: 100%; }
 .board .excalidraw { --color-primary: var(--color-accent-deep); font-family: var(--font-body); }
 
 /* Version 1.5: tables */
-.docs-table { max-width: 1400px; margin: 0 auto var(--space-lg); }
+.docs-table { max-width: none; margin: 0 auto var(--space-lg); }
 .tbl { display: grid; gap: var(--space-xs); }
 .tbl-bar { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
 .tbl-grid { height: calc(100dvh - 330px); min-height: 360px; }
@@ -272,7 +272,7 @@
 .search-empty, .search-foot { padding: var(--space-xs); color: var(--color-muted); font-size: var(--text-sm); }
 .search-foot { border-top: var(--rule-hair) solid var(--color-rule); margin-top: var(--space-2xs); }
 /* Tasks: lists of tasks with who and when; due tasks on the calendar and in a Home widget. */
-.docs-tasks { max-width: 960px; margin: 0 auto var(--space-lg); padding-top: var(--space-sm); }
+.docs-tasks { max-width: var(--content-max); margin: 0 auto var(--space-lg); padding-top: var(--space-sm); }
 .tasks { display: grid; gap: var(--space-sm); }
 .task-add { display: grid; grid-template-columns: minmax(0, 1fr) minmax(8rem, 12rem) 10rem auto; gap: var(--space-xs); align-items: center;
   padding: var(--space-sm); border-radius: var(--radius-card); background: var(--color-paper); box-shadow: 0 0 0 1px var(--color-rule); }
@@ -304,7 +304,7 @@
   .task-add > :first-of-type { grid-column: 1 / -1; }
 }
 /* Polls: a question, a few choices, one vote each, results live. */
-.docs-poll { max-width: 760px; margin: 0 auto var(--space-lg); padding-top: var(--space-sm); }
+.docs-poll { max-width: var(--content-max); margin: 0 auto var(--space-lg); padding-top: var(--space-sm); }
 .poll { display: grid; gap: var(--space-sm); }
 .poll-head, .poll-foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); justify-content: space-between; }
 .poll-state { margin: 0; display: flex; align-items: center; gap: var(--space-xs); color: var(--color-ink-2); font-size: var(--text-sm); }
@@ -339,7 +339,7 @@
   background: var(--color-paper); color: var(--color-ink); font: inherit; font-size: var(--text-sm); }
 .deadline-input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
 /* Forms: a few questions, one answer per person, the answers in a table for editors. */
-.docs-form { max-width: 860px; margin: 0 auto var(--space-lg); padding-top: var(--space-sm); }
+.docs-form { max-width: var(--content-max); margin: 0 auto var(--space-lg); padding-top: var(--space-sm); }
 .form { display: grid; gap: var(--space-sm); }
 .form-head, .form-tools, .form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); justify-content: space-between; }
 .form-tools, .form-actions { justify-content: flex-start; }
@@ -380,7 +380,7 @@
 @media (max-width: 720px) { .form-q-row { grid-template-columns: minmax(0, 1fr) auto; } }
 .form-fieldset:disabled .form-q input:not([type="radio"]), .form-fieldset:disabled .form-q textarea { background: var(--color-paper-2); border-color: var(--color-rule); color: var(--color-ink-2); }
 /* Links: a shared list of useful links with a title, a note and tags. */
-.docs-links { max-width: 860px; margin: 0 auto var(--space-lg); padding-top: var(--space-sm); }
+.docs-links { max-width: var(--content-max); margin: 0 auto var(--space-lg); padding-top: var(--space-sm); }
 .links { display: grid; gap: var(--space-sm); }
 .links-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); }
 .links-bar .docs-hint, .links > .docs-hint { margin: 0; padding: 0; }
@@ -603,7 +603,7 @@
 .widget-goal-pct { color: var(--color-ink-2); font-variant-numeric: tabular-nums; }
 /* Retros: a retrospective, three columns of notes (Went well, To improve, Actions), each with its own add
    form; anonymous notes are marked; an action made into a task shows the task's state. Uses the Meeting facts. */
-.docs-retro { max-width: 1180px; margin: 0 auto var(--space-lg); padding-top: var(--space-sm); }
+.docs-retro { max-width: none; margin: 0 auto var(--space-lg); padding-top: var(--space-sm); }
 .retro { display: grid; gap: var(--space-md); }
 .retro > .docs-hint { margin: 0; padding: 0; }
 .retro .goal-meta { margin: 0; }
@@ -813,7 +813,7 @@ select.idea-status:focus-visible { outline: 2px solid var(--color-focus); outlin
 .kanban-empty { margin: 0; padding: var(--space-xs); color: var(--color-muted); font-size: var(--text-sm); text-align: center; }
 @media (prefers-reduced-motion: reduce) { .kanban-col, .kanban-card, .kanban-tools { transition: none; } }
 /* Meetings: a meeting's facts, its text sections and its action items (task rows). */
-.docs-meeting { max-width: 900px; margin: 0 auto var(--space-lg); padding-top: var(--space-sm); }
+.docs-meeting { max-width: var(--content-max); margin: 0 auto var(--space-lg); padding-top: var(--space-sm); }
 .meeting { display: grid; gap: var(--space-md); }
 .meeting > .docs-hint { margin: 0; padding: 0; }
 .meeting-facts { display: grid; gap: var(--space-xs); padding: var(--space-sm); border-radius: var(--radius-card);
@@ -1054,9 +1054,9 @@ select.idea-status:focus-visible { outline: 2px solid var(--color-focus); outlin
 .tl-head { margin-block: 0; }
 .tl-next { color: var(--color-ink-2); font-weight: 600; }
 .tl-wrap { display: grid; gap: var(--space-md); padding-bottom: var(--space-lg); }
-.tl-below { max-width: 860px; width: 100%; margin: 0 auto; }
+.tl-below { max-width: var(--content-max); width: 100%; margin: 0 auto; }
 .tl-below > .docs-hint { margin: 0; padding: 0; }
-.tl-empty { max-width: 860px; width: 100%; margin: 0 auto; }
+.tl-empty { max-width: var(--content-max); width: 100%; margin: 0 auto; }
 .tl-scroll { overflow-x: auto; padding: var(--space-sm) var(--space-md) var(--space-md); border-radius: var(--radius-card);
   background: var(--color-paper); box-shadow: 0 0 0 1px var(--color-rule); scroll-behavior: smooth; }
 .tl-scroll:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
@@ -1169,7 +1169,7 @@ select.idea-status:focus-visible { outline: 2px solid var(--color-focus); outlin
 .cal-download select:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
 .cal-download .cal-hint { margin: 0; }
 /* Spreadsheets: the engine's editor fills the pane. */
-.docs-sheet { margin: 0 auto var(--space-lg); max-width: 1600px; }
+.docs-sheet { margin: 0 auto var(--space-lg); max-width: none; }
 .sheet-view { display: grid; gap: var(--space-sm); }
 .sheet-frame { height: calc(100dvh - 240px); min-height: 460px; border-radius: var(--radius-card); overflow: hidden; box-shadow: 0 0 0 1px var(--color-rule); background: var(--color-paper); }
 .sheet-frame[hidden] { display: none; }
