@@ -348,23 +348,25 @@ export default function App() {
     const i = u.tabs.indexOf(id); const tabs = u.tabs.filter((t) => t !== id);
     return { ...u, tabs, active: u.active === id ? (tabs[i - 1] || tabs[i] || 'home') : u.active };
   });
-  // Full screen: the open app fills the window (top bar and chat hidden) and the browser goes full screen
-  // too where it can. Leaving browser full screen (Esc) leaves it as well.
-  const [full, setFull] = useState(false);
+  // Full screen, for either side: 'apps' (the open app fills the window, chat shrinks to its icon strip) or
+  // 'chat' (chat fills the window, the apps shrink to a toolbar of their tabs). The top bar hides and the
+  // browser goes full screen too where it can. Leaving browser full screen (Esc) leaves it as well.
+  const [full, setFull] = useState(null);
   useEffect(() => {
-    const left = () => { if (!document.fullscreenElement) setFull(false); };
+    const left = () => { if (!document.fullscreenElement) setFull(null); };
     document.addEventListener('fullscreenchange', left);
     return () => document.removeEventListener('fullscreenchange', left);
   }, []);
-  const toggleFull = () => {
-    if (!full) {
-      setFull(true);
-      document.documentElement.requestFullscreen?.().catch(() => {});   // refused or unsupported: the app still fills the window
-    } else {
-      setFull(false);
-      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    }
+  const leaveFull = () => {
+    setFull(null);
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   };
+  const toggleFull = (side) => {
+    if (full === side) { leaveFull(); return; }
+    if (!full) document.documentElement.requestFullscreen?.().catch(() => {});   // refused or unsupported: the side still fills the window
+    setFull(side);
+  };
+  const railShown = full === 'apps' ? 'collapsed' : full === 'chat' ? 'full' : ui.rail;
   const onTabKey = (e) => {
     const ids = ['home', ...ui.tabs]; const i = ids.indexOf(ui.active);
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
@@ -382,7 +384,7 @@ export default function App() {
   const me = session.user;
   const unreadTotal = unread.reduce((n, u) => n + (u.unread || 0), 0);
   return (
-    <div className="shell" data-rail={ui.rail === 'normal' ? undefined : ui.rail} data-full={full ? 'true' : undefined} data-pane={ui.pane}>
+    <div className="shell" data-rail={railShown === 'normal' || railShown === 'full' ? undefined : railShown} data-full={full || undefined} data-pane={ui.pane}>
       <header className="topbar">
         <a className="wordmark" href="#active=home" onClick={(e) => { e.preventDefault(); setUi((u) => ({ ...u, active: 'home' })); }}>Weft</a>
         {/* Phones: chat and apps each get the whole screen; this switches between them (hidden on wider screens). */}
@@ -404,25 +406,25 @@ export default function App() {
       </header>
 
       <Chat me={me} spaces={spaces} personal={personal} agents={agents} agentSpaces={agentSpaces} members={members} unread={unread} active={ui.convo} onSpacesChanged={refreshSpaces}
-        setActive={(convo) => setUi((u) => ({ ...u, convo, pane: 'chat' }))} rail={ui.rail} setRail={(rail) => setUi((u) => ({ ...u, rail }))}
+        setActive={(convo) => setUi((u) => ({ ...u, convo, pane: 'chat' }))} rail={railShown} setRail={(rail) => { if (full) { leaveFull(); setUi((u) => ({ ...u, rail: u.rail === 'collapsed' ? 'normal' : u.rail })); return; } setUi((u) => ({ ...u, rail })); }} onFull={() => toggleFull('chat')}
         notice={notice} live={live} onOpenItem={openItem} onOpenEvent={openEvent} onOpenNotices={openNotices} onOpenRecord={openRecord} jump={jump} />
 
       <main className="stage">
         <div className="tabbar">
         <div className="tabs" role="tablist" aria-label="Open apps" onKeyDown={onTabKey}>
           <button className={`tab${ui.active === 'home' ? ' is-active' : ''}`} role="tab" id="tab-home" aria-selected={ui.active === 'home'}
-            tabIndex={ui.active === 'home' ? 0 : -1} onClick={() => setUi((u) => ({ ...u, active: 'home' }))}>
+            tabIndex={ui.active === 'home' ? 0 : -1} title="Home" onClick={() => { if (full === 'chat') leaveFull(); setUi((u) => ({ ...u, active: 'home' })); }}>
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 9 10 3.5 16.5 9v7.5h-4.5v-4.5h-4v4.5H3.5z" /></svg>Home
           </button>
           {ui.tabs.map((id) => (
             <button key={id} className={`tab${ui.active === id ? ' is-active' : ''}`} role="tab" id={`tab-${id}`} aria-selected={ui.active === id}
-              tabIndex={ui.active === id ? 0 : -1} onClick={() => setUi((u) => ({ ...u, active: id }))}>
+              tabIndex={ui.active === id ? 0 : -1} title={APP[id].label} onClick={() => { if (full === 'chat') leaveFull(); setUi((u) => ({ ...u, active: id })); }}>
               <span className="tab-dot" style={{ '--t': `var(${APP[id].tint})` }} aria-hidden="true" />{APP[id].label}
               <span className="tab-close" role="button" aria-label={`Close ${APP[id].label}`} onClick={(e) => { e.stopPropagation(); closeTab(id); }}>×</span>
             </button>
           ))}
         </div>
-        <button type="button" className="icon-btn full-btn" aria-pressed={full} onClick={toggleFull}
+        <button type="button" className="icon-btn full-btn" aria-pressed={!!full} onClick={() => (full ? leaveFull() : toggleFull('apps'))}
           aria-label={full ? 'Exit full screen' : 'Full screen'} title={full ? 'Exit full screen (Esc)' : 'Full screen'}>
           {full
             ? <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 3.5V8H3.5M12 3.5V8h4.5M8 16.5V12H3.5M12 16.5V12h4.5" /></svg>

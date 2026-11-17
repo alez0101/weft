@@ -23,7 +23,7 @@ function Body({ text, onOpenItem, onOpenEvent }) {
   })}</p>;
 }
 
-export default function Chat({ me, spaces, personal = null, agents = [], agentSpaces = [], members, unread, active: activeRaw, setActive, rail, setRail, notice, live, onOpenItem, onOpenEvent, onOpenNotices, onOpenRecord, onSpacesChanged, jump }) {
+export default function Chat({ me, spaces, personal = null, agents = [], agentSpaces = [], members, unread, active: activeRaw, setActive, rail, setRail, onFull, notice, live, onOpenItem, onOpenEvent, onOpenNotices, onOpenRecord, onSpacesChanged, jump }) {
   const [peopleOpen, setPeopleOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const assistantSpace = spaces.find((s) => s.kind === 'assistant');
@@ -257,9 +257,14 @@ export default function Chat({ me, spaces, personal = null, agents = [], agentSp
         <div className="rail-head">
           <h2 className="rail-title">Chat</h2>
           <div className="rail-size" role="group" aria-label="Chat width">
-            {rail !== 'collapsed' && <button className="icon-btn" type="button" aria-label="Collapse chat" title="Collapse chat" onClick={() => setRail('collapsed')}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 5 7.5 10l5 5" /></svg></button>}
-            {rail === 'wide' && <button className="icon-btn" type="button" aria-label="Normal chat width" title="Normal width" onClick={() => setRail('normal')}><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3.5" y="4.5" width="13" height="11" rx="1.5" /><path d="M8 4.5v11" /></svg></button>}
-            {rail !== 'wide' && <button className="icon-btn" type="button" aria-label="Expand chat" title="Expand chat" onClick={() => setRail('wide')}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 5l5 5-5 5" /></svg></button>}
+            {rail === 'full'
+              ? <button className="icon-btn" type="button" aria-pressed="true" aria-label="Exit full screen chat" title="Exit full screen (Esc)" onClick={onFull}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 3.5V8H3.5M12 3.5V8h4.5M8 16.5V12H3.5M12 16.5V12h4.5" /></svg></button>
+              : <>
+              {rail !== 'collapsed' && <button className="icon-btn" type="button" aria-label="Collapse chat" title="Collapse chat" onClick={() => setRail('collapsed')}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 5 7.5 10l5 5" /></svg></button>}
+              {rail === 'wide' && <button className="icon-btn" type="button" aria-label="Normal chat width" title="Normal width" onClick={() => setRail('normal')}><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3.5" y="4.5" width="13" height="11" rx="1.5" /><path d="M8 4.5v11" /></svg></button>}
+              {rail !== 'wide' && <button className="icon-btn" type="button" aria-label="Expand chat" title="Expand chat" onClick={() => setRail('wide')}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 5l5 5-5 5" /></svg></button>}
+              {rail !== 'collapsed' && <button className="icon-btn" type="button" aria-pressed="false" aria-label="Full screen chat" title="Full screen chat" onClick={onFull}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 8V3.5H8M16.5 8V3.5H12M3.5 12v4.5H8M16.5 12v4.5H12" /></svg></button>}
+              </>}
           </div>
         </div>
         <ul className="convo-list">

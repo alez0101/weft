@@ -1278,3 +1278,33 @@ select.idea-status:focus-visible { outline: 2px solid var(--color-focus); outlin
 .key-form { display: grid; gap: var(--space-xs); grid-template-columns: 1fr auto auto; align-items: end; margin-top: var(--space-sm); }
 .key-form label { display: grid; gap: var(--space-3xs); color: var(--color-ink-2); font-size: var(--text-sm); font-weight: 500; }
 @media (max-width: 560px) { .key-form { grid-template-columns: 1fr; } }
+
+/* ---------- full screen, either side (laptops and up; phones keep one pane at a time) ----------
+   'apps': the open app fills the window and chat shrinks to its icon strip (picking a conversation there
+   leaves full screen). 'chat': chat fills the window, channel list beside the conversation, and the apps
+   shrink to a toolbar of their tabs on the right (picking one leaves full screen and shows that app). */
+@media (min-width: 44.0625rem) {
+  .shell[data-full="apps"] { grid-template-columns: var(--rail-w) minmax(0, 1fr); }
+  .shell[data-full="apps"] > .rail { display: grid; }
+
+  .shell[data-full="chat"] { grid-template-columns: minmax(0, 1fr) 56px; }
+  .shell[data-full="chat"] > .rail { display: grid; grid-template-columns: 300px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); border-right: 0; }
+  .shell[data-full="chat"] .convos { max-height: none; border-bottom: 0; border-right: 1px solid var(--color-rule); }
+  .shell[data-full="chat"] .thread { background: var(--color-paper); }
+  .shell[data-full="chat"] .msg { max-width: min(92%, 80ch); }
+
+  .shell[data-full="chat"] > .stage { grid-template-rows: minmax(0, 1fr); border-left: 1px solid var(--color-rule); background: var(--color-paper-2); }
+  .shell[data-full="chat"] .panel { display: none; }
+  .shell[data-full="chat"] .tabbar { height: auto; flex-direction: column; align-items: center; gap: var(--space-2xs); padding: var(--space-xs) 0; border-bottom: 0; }
+  .shell[data-full="chat"] .full-btn { order: -1; width: 36px; height: 36px; }
+  .shell[data-full="chat"] .tabs { flex: 1 1 auto; flex-direction: column; align-items: center; align-self: stretch; gap: var(--space-3xs); padding: var(--space-2xs) 0 0; margin: 0; overflow-x: hidden; overflow-y: auto; border-top: 1px solid var(--color-rule); }
+  .shell[data-full="chat"] .tab { width: 40px; height: 40px; padding: 0; justify-content: center; gap: 0; border-radius: 10px; font-size: 0; flex: none; }
+  .shell[data-full="chat"] .tab svg { width: 20px; height: 20px; }
+  .shell[data-full="chat"] .tab-dot { width: 18px; height: 18px; border-radius: 5px; }
+  .shell[data-full="chat"] .tab-close { display: none; }
+  .shell[data-full="chat"] .tab.is-active { box-shadow: 0 0 0 1px var(--color-rule); }
+}
+
+/* No dead space under a document or wiki page: the page runs to the bottom of the window. */
+.docs-editor { min-height: calc(100dvh - var(--topbar-h) - 44px - 150px); margin-bottom: var(--space-md); }
+.shell[data-full] .docs.has-open .docs-editor { flex: 1 1 auto; width: 100%; min-height: 0; margin: 0 auto; border-radius: 0; }
