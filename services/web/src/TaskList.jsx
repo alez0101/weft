@@ -5,6 +5,7 @@
 // (the database does it, so it works the same from Boards and connected apps).
 // Away warnings (052): an open task whose assignee has time off on its due date says "Pat is away then".
 // Comments on tasks (053): each task has a short comment thread under it (TaskComments.jsx).
+// Task from a message (077): a task made from a chat message says "From a message", which opens the chat there.
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
 import { AwayLive, AwayNote, useAway } from './Away.jsx';
@@ -26,7 +27,7 @@ const EMPTY = { title: '', assignee_id: '', due_on: '', repeats: '' };
 export const REPEATS = { daily: 'Every day', weekly: 'Every week', monthly: 'Every month' };
 const RepeatOptions = () => (<><option value="">Does not repeat</option>{Object.entries(REPEATS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</>);
 
-export default function TaskList({ item, me, members, editable, notice }) {
+export default function TaskList({ item, me, members, editable, notice, onOpenMessage }) {
   const [tasks, setTasks] = useState(null);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
@@ -41,7 +42,7 @@ export default function TaskList({ item, me, members, editable, notice }) {
     .map((m) => m.user).sort((a, b) => a.display_name.localeCompare(b.display_name));
   const nameOf = (id) => people.find((p) => p.id === id)?.display_name ?? (id ? 'Someone not in this space' : '');
 
-  const load = useCallback(() => api(`/tasks?list_id=eq.${item.id}&select=id,title,assignee_id,due_on,repeats,done,done_at,position&order=position,created_at`)
+  const load = useCallback(() => api(`/tasks?list_id=eq.${item.id}&select=id,title,assignee_id,due_on,repeats,done,done_at,position,message_id&order=position,created_at`)
     .then((r) => { setTasks(r); }), [item.id]);
   useEffect(() => { load().catch((e) => setError(`The list could not load: ${e.message}`)); }, [load]);
   useEffect(() => { if (notice?.t === 'tasks' && notice.list === item.id) load().catch(() => {}); }, [notice, item.id, load]);
@@ -114,6 +115,7 @@ export default function TaskList({ item, me, members, editable, notice }) {
           <span className="task-meta task-repeats">{t.repeats ? REPEATS[t.repeats] : ''}</span>
         </>
       )}
+      {t.message_id && onOpenMessage && <button type="button" className="link-btn task-from" onClick={() => onOpenMessage(item.space_id, t.message_id)}>From a message<span className="visually-hidden">: open {t.title} in chat</span></button>}
       {!t.done && <AwayNote away={awayOn(t.assignee_id, t.due_on)} name={nameOf(t.assignee_id)} isMe={t.assignee_id === me.id} />}
       <TaskComments task={t} comments={byTask[t.id]} me={me} nameOf={nameOf} canPost={editable || t.assignee_id === me.id} isOwner={owner} onChanged={() => reloadComments().catch(() => {})} />
     </li>

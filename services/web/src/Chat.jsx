@@ -3,6 +3,7 @@ import { api, assistant } from './api.js';
 import { ChannelPeople, NewChannel } from './People.jsx';
 import { Pinned } from './Announcements.jsx';
 import { ProjectStrip, RulesPanel, following } from './Projects.jsx';
+import { MessageTaskForm, MessageTasks, useMessageTasks } from './MessageTask.jsx';
 
 const ASSISTANT = 'weft'; // URL alias for the person's own assistant space
 const SEL = 'id,body,created_at,author_id,meta,project_id,author:users(display_name,is_assistant)';
@@ -75,6 +76,15 @@ export default function Chat({ me, spaces, personal = null, agents = [], agentSp
   useEffect(() => {
     if (hasProjects && notice && ['projects', 'space_rules'].includes(notice.t) && notice.space === active) loadProjects(active).catch(() => {});
   }, [notice, active, hasProjects, loadProjects]);
+  // Task from a message (077): in channels and Personal, editors and owners make a task from any message.
+  const taskSpace = ['channel', 'personal'].includes(current?.kind) ? current.id : null;
+  const canEdit = current?.kind === 'personal' || members.some((m) => m.space_id === current?.id && m.user?.id === me.id && ['owner', 'editor'].includes(m.role));
+  const { lists: taskLists, byMessage: tasksBy } = useMessageTasks(taskSpace, !!taskSpace, notice);
+  const [taskFor, setTaskFor] = useState(null);       // the message whose Add a task form is open
+  const [lastList, setLastList] = useState({});       // the list last used, per space
+  useEffect(() => { setTaskFor(null); }, [active]);
+  const spacePeople = members.filter((m) => m.space_id === current?.id && m.user).map((m) => m.user)
+    .sort((a, b) => a.display_name.localeCompare(b.display_name));
   const agentOf = (space) => agents.find((a) => a.id === space?.agent_id);
   const curAgent = current?.kind === 'agent' ? agentOf(current) : null;
   const busy = !!(current && working[current.id]);
@@ -371,6 +381,15 @@ export default function Chat({ me, spaces, personal = null, agents = [], agentSp
                     ))}</p>
                   )}
                   {m.meta?.proposals?.length > 0 && <Proposals list={m.meta.proposals} mine={m.meta.asker === me.id} members={members} asker={m.meta.asker} notice={notice} onOpenItem={onOpenItem} />}
+                  {taskSpace && <MessageTasks tasks={tasksBy[m.id]} onOpenItem={onOpenItem} />}
+                  {taskSpace && canEdit && taskFor !== m.id && (
+                    <p className="msg-actions"><button type="button" className="link-btn msg-action" onClick={() => { setTaskFor(m.id); setInfo(''); }}>Make a task<span className="visually-hidden"> from this message</span></button></p>
+                  )}
+                  {taskSpace && canEdit && taskFor === m.id && (
+                    <MessageTaskForm message={m} spaceId={taskSpace} lists={taskLists} people={spacePeople} me={me} lastList={lastList[taskSpace]}
+                      onCancel={() => setTaskFor(null)}
+                      onAdded={({ listId, listName, title: t }) => { setTaskFor(null); setLastList((l) => ({ ...l, [taskSpace]: listId })); setInfo(`Added "${t.length > 60 ? `${t.slice(0, 59)}…` : t}" to ${listName}.`); }} />
+                  )}
                   {m.author?.is_assistant && m.meta && !m.meta.agent && (
                     <p className="served-by">{m.meta.served_by ? `Answered by ${m.meta.served_by.model}${m.meta.served_by.slot === 'personal' ? (m.meta.asker === me.id ? ' with your own key' : " with the asker's own key") : ''}` : 'No model answered'}{m.meta.fallback ? ` (fallback: ${m.meta.fallback})` : ''}</p>
                   )}

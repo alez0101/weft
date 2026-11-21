@@ -80,7 +80,7 @@ function SyncedEditor({ state, me, editable }) {
   return <BlockNoteView editor={editor} editable={editable} theme={appearance} />;
 }
 
-export default function Docs({ kind, view, me, members, openId, setOpenId, notice, onSwitch, onOpenEvent, onOpenItem }) {
+export default function Docs({ kind, view, me, members, openId, setOpenId, notice, onSwitch, onOpenEvent, onOpenItem, onOpenMessage }) {
   const [spaces, setSpaces] = useState([]);
   const [items, setItems] = useState(null);
   const [error, setError] = useState('');
@@ -329,7 +329,7 @@ export default function Docs({ kind, view, me, members, openId, setOpenId, notic
               : kind === 'tasklist' && view === 'board'
               ? <div className="docs-kanban"><Kanban key={current.id} item={current} me={me} members={members} editable={canEditIn(current.space_id)} notice={notice} /></div>
               : kind === 'tasklist'
-              ? <div className="docs-tasks"><TaskList key={current.id} item={current} me={me} members={members} editable={canEditIn(current.space_id)} notice={notice} /></div>
+              ? <div className="docs-tasks"><TaskList key={current.id} item={current} me={me} members={members} editable={canEditIn(current.space_id)} notice={notice} onOpenMessage={onOpenMessage} /></div>
               : kind === 'table'
               ? <div className="docs-table"><Table key={current.id} item={current} editable={canEditIn(current.space_id)} notice={notice} /></div>
               : kind === 'spreadsheet'
