@@ -344,6 +344,8 @@ export default function App() {
     const r = await api(`/items?id=eq.${id}&select=kind`).catch(() => []);
     if (r[0]?.kind === 'wiki') openTab('wiki', { page: id }); else if (r[0]?.kind === 'whiteboard') openTab('whiteboard', { board: id }); else if (r[0]?.kind === 'table') openTab('sheets', { sheet: id }); else if (r[0]?.kind === 'tasklist') openTab('tasks', { list: id }); else if (r[0]?.kind === 'poll') openTab('polls', { poll: id }); else if (r[0]?.kind === 'form') openTab('forms', { form: id }); else if (r[0]?.kind === 'linklist') openTab('links', { links: id }); else if (r[0]?.kind === 'addressbook') openTab('contacts', { book: id }); else if (r[0]?.kind === 'decisionlog') openTab('decisions', { log: id }); else if (r[0]?.kind === 'qa') openTab('qa', { qa: id }); else if (r[0]?.kind === 'checklist') openTab('checklists', { checklist: id }); else if (r[0]?.kind === 'expenselist') openTab('expenses', { expenses: id }); else if (r[0]?.kind === 'inventory') openTab('inventory', { inventory: id }); else if (r[0]?.kind === 'goalset') openTab('goals', { goals: id }); else if (r[0]?.kind === 'retro') openTab('retros', { retro: id }); else if (r[0]?.kind === 'glossary') openTab('glossary', { glossary: id }); else if (r[0]?.kind === 'ideaboard') openTab('ideas', { ideas: id }); else if (r[0]?.kind === 'meeting') openTab('meetings', { meeting: id }); else if (r[0]?.kind === 'file') openTab('files', { file: id }); else if (r[0]?.kind === 'spreadsheet') openTab('spreadsheets', { spreadsheet: id }); else openTab('documents', { doc: id });
   };
+  // A message from search or a task made from it (077): open its conversation and scroll to it.
+  const openMessage = (convo, id) => { setUi((u) => ({ ...u, convo, pane: 'chat', rail: u.rail === 'collapsed' ? 'normal' : u.rail })); setJump({ id, n: Date.now() }); };
   const closeTab = (id) => setUi((u) => {
     const i = u.tabs.indexOf(id); const tabs = u.tabs.filter((t) => t !== id);
     return { ...u, tabs, active: u.active === id ? (tabs[i - 1] || tabs[i] || 'home') : u.active };
@@ -396,7 +398,7 @@ export default function App() {
         </div>
         <SearchBox onOpenItem={openItem} onOpenEvent={openEvent} onOpenRecord={openRecord}
           onOpenChannel={(convo) => setUi((u) => ({ ...u, convo, pane: 'chat', rail: u.rail === 'collapsed' ? 'normal' : u.rail }))}
-          onOpenMessage={(convo, id) => { setUi((u) => ({ ...u, convo, pane: 'chat', rail: u.rail === 'collapsed' ? 'normal' : u.rail })); setJump({ id, n: Date.now() }); }} />
+          onOpenMessage={openMessage} />
         {mode.mode === 'test' && <span className="mock-note">Test sign-in</span>}
         <label className="visually-hidden" htmlFor="mode-switch">Appearance</label>
         <select id="mode-switch" className="mode-switch" value={theme} onChange={(e) => { applyMode(e.target.value); setModeState(e.target.value); }}>
@@ -452,7 +454,7 @@ export default function App() {
             : ui.active === 'wiki' ? <Docs key="wiki" kind="wiki" me={me} members={members} notice={notice} openId={ui.page} setOpenId={(page) => setUi((u) => ({ ...u, page }))} />
             : ui.active === 'whiteboard' ? <Docs key="whiteboard" kind="whiteboard" me={me} members={members} notice={notice} openId={ui.board} setOpenId={(board) => setUi((u) => ({ ...u, board }))} />
             : ui.active === 'sheets' ? <Docs key="sheets" kind="table" me={me} members={members} notice={notice} openId={ui.sheet} setOpenId={(sheet) => setUi((u) => ({ ...u, sheet }))} />
-            : ui.active === 'tasks' ? <Docs key="tasks" kind="tasklist" me={me} members={members} notice={notice} openId={ui.list} setOpenId={(list) => setUi((u) => ({ ...u, list }))} onSwitch={(kanban) => openTab('boards', { kanban })} />
+            : ui.active === 'tasks' ? <Docs key="tasks" kind="tasklist" me={me} members={members} notice={notice} onOpenMessage={openMessage} openId={ui.list} setOpenId={(list) => setUi((u) => ({ ...u, list }))} onSwitch={(kanban) => openTab('boards', { kanban })} />
             : ui.active === 'boards' ? <Docs key="boards" kind="tasklist" view="board" me={me} members={members} notice={notice} openId={ui.kanban} setOpenId={(kanban) => setUi((u) => ({ ...u, kanban }))} onSwitch={(list) => openTab('tasks', { list })} />
             : ui.active === 'polls' ? <Docs key="polls" kind="poll" me={me} members={members} notice={notice} openId={ui.poll} setOpenId={(poll) => setUi((u) => ({ ...u, poll }))} />
             : ui.active === 'forms' ? <Docs key="forms" kind="form" me={me} members={members} notice={notice} openId={ui.form} setOpenId={(form) => setUi((u) => ({ ...u, form }))} />

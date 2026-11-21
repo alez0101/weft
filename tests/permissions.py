@@ -5514,6 +5514,127 @@ def task_comments():
           oq(f"select count(*) from weft.task_comments where task_id in ('{ot}', '{xt}')") == "0")
 
 
+# ---------------------------------------------------------------- task from a message
+def task_from_a_message():
+    """Task from a message (077): a task links back to a message in its own space; who may make one; moves; deletes."""
+    pat, vic, olive, alex = mint("u-pub"), mint("u-vol"), mint("u-org"), mint("u-alex")
+    P, O = uid("user", "u-pub"), uid("user", "u-org")
+    oq = lambda sql: owner_sql(sql)
+    def msg(tok, space, body):
+        st, rows = call("POST", "/messages", tok, {"space_id": SID[space], "body": body})
+        return rows[0]["id"] if st == 201 else None
+    def make(tok, lst, title, message_id, **extra):
+        st, rows = call("POST", "/tasks", tok, {"list_id": lst, "title": title, "message_id": message_id, **extra})
+        return st, (rows[0] if st == 201 and rows else rows)
+    def linked(lst): return oq(f"select count(*) from weft.tasks where list_id = '{lst}' and message_id is not null")
+    fest = call("POST", "/items", olive, {"space_id": SID["festival"], "kind": "tasklist", "title": "Festival from messages"})[1][0]["id"]
+    org = call("POST", "/items", olive, {"space_id": SID["organizers"], "kind": "tasklist", "title": "Org from messages"})[1][0]["id"]
+    fm = msg(pat, "festival", "TFAM can someone fix the gate sign?")
+    om = msg(olive, "organizers", "TFAM-ORG-SECRET renegotiate the caterer")
+
+    # Olive (editor) makes a task from Pat's #festival message; she is its author.
+    st, t = make(olive, fest, "Fix the gate sign", fm)
+    ft = t.get("id") if st == 201 else None
+    check("Task from a message: Olive (editor) makes a #festival task from Pat's #festival message, linked, and she is its author (positive control)",
+          st == 201 and t["message_id"] == fm and t["created_by"] == O, f"{st} {t}")
+    st, t = make(olive, org, "Renegotiate the caterer", om)
+    ot = t.get("id") if st == 201 else None
+    check("Task from a message: Olive makes an Organizers task from an Organizers message (positive control)", st == 201 and t["message_id"] == om, f"{st} {t}")
+    st, rows = call("GET", f"/tasks?message_id=eq.{fm}&select=id,message_id", pat)
+    check("Task from a message: Pat (viewer) reads the #festival task and its link (positive control)", st == 200 and rows == [{"id": ft, "message_id": fm}], str(rows))
+
+    # Links never cross spaces: one answer for "another space" and "no such message", to editors only.
+    st, r1 = make(olive, fest, "Cross link", om)
+    st2, r2 = make(olive, fest, "Made-up link", "00000000-0000-4000-8000-0000000fffff")
+    check("Task from a message: a #festival task cannot link to an Organizers message, and a made-up message gets the same answer",
+          st == 400 and st2 == 400 and r1.get("message") == r2.get("message") == "a task can only link to a message in its own space"
+          and linked(fest) == "1", f"{st} {r1} {st2} {r2}")
+    st, r = make(olive, org, "Back the other way", fm)
+    check("Task from a message: nor an Organizers task to a #festival message", st == 400 and linked(org) == "1", f"{st} {r}")
+
+    # Viewers and outsiders make nothing, and read nothing of Organizers.
+    st, r = make(pat, fest, "Pat tries", fm)
+    st2, r2 = make(vic, fest, "Vic tries", fm)
+    check("Task from a message: Pat and Vic (viewers in #festival) cannot make a task from a #festival message",
+          refused(st) and refused(st2) and linked(fest) == "1", f"{st} {st2}")
+    st, r = make(pat, org, "Pat tries in Organizers", om)
+    check("Task from a message: Pat cannot make an Organizers task from an Organizers message (and is not told why it would fail)",
+          refused(st) and "own space" not in json.dumps(r) and linked(org) == "1", f"{st} {r}")
+    for who, tok in (("Pat", pat), ("Vic", vic)):
+        st, rows = call("GET", f"/tasks?message_id=eq.{om}", tok)
+        st2, rows2 = call("GET", "/tasks?message_id=not.is.null&select=message_id", tok)
+        check(f"Task from a message: {who} reads no Organizers task by its message, or by listing linked tasks",
+              st == 200 and rows == [] and st2 == 200 and om not in {x["message_id"] for x in rows2}, f"{rows} {rows2}")
+
+    # The link is set only when the task is made: not re-pointed, not cleared, by anyone through the API.
+    fm2 = msg(olive, "festival", "TFAM another festival message")
+    st, _ = call("PATCH", f"/tasks?id=eq.{ft}", olive, {"message_id": fm2})
+    st2, _ = call("PATCH", f"/tasks?id=eq.{ft}", alex, {"message_id": None})
+    check("Task from a message: neither Olive (editor) nor Alex (owner) can re-point or clear a task's message link",
+          refused(st) and refused(st2) and oq(f"select message_id from weft.tasks where id = '{ft}'") == fm, f"{st} {st2}")
+    st, _ = call("PATCH", f"/tasks?id=eq.{ft}", olive, {"title": "Fix the gate sign today"})
+    check("Task from a message: the task is otherwise an ordinary task (Olive renames it; the link stays) (positive control)",
+          st == 200 and oq(f"select message_id from weft.tasks where id = '{ft}'") == fm, str(st))
+    st, r = make(olive, fest, "Forged", fm2, created_by=uid("user", "u-alex"))
+    check("Task from a message: authorship cannot be forged", refused(st) and linked(fest) == "1", f"{st} {r}")
+
+    # Channel scope and the assistant.
+    scoped = mint("u-org", scope="festival")
+    st, t = make(scoped, fest, "Scoped make", fm2)
+    st2, _ = make(scoped, org, "Scoped Organizers", om)
+    st3, rows3 = call("GET", "/tasks?message_id=not.is.null&select=message_id", scoped)
+    check("Task from a message: a #festival-scoped token for Olive makes a #festival task from a #festival message, nothing in Organizers, and sees no Organizers link",
+          st == 201 and refused(st2) and st3 == 200 and om not in {x["message_id"] for x in rows3} and linked(org) == "1", f"{st} {st2} {rows3}")
+    helper = mint("u-org", assistant=True)
+    st, rows = call("GET", f"/tasks?id=eq.{ot}&select=message_id", helper)
+    check("Task from a message: the assistant (for Olive) reads the link (positive control)", st == 200 and rows == [{"message_id": om}], str(rows))
+    st, _ = call("DELETE", f"/tasks?id=eq.{ot}", helper)
+    st2, _ = make(helper, org, "By the assistant", om)
+    check("Task from a message: the assistant cannot delete a task or make one from a message",
+          refused(st) and refused(st2) and linked(org) == "1", f"{st} {st2}")
+    st, rows = call("GET", f"/tasks?message_id=eq.{om}", mint("u-pub", assistant=True))
+    check("Task from a message: the assistant for Pat sees no Organizers link", st == 200 and rows == [], str(rows))
+
+    # A repeating task's next one starts without the link.
+    st, t = make(olive, fest, "Check the gate sign", fm, repeats="weekly", due_on="2027-04-10")
+    rt = t.get("id") if st == 201 else None
+    call("PATCH", f"/tasks?id=eq.{rt}", olive, {"done": True})
+    check("Task from a message: the next one of a repeating task has no message link",
+          oq(f"select count(*) from weft.tasks where list_id = '{fest}' and title = 'Check the gate sign' and not done and message_id is null") == "1"
+          and oq(f"select message_id from weft.tasks where id = '{rt}'") == fm)
+
+    # Deleting the message keeps the task and clears its link; Pat deletes her own message.
+    st, rows = call("DELETE", f"/messages?id=eq.{fm}", pat)
+    check("Task from a message: Pat deletes her message; the tasks stay, without the link",
+          st == 200 and len(rows or []) == 1 and oq(f"select count(*) from weft.tasks where id in ('{ft}', '{rt}') and message_id is null") == "2", f"{st} {rows}")
+    check("Task from a message: the cleared link is in the audit log under #festival, by Pat",
+          oq(f"select count(*) from weft.audit where table_name = 'tasks' and row_id = '{ft}' and space_id = '{SID['festival']}' and actor_id = '{P}' and old_row->>'message_id' = '{fm}'") == "1")
+
+    # Moves: Olive moves the Organizers list into #festival. The link to the Organizers message is cleared, recorded
+    # under Organizers only, and Pat (in #festival, not Organizers) finds no trace of it.
+    st, _ = call("PATCH", f"/items?id=eq.{org}", olive, {"space_id": SID["festival"]})
+    st2, rows2 = call("GET", f"/tasks?id=eq.{ot}&select=title,message_id", pat)
+    check("Task from a message: the list moved into #festival keeps its task, and the link to the Organizers message is gone",
+          st == 200 and st2 == 200 and rows2 == [{"title": "Renegotiate the caterer", "message_id": None}], f"{st} {rows2}")
+    check("Task from a message: the cleared link is recorded under Organizers (the space it moved from), never #festival",
+          oq(f"select count(*) from weft.audit where table_name = 'tasks' and row_id = '{ot}' and space_id = '{SID['organizers']}' and old_row->>'message_id' = '{om}'") == "1"
+          and oq(f"select count(*) from weft.audit where table_name = 'tasks' and row_id = '{ot}' and space_id <> '{SID['organizers']}'") == "0")
+    st, rows = call("GET", f"/audit?row_id=eq.{ot}&select=space_id", pat)
+    st2, rows2 = call("GET", "/audit?select=old_row", pat)
+    st3, rows3 = call("GET", f"/audit?row_id=eq.{ot}&select=space_id", olive)
+    check("Task from a message: Pat reads no trace of the old link in the audit log; Olive (an Organizers member) still reads the row",
+          st == 200 and rows == [] and st2 == 200 and om not in json.dumps(rows2) and st3 == 200 and [r["space_id"] for r in rows3] == [SID["organizers"]],
+          f"{rows} {rows3}")
+    st, rows = call("GET", f"/messages?id=eq.{om}", pat)
+    check("Task from a message: and Pat still cannot read the Organizers message itself", st == 200 and rows == [], str(rows))
+
+    for lst in (fest, org):
+        call("DELETE", f"/items?id=eq.{lst}", alex)
+    call("DELETE", f"/messages?id=in.({om},{fm2})", alex)
+    check("Task from a message: deleting the lists deletes their tasks (tidy)",
+          oq(f"select count(*) from weft.tasks where list_id in ('{fest}', '{org}')") == "0")
+
+
 # ---------------------------------------------------------------- more on the calendar
 def more_on_the_calendar():
     """Milestones and your shifts on the Calendar (the exact queries Calendar.jsx makes), and the saved switches."""
@@ -6807,6 +6928,7 @@ if __name__ == "__main__":
     repeating_events()
     repeating_tasks()
     task_comments()
+    task_from_a_message()
     meeting_decisions()
     poll_form_deadlines()
     bookings()

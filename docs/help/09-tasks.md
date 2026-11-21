@@ -16,6 +16,7 @@ Open **Tasks** on Home. Choose the space at the top, press **New task list**, an
 - Click a task's title to change it, or change who it is for and its due date in place. Tasks that are past their due date are marked in red.
 - **Only mine** shows just the tasks assigned to you.
 - Press **Comment** under a task to ask a question or give an update about it; see the **Comments on tasks** help page.
+- Press **Make a task** under a chat message to add it to a list in that channel; the task then says **From a message**. See the **Task from a message** help page.
 - A task can only be assigned to someone in the list's space. If you move a list to another space, tasks assigned to people who are not in the new space become unassigned.
 
 ### Due dates elsewhere in Weft
